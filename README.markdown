@@ -1,6 +1,6 @@
-# RProxy
+# RProxy-envoy
 
-RProxy is a reverse proxy server written with performance and scale in mind.
+RProxy-envoy is a reverse proxy server written with performance and scale in mind.
 
 # Building and installing
 
