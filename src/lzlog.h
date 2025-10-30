@@ -58,6 +58,7 @@ typedef enum lzlog_type  lzlog_type;
 typedef struct log       lzlog;
 
 void    lzlog_write(lzlog * log, lzlog_level level, const char * fmt, ...);
+void    lzlog_vprintf(lzlog * log, lzlog_level level, const char * fmt, va_list ap);
 void    lzlog_free(lzlog * log);
 
 lzlog * lzlog_file_new(const char * file, const char * ident, int opts);

@@ -21,6 +21,11 @@
 #include <stdint.h>
 #include <errno.h>
 
+#ifndef ML_LOG_LEVEL
+#define ML_LOG_LEVEL 4
+#endif
+#include "macrologger.h"
+
 #include "rproxy.h"
 
 struct {
@@ -46,7 +51,10 @@ struct {
 };
 
 void
-logger_log_request_tostr(logger_t * logger, request_t * request, evbuf_t * buf) {
+logger_log_request_tostr(logger_t* logger, request_t* request, evbuf_t* buf)
+{
+    LOGD("(%p, %p, %p)", logger, request, buf);
+
     logger_arg_t       * arg;
     evhtp_request_t    * upstream_r;
     evhtp_connection_t * upstream_c;
@@ -56,280 +64,321 @@ logger_log_request_tostr(logger_t * logger, request_t * request, evbuf_t * buf) 
     int                  sres;
     char                 tmp[256];
 
-    if (!logger) {
-        return;
+    if (!logger)
+    {
+        LOGD("logger is null");
     }
-
-    if (!request) {
-        return;
+    else if (!request)
+    {
+        LOGD("request is null");
     }
-
-    if (!buf) {
-        return;
+    else if (!buf)
+    {
+        LOGD("buf is null");
     }
-
-    if (!(upstream_r = request->upstream_request)) {
-        return;
+    else if (!(upstream_r = request->upstream_request))
+    {
+        LOGD("upstream_r is null");
     }
-
-    if (!(upstream_c = upstream_r->conn)) {
-        return;
+    else if (!(upstream_c = upstream_r->conn))
+    {
+        LOGD("upstream_c is null");
     }
-
-    if (!(downstream_c = request->downstream_conn)) {
-        return;
+    else if (!(downstream_c = request->downstream_conn))
+    {
+        LOGD("downstream_c is null");
     }
-
-    if (!(downstream = downstream_c->parent)) {
-        return;
+    else if (!(downstream = downstream_c->parent))
+    {
+        LOGD("downstream is null");
     }
-
-    TAILQ_FOREACH(arg, &logger->args, next) {
-        switch (arg->type) {
-            case logger_argtype_rule:
-                if (request->rule && request->rule->config && request->rule->config->name) {
-                    evbuffer_add_printf(buf, "%s", request->rule->config->name);
-                } else {
-                    evbuffer_add(buf, "-", 1);
-                }
-                break;
-            case logger_argtype_us_hdrval:
-                if (arg->data == NULL) {
-                    evbuffer_add(buf, "-", 1);
-                } else {
-                    const char * hdr_val;
-
-                    hdr_val = evhtp_header_find(upstream_r->headers_in, (const char *)arg->data);
-
-                    if (hdr_val == NULL) {
-                        evbuffer_add(buf, "-", 1);
-                    } else {
-                        evbuffer_add(buf, hdr_val, strlen(hdr_val));
+    else
+    {
+        TAILQ_FOREACH(arg, &logger->args, next)
+        {
+            switch (arg->type)
+            {
+                case logger_argtype_rule:
+                    if (request->rule && request->rule->config && request->rule->config->name)
+                    {
+                        evbuffer_add_printf(buf, "%s", request->rule->config->name);
                     }
-                }
-                break;
-            case logger_argtype_ds_hdrval:
-                if (arg->data == NULL) {
-                    evbuffer_add(buf, "-", 1);
-                } else {
-                    const char * hdr_val;
-
-                    hdr_val = evhtp_header_find(upstream_r->headers_out, (const char *)arg->data);
-
-                    if (hdr_val == NULL) {
+                    else
+                    {
                         evbuffer_add(buf, "-", 1);
-                    } else {
-                        evbuffer_add(buf, hdr_val, strlen(hdr_val));
                     }
+                    break;
+                case logger_argtype_us_hdrval:
+                    if (arg->data == NULL)
+                    {
+                        evbuffer_add(buf, "-", 1);
+                    }
+                    else
+                    {
+                        const char* hdr_val = evhtp_header_find(upstream_r->headers_in, (const char*)arg->data);
+                        if (!hdr_val)
+                        {
+                            evbuffer_add(buf, "-", 1);
+                        }
+                        else
+                        {
+                            evbuffer_add(buf, hdr_val, strlen(hdr_val));
+                        }
+                    }
+                    break;
+                case logger_argtype_ds_hdrval:
+                    if (arg->data == NULL)
+                    {
+                        evbuffer_add(buf, "-", 1);
+                    }
+                    else
+                    {
+                        const char* hdr_val = evhtp_header_find(upstream_r->headers_out, (const char*)arg->data);
+                        if (!hdr_val)
+                        {
+                            evbuffer_add(buf, "-", 1);
+                        }
+                        else
+                        {
+                            evbuffer_add(buf, hdr_val, strlen(hdr_val));
+                        }
+                    }
+                    break;
+                case logger_argtype_ds_sport:
+                    evbuffer_add_printf(buf, "%d", downstream_c->sport);
+                    break;
+                case logger_argtype_us_sport:
+                    sin = (struct sockaddr_in *)upstream_c->saddr;
+
+                    evbuffer_add_printf(buf, "%d", ntohs(sin->sin_port));
+                    break;
+                case logger_argtype_src:
+                    /* log the upstreams IP address */
+                    sin = (struct sockaddr_in *)upstream_c->saddr;
+
+                    evutil_inet_ntop(AF_INET, &sin->sin_addr, tmp, sizeof(tmp));
+                    evbuffer_add(buf, tmp, strlen(tmp));
+                    break;
+                case logger_argtype_proxy:
+                    /* log the downstreams host and port information */
+                    sres = snprintf(tmp, sizeof(tmp), "%s:%d",
+                                    downstream->config->host,
+                                    downstream->config->port);
+
+                    if (sres >= sizeof(tmp) || sres < 0) {
+                        /* overflow condition, shouldn't ever get here */
+                        fprintf(stderr, "[CRIT] overflow in log_request!\n");
+                        exit(EXIT_FAILURE);
+                    }
+
+                    evbuffer_add(buf, tmp, strlen(tmp));
+                    break;
+                case logger_argtype_ts:
+                {
+                    /* log an RFC compliant HTTP log timestamp */
+                    time_t t = time(NULL);
+                    struct tm * tmtmp = localtime(&t);
+
+                    strftime(tmp, sizeof(tmp), "%d/%b/%Y:%X %z", tmtmp);
+                    evbuffer_add(buf, tmp, strlen(tmp));
+                    break;
                 }
-                break;
-            case logger_argtype_ds_sport:
-                evbuffer_add_printf(buf, "%d", downstream_c->sport);
-                break;
-            case logger_argtype_us_sport:
-                sin = (struct sockaddr_in *)upstream_c->saddr;
-
-                evbuffer_add_printf(buf, "%d", ntohs(sin->sin_port));
-                break;
-            case logger_argtype_src:
-                /* log the upstreams IP address */
-                sin = (struct sockaddr_in *)upstream_c->saddr;
-
-                evutil_inet_ntop(AF_INET, &sin->sin_addr, tmp, sizeof(tmp));
-                evbuffer_add(buf, tmp, strlen(tmp));
-                break;
-            case logger_argtype_proxy:
-                /* log the downstreams host and port information */
-                sres = snprintf(tmp, sizeof(tmp), "%s:%d",
-                                downstream->config->host,
-                                downstream->config->port);
-
-                if (sres >= sizeof(tmp) || sres < 0) {
-                    /* overflow condition, shouldn't ever get here */
-                    fprintf(stderr, "[CRIT] overflow in log_request!\n");
-                    exit(EXIT_FAILURE);
+                case logger_argtype_meth:
+                {
+                    /* log the method of the request */
+                    const char* methodstr = htparser_get_methodstr(upstream_c->parser);
+                    if (!methodstr) methodstr = "-";
+                    evbuffer_add(buf, methodstr, strlen(methodstr));
+                    break;
                 }
+                case logger_argtype_uri:
+                    /* log the URI requested by the upstream */
+                    if (upstream_r->uri && upstream_r->uri->path &&
+                        upstream_r->uri->path->full)
+                    {
+                        evbuffer_add(buf, upstream_r->uri->path->full,
+                                    strlen(upstream_r->uri->path->full));
+                    }
+                    else
+                    {
+                        evbuffer_add(buf, "-", 1);
+                    }
+                    break;
+                case logger_argtype_proto:
+                    sres = snprintf(tmp, sizeof(tmp), "HTTP/%d.%d",
+                                    htparser_get_major(upstream_c->parser),
+                                    htparser_get_minor(upstream_c->parser));
 
-                evbuffer_add(buf, tmp, strlen(tmp));
-                break;
-            case logger_argtype_ts:
-            {
-                /* log an RFC compliant HTTP log timestamp */
-                time_t      t;
-                struct tm * tmtmp;
+                    if (sres >= sizeof(tmp) || sres < 0)
+                    {
+                        /* overflow condition, shouldn't get here */
+                        fprintf(stderr, "[CRIT] overflow in log_request!\n");
+                        exit(EXIT_FAILURE);
+                    }
 
-                t     = time(NULL);
-                tmtmp = localtime(&t);
+                    evbuffer_add(buf, tmp, strlen(tmp));
+                    break;
+                case logger_argtype_status:
+                    sres = snprintf(tmp, sizeof(tmp), "%d",
+                                    htparser_get_status(request->parser));
 
-                strftime(tmp, sizeof(tmp), "%d/%b/%Y:%X %z", tmtmp);
-                evbuffer_add(buf, tmp, strlen(tmp));
-            }
-            break;
-            case logger_argtype_meth:
-            {
-                /* log the method of the request */
-                const char * methodstr = htparser_get_methodstr(upstream_c->parser);
+                    if (sres >= sizeof(tmp) || sres < 0)
+                    {
+                        /* overflow condition, shouldn't get here */
+                        fprintf(stderr, "[CRIT] overflow in log_request!\n");
+                        exit(EXIT_FAILURE);
+                    }
 
-                if (methodstr == NULL) {
-                    methodstr = "-";
+                    evbuffer_add(buf, tmp, strlen(tmp));
+                    break;
+                case logger_argtype_ref:
+                {
+                    char* ref_str = (char*)evhtp_header_find(upstream_r->headers_in, "referrer");
+                    if (!ref_str) ref_str = "-";
+                    evbuffer_add(buf, ref_str, strlen(ref_str));
+                    break;
                 }
-
-                evbuffer_add(buf, methodstr, strlen(methodstr));
-            }
-            break;
-            case logger_argtype_uri:
-                /* log the URI requested by the upstream */
-                if (upstream_r->uri && upstream_r->uri->path &&
-                    upstream_r->uri->path->full) {
-                    evbuffer_add(buf, upstream_r->uri->path->full,
-                                 strlen(upstream_r->uri->path->full));
-                } else {
-                    evbuffer_add(buf, "-", 1);
+                case logger_argtype_ua:
+                {
+                    char* ua_str = (char*)evhtp_header_find(upstream_r->headers_in, "user-agent");
+                    if (!ua_str) ua_str = "-";
+                    evbuffer_add(buf, ua_str, strlen(ua_str));
+                    break;
                 }
-                break;
-            case logger_argtype_proto:
-                sres = snprintf(tmp, sizeof(tmp), "HTTP/%d.%d",
-                                htparser_get_major(upstream_c->parser),
-                                htparser_get_minor(upstream_c->parser));
-
-                if (sres >= sizeof(tmp) || sres < 0) {
-                    /* overflow condition, shouldn't get here */
-                    fprintf(stderr, "[CRIT] overflow in log_request!\n");
-                    exit(EXIT_FAILURE);
+                case logger_argtype_host:
+                {
+                    char* h_str = (char*)evhtp_header_find(upstream_r->headers_in, "host");
+                    if (!h_str) h_str = "-";
+                    evbuffer_add(buf, h_str, strlen(h_str));
+                    break;
                 }
-
-                evbuffer_add(buf, tmp, strlen(tmp));
-                break;
-            case logger_argtype_status:
-                sres = snprintf(tmp, sizeof(tmp), "%d",
-                                htparser_get_status(request->parser));
-
-                if (sres >= sizeof(tmp) || sres < 0) {
-                    /* overflow condition, shouldn't get here */
-                    fprintf(stderr, "[CRIT] overflow in log_request!\n");
-                    exit(EXIT_FAILURE);
-                }
-
-                evbuffer_add(buf, tmp, strlen(tmp));
-                break;
-            case logger_argtype_ref:
-            {
-                char * ref_str;
-
-                ref_str = (char *)evhtp_header_find(upstream_r->headers_in, "referrer");
-
-                if (!ref_str) {
-                    ref_str = "-";
-                }
-
-                evbuffer_add(buf, ref_str, strlen(ref_str));
-            }
-            break;
-            case logger_argtype_ua:
-            {
-                char * ua_str;
-
-                ua_str = (char *)evhtp_header_find(upstream_r->headers_in, "user-agent");
-
-                if (!ua_str) {
-                    ua_str = "-";
-                }
-
-                evbuffer_add(buf, ua_str, strlen(ua_str));
-            }
-            break;
-            case logger_argtype_host:
-            {
-                char * h_str;
-
-                h_str = (char *)evhtp_header_find(upstream_r->headers_in, "host");
-
-                if (!h_str) {
-                    h_str = "-";
-                }
-
-                evbuffer_add(buf, h_str, strlen(h_str));
-            }
-            break;
-            case logger_argtype_printable:
-                evbuffer_add(buf, arg->data, strlen(arg->data));
-                break;
-        } /* switch */
+                case logger_argtype_printable:
+                    evbuffer_add(buf, arg->data, strlen(arg->data));
+                    break;
+                default:
+                    break;
+            } /* switch */
+        }
     }
 }         /* logger_log_request_tostr */
 
 void
-logger_log(logger_t * logger, lzlog_level level, char * fmt, ...) {
-    va_list ap;
+logger_log(logger_t* logger, lzlog_level level, const char* fmt, ...)
+{
+    LOGD("(%p, %d, %p(%s), ...)", logger, (int)level, fmt, fmt);
 
-
-    if (!logger) {
-        return;
-    }
-
-    va_start(ap, fmt);
+    if (!logger)
     {
-        lzlog_vprintf(logger->log, level, fmt, ap);
+        LOGD("logger is null");
     }
-    va_end(ap);
+    else if (!fmt)
+    {
+        LOGD("fmt is null");
+    }
+    else
+    {
+        va_list ap;
+        va_start(ap, fmt);
+        {
+            lzlog_vprintf(logger->log, level, fmt, ap);
+        }
+        va_end(ap);
+    }
 }
 
 void
-logger_log_request_error(logger_t * logger, request_t * request, char * fmt, ...) {
-    va_list   ap;
-    evbuf_t * buf;
+logger_log_request_error(logger_t* logger, request_t* request, const char* fmt, ...)
+{
+    LOGD("(%p, %p, %p(%s), ...)", logger, request, fmt, fmt);
 
-    if (!logger || !request) {
-        return;
-    }
-
-    buf = evbuffer_new();
-    assert(buf != NULL);
-
-    logger_log_request_tostr(logger, request, buf);
-    evbuffer_add(buf, ", ", 2);
-
-    va_start(ap, fmt);
+    if (!logger)
     {
-        evbuffer_add_vprintf(buf, fmt, ap);
+        LOGD("logger is null");
     }
-    va_end(ap);
+    else if (!request)
+    {
+        LOGD("request is null");
+    }
+    else if (!fmt)
+    {
+        LOGD("fmt is null");
+    }
+    else
+    {
+        evbuf_t* buf = evbuffer_new();
+        if (!buf)
+        {
+            LOGE("alloc failed");
+            return;
+        }
 
-    lzlog_write(logger->log, lzlog_err, evbuffer_pullup(buf, -1));
-    evbuffer_free(buf);
+        logger_log_request_tostr(logger, request, buf);
+        evbuffer_add(buf, ", ", 2);
+
+        va_list ap;
+        va_start(ap, fmt);
+        {
+            evbuffer_add_vprintf(buf, fmt, ap);
+        }
+        va_end(ap);
+
+        lzlog_write(logger->log, lzlog_err, (char*)evbuffer_pullup(buf, -1));
+        evbuffer_free(buf);
+    }
 }
 
 void
-logger_log_request(logger_t * logger, request_t * request) {
-    evbuf_t * buf;
+logger_log_request(logger_t* logger, request_t* request)
+{
+    LOGD("(%p, %p)", logger, request);
 
-    if (!logger) {
-        return;
+    if (!logger)
+    {
+        LOGD("logger is null");
     }
+    else if (!request)
+    {
+        LOGD("request is null");
+    }
+    else
+    {
+        evbuf_t* buf = evbuffer_new();
+        if (!buf)
+        {
+            LOGE("alloc failed");
+            return;
+        }
 
-    buf = evbuffer_new();
-    assert(buf != NULL);
+        logger_log_request_tostr(logger, request, buf);
+        evbuffer_add(buf, "\0", 1);
 
-    logger_log_request_tostr(logger, request, buf);
-    evbuffer_add(buf, "\0", 1);
+        lzlog_write(logger->log, 1, "%s", (char*)evbuffer_pullup(buf, -1));
 
-    lzlog_write(logger->log, 1, "%s", evbuffer_pullup(buf, -1));
-
-    evbuffer_free(buf);
+        evbuffer_free(buf);
+    }
 }         /* logger_log_request */
 
 logger_argtype
-logger_argtype_fromstr(const char * str, int * arglen) {
-    int i;
+logger_argtype_fromstr(const char* str, int* arglen)
+{
+    LOGD("(%p(%s), %p)", str, str, arglen);
 
-    for (i = 0; logger_argtype_strmap[i].str; i++) {
-        const char   * s = logger_argtype_strmap[i].str;
-        logger_argtype t = logger_argtype_strmap[i].type;
+    if (!str)
+    {
+        LOGD("str is null");
+    }
+    else
+    {
+        for (int i = 0; logger_argtype_strmap[i].str; i++)
+        {
+            const char   * s = logger_argtype_strmap[i].str;
+            logger_argtype t = logger_argtype_strmap[i].type;
 
-        if (!strncasecmp(s, str, strlen(s))) {
-            *arglen = strlen(s);
-
-            return t;
+            if (g_ascii_strncasecmp(s, str, strlen(s)) == 0)
+            {
+                *arglen = strlen(s);
+                return t;
+            }
         }
     }
 
@@ -337,149 +386,215 @@ logger_argtype_fromstr(const char * str, int * arglen) {
 }
 
 logger_arg_t *
-logger_arg_new(logger_argtype type) {
-    logger_arg_t * a;
+logger_arg_new(logger_argtype type)
+{
+    LOGD("(%d)", (int)type);
 
-    if (type <= logger_argtype_nil) {
-        return NULL;
+
+    if (type <= logger_argtype_nil)
+    {
+        LOGD("invalid type");
+    }
+    else
+    {
+        logger_arg_t* a;
+        if (!(a = g_new0(logger_arg_t, 1)))
+        {
+            LOGE("alloc failed");
+            return NULL;
+        }
+
+        a->type = type;
+
+        return a;
     }
 
-    if (!(a = calloc(sizeof(logger_arg_t), 1))) {
-        return NULL;
-    }
-
-    a->type = type;
-
-    return a;
+    return NULL;
 }
 
 int
-logger_arg_addchar(logger_arg_t * arg, const char c) {
-    if (arg == NULL) {
-        return -1;
-    }
+logger_arg_addchar(logger_arg_t* arg, const char c)
+{
+    LOGD("(%p, '%c')", arg, c);
 
-    if (arg->data == NULL) {
-        if (!(arg->data = calloc(8, 1))) {
-            return -1;
+    if (!arg)
+    {
+        LOGD("arg is null");
+    }
+    else
+    {
+        if (arg->data == NULL)
+        {
+            if (!(arg->data = calloc(8, 1)))
+            {
+                LOGE("alloc failed");
+                return -1;
+            }
+
+            arg->len  = 8;
+            arg->used = 0;
         }
 
-        arg->len  = 8;
-        arg->used = 0;
-    }
+        if ((arg->used + 2) >= arg->len)
+        {
+            if (!(arg->data = realloc(arg->data, arg->len + 16)))
+            {
+                LOGE("alloc failed");
+                return -1;
+            }
 
-    if ((arg->used + 2) >= arg->len) {
-        if (!(arg->data = realloc(arg->data, arg->len + 16))) {
-            return -1;
+            arg->len += 16;
         }
 
-        arg->len += 16;
+        arg->data[arg->used++] = c;
+        arg->data[arg->used]   = '\0';
+
+        return 0;
     }
 
-    arg->data[arg->used++] = c;
-    arg->data[arg->used]   = '\0';
-
-    return 0;
+    return -1;
 }
 
 logger_t *
-logger_init(logger_cfg_t * c, int opts) {
-    logger_t   * logger;
-    const char * strp;
+logger_init(logger_cfg_t * c, int opts)
+{
+    LOGD("(%p, %d)", c, opts);
 
-    if (c == NULL) {
-        return NULL;
+    logger_t* logger;
+
+    if (!c)
+    {
+        LOGD("c is null");
     }
-
-    if (!(logger = calloc(sizeof(logger_t), 1))) {
-        return NULL;
+    else if (!(logger = g_new0(logger_t, 1)))
+    {
+        LOGE("alloc failed");
     }
+    else
+    {
+        logger->config = c;
 
-    logger->config = c;
+        TAILQ_INIT(&logger->args);
 
-    TAILQ_INIT(&logger->args);
-
-    switch (c->type) {
-        case logger_type_file:
-            logger->log = lzlog_file_new(c->path, "RProxy", opts | LZLOG_OPT_NEWLINE);
-            break;
-        case logger_type_syslog:
-            logger->log = lzlog_syslog_new("RProxy", opts, c->facility);
-            break;
-        default:
-            free(logger);
-            return NULL;
-    }
-
-    lzlog_set_level(logger->log, c->level);
-
-    if (c->format == NULL) {
-        return logger;
-    }
-
-    for (strp = c->format; *strp != '\0'; strp++) {
-        logger_arg_t * larg   = NULL;
-        int            insert = 0;
-
-        if (*strp == '{') {
-            int            arglen;
-            logger_argtype type;
-
-            if ((type = logger_argtype_fromstr(strp, &arglen)) < 0) {
+        switch (c->type)
+        {
+            case logger_type_file:
+                logger->log = lzlog_file_new(c->path, "RProxy", opts | LZLOG_OPT_NEWLINE);
+                break;
+            case logger_type_syslog:
+                logger->log = lzlog_syslog_new("RProxy", opts, c->facility);
+                break;
+            default:
+                g_free(logger);
                 return NULL;
-            }
+        }
 
-            if (!(larg = logger_arg_new(type))) {
-                return NULL;
-            }
+        lzlog_set_level(logger->log, c->level);
 
-            strp  += arglen - 1;
-            insert = 1;
+        if (c->format == NULL)
+        {
+            LOGD("format is null");
+            return logger;
+        }
 
-            if (type == logger_argtype_us_hdrval || type == logger_argtype_ds_hdrval) {
-                if (*strp++ != ':') {
-                    printf("Log format error\n");
+        for (const char* strp = c->format; strp[0]; strp++)
+        {
+            logger_arg_t * larg   = NULL;
+            int            insert = 0;
+
+            if (strp[0] == '{')
+            {
+                int            arglen;
+                logger_argtype type;
+
+                if ((type = logger_argtype_fromstr(strp, &arglen)) < 0)
+                {
+                    LOGD("unknown format %s", strp);
+                    g_free(logger);
                     return NULL;
                 }
 
-                if (*strp++ != '\'') {
-                    printf("Log format error\n");
+                if (!(larg = logger_arg_new(type)))
+                {
+                    LOGE("alloc failed");
+                    g_free(logger);
                     return NULL;
                 }
 
-                while (1) {
-                    if (*strp != '\'') {
-                        logger_arg_addchar(larg, *strp++);
-                    } else {
-                        break;
+                strp  += arglen - 1;
+                insert = 1;
+
+                if (type == logger_argtype_us_hdrval || type == logger_argtype_ds_hdrval)
+                {
+                    if (*strp++ != ':')
+                    {
+                        LOGI("Log format error");
+                        g_free(logger);
+                        return NULL;
+                    }
+
+                    if (*strp++ != '\'')
+                    {
+                        LOGI("Log format error");
+                        g_free(logger);
+                        return NULL;
+                    }
+
+                    while (1)
+                    {
+                        if (strp[0] != '\'')
+                        {
+                            logger_arg_addchar(larg, *strp++);
+                        }
+                        else
+                        {
+                            LOGD("breaking");
+                            break;
+                        }
                     }
                 }
             }
-        } else {
-            if (TAILQ_EMPTY(&logger->args)) {
-                larg = NULL;
-            } else {
-                larg = TAILQ_LAST(&logger->args, logger_args);
-            }
-
-            if (!larg || larg->type != logger_argtype_printable) {
-                if (!(larg = logger_arg_new(logger_argtype_printable))) {
-                    return NULL;
+            else
+            {
+                if (TAILQ_EMPTY(&logger->args))
+                {
+                    larg = NULL;
+                }
+                else
+                {
+                    larg = TAILQ_LAST(&logger->args, logger_args);
                 }
 
-                insert = 1;
+                if (!larg || larg->type != logger_argtype_printable)
+                {
+                    if (!(larg = logger_arg_new(logger_argtype_printable)))
+                    {
+                        LOGE("alloc failed");
+                        g_free(logger);
+                        return NULL;
+                    }
+
+                    insert = 1;
+                }
+
+                if (logger_arg_addchar(larg, *strp) != 0)
+                {
+                    LOGE("alloc failed");
+                    g_free(logger);
+                    return NULL;
+                }
             }
 
-            if (logger_arg_addchar(larg, *strp) != 0) {
-                return NULL;
+            if (insert > 0)
+            {
+                TAILQ_INSERT_TAIL(&logger->args, larg, next);
             }
         }
 
-        if (insert > 0) {
-            TAILQ_INSERT_TAIL(&logger->args, larg, next);
-        }
+        LOGD("logger %p, %zu bytes", logger, sizeof(*logger));
+        return logger;
     }
 
-    return logger;
+    return NULL;
 }     /* logger_init */
 

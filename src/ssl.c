@@ -22,469 +22,515 @@
 #include <stdint.h>
 #include <errno.h>
 #include <sys/stat.h>
+#include <glib.h>
+
+#ifndef ML_LOG_LEVEL
+#define ML_LOG_LEVEL 4
+#endif
+#include "macrologger.h"
 
 #include "rproxy.h"
 
-#ifdef NO_STRNLEN
-static size_t
-strnlen(const char * s, size_t maxlen) {
-    const char * e;
-    size_t       n;
+unsigned char*
+ssl_subject_tostr(evhtp_ssl_t* ssl)
+{
+    LOGD("(%p)", ssl);
 
-    for (e = s, n = 0; *e && n < maxlen; e++, n++) {
-        ;
-    }
-
-    return n;
-}
-
-#endif /* ifdef NO_STRNLEN */
-
-#ifdef NO_STRNDUP
-static char *
-strndup(const char * s, size_t n) {
-    size_t len = strnlen(s, n);
-    char * ret;
-
-    if (len < n) {
-        return strdup(s);
-    }
-
-    ret    = malloc(n + 1);
-    ret[n] = '\0';
-
-    strncpy(ret, s, n);
-    return ret;
-}
-
-#endif /* ifdef NO_STRNDUP */
-
-unsigned char *
-ssl_subject_tostr(evhtp_ssl_t * ssl) {
-    unsigned char * subj_str;
-    char          * p;
-    X509          * cert;
+    char          * p    = NULL;
+    X509          * cert = NULL;
     X509_NAME     * name;
 
-    if (!ssl) {
-        return NULL;
+    if (!ssl)
+    {
+        LOGD("ssl is null");
     }
-
-    if (!(cert = SSL_get_peer_certificate(ssl))) {
-        return NULL;
+    else if (!(cert = SSL_get_peer_certificate(ssl)))
+    {
+        LOGD("peer cert is null");
     }
+    else if (!(name = X509_get_subject_name(cert)))
+    {
+        LOGE("alloc failed");
+    }
+    else if (!(p = X509_NAME_oneline(name, NULL, 0)))
+    {
+        LOGE("alloc failed");
+    }
+    else
+    {
+        unsigned char * subj_str = (unsigned char*)g_strdup(p);
 
-    if (!(name = X509_get_subject_name(cert))) {
+        OPENSSL_free(p);
         X509_free(cert);
-        return NULL;
+
+        return subj_str;
     }
 
-    if (!(p = X509_NAME_oneline(name, NULL, 0))) {
-        X509_free(cert);
-        return NULL;
-    }
+    g_clear_pointer(&cert, X509_free);
+    if (p) OPENSSL_free(p);
 
-    subj_str = strdup(p);
-
-    OPENSSL_free(p);
-    X509_free(cert);
-
-    return subj_str;
+    LOGD("failed");
+    return NULL;
 }
 
-unsigned char *
-ssl_issuer_tostr(evhtp_ssl_t * ssl) {
-    X509          * cert;
-    X509_NAME     * name;
-    char          * p;
-    unsigned char * issr_str;
+unsigned char*
+ssl_issuer_tostr(evhtp_ssl_t* ssl)
+{
+    LOGD("(%p)", ssl);
 
-    if (!ssl) {
-        return NULL;
+    X509* cert = NULL;
+    X509_NAME* name;
+    char* p = NULL;
+    unsigned char* issr_str;
+
+    if (!ssl)
+    {
+        LOGD("ssl is null");
     }
-
-    if (!(cert = SSL_get_peer_certificate(ssl))) {
-        return NULL;
+    else if (!(cert = SSL_get_peer_certificate(ssl)))
+    {
+        LOGD("peer cert is null");
     }
-
-    if (!(name = X509_get_issuer_name(cert))) {
+    else if (!(name = X509_get_issuer_name(cert)))
+    {
+        LOGD("issuer name is null");
+    }
+    else if (!(p = X509_NAME_oneline(name, NULL, 0)))
+    {
+        LOGE("alloc failed");
+    }
+    else if (!(issr_str = (unsigned char*)g_strdup(p)))
+    {
+        LOGE("alloc failed");
+    }
+    else
+    {
+        OPENSSL_free(p);
         X509_free(cert);
-        return NULL;
+        return issr_str;
     }
 
-    if (!(p = X509_NAME_oneline(name, NULL, 0))) {
-        X509_free(cert);
-        return NULL;
-    }
+    g_clear_pointer(&cert, X509_free);
+    if (p) OPENSSL_free(p);
 
-    issr_str = strdup(p);
-
-    OPENSSL_free(p);
-    X509_free(cert);
-
-    return issr_str;
+    LOGD("failed");
+    return NULL;
 }
 
-unsigned char *
-ssl_notbefore_tostr(evhtp_ssl_t * ssl) {
-    BIO           * bio;
-    X509          * cert;
+static unsigned char*
+ssl_time_tostr(evhtp_ssl_t* ssl, ASN1_TIME*(*X509_time_f)(const X509*))
+{
+    LOGD("(%p)", ssl);
+
+    BIO           * bio = NULL;
+    X509          * cert = NULL;
     ASN1_TIME     * time;
     size_t          len;
-    unsigned char * time_str;
+    unsigned char * time_str = NULL;
 
-    if (!ssl) {
-        return NULL;
+    if (!ssl)
+    {
+        LOGD("ssl is null");
     }
-
-    if (!(cert = SSL_get_peer_certificate(ssl))) {
-        return NULL;
+    else if (!(cert = SSL_get_peer_certificate(ssl)))
+    {
+        LOGD("peer cert is null");
     }
-
-    if (!(time = X509_get_notBefore(cert))) {
-        X509_free(cert);
-        return NULL;
+    else if (!(time = X509_time_f(cert)))
+    {
+        LOGE("alloc failed");
     }
-
-    if (!(bio = BIO_new(BIO_s_mem()))) {
-        X509_free(cert);
-        return NULL;
+    else if (!(bio = BIO_new(BIO_s_mem())))
+    {
+        LOGE("alloc failed");
     }
+    else if (!ASN1_TIME_print(bio, time))
+    {
+        LOGE("alloc failed");
+    }
+    else if ((len = BIO_pending(bio)) == 0)
+    {
+        LOGD("nothing pending(?)");
+    }
+    else if (!(time_str = g_malloc0_n(len + 1, 1)))
+    {
+        LOGE("alloc failed");
+    }
+    else
+    {
+        BIO_read(bio, time_str, len);
 
-    if (!ASN1_TIME_print(bio, time)) {
         BIO_free(bio);
         X509_free(cert);
-        return NULL;
+
+        LOGD("time_str \"%s\"", time_str);
+        return time_str;
     }
 
-    if ((len = BIO_pending(bio)) == 0) {
-        BIO_free(bio);
-        X509_free(cert);
-        return NULL;
-    }
+    g_clear_pointer(&bio, BIO_free);
+    g_clear_pointer(&cert, X509_free);
+    g_clear_pointer(&time_str, g_free);
 
-    if (!(time_str = calloc(len + 1, 1))) {
-        return NULL;
-    }
+    LOGD("failed");
+    return NULL;
 
-    BIO_read(bio, time_str, len);
+} /* ssl_time_tostr */
 
-    BIO_free(bio);
-    X509_free(cert);
+unsigned char*
+ssl_notbefore_tostr(evhtp_ssl_t* ssl)
+{
+    LOGD("(%p)", ssl);
 
-    return time_str;
+    return ssl_time_tostr(ssl, X509_get_notBefore);
 } /* ssl_notbefore_tostr */
 
-unsigned char *
-ssl_notafter_tostr(evhtp_ssl_t * ssl) {
-    BIO           * bio;
-    X509          * cert;
-    ASN1_TIME     * time;
-    size_t          len;
-    unsigned char * time_str;
+unsigned char*
+ssl_notafter_tostr(evhtp_ssl_t * ssl)
+{
+    LOGD("(%p)", ssl);
 
-    if (!ssl) {
-        return NULL;
-    }
-
-    if (!(cert = SSL_get_peer_certificate(ssl))) {
-        return NULL;
-    }
-
-    if (!(time = X509_get_notAfter(cert))) {
-        X509_free(cert);
-        return NULL;
-    }
-
-    if (!(bio = BIO_new(BIO_s_mem()))) {
-        X509_free(cert);
-        return NULL;
-    }
-
-    if (!ASN1_TIME_print(bio, time)) {
-        BIO_free(bio);
-        X509_free(cert);
-        return NULL;
-    }
-
-    if ((len = BIO_pending(bio)) == 0) {
-        BIO_free(bio);
-        X509_free(cert);
-        return NULL;
-    }
-
-    if (!(time_str = calloc(len + 1, 1))) {
-        return NULL;
-    }
-
-    BIO_read(bio, time_str, len);
-
-    BIO_free(bio);
-    X509_free(cert);
-
-    return time_str;
+    return ssl_time_tostr(ssl, X509_get_notAfter);
 } /* ssl_notafter_tostr */
 
-unsigned char *
-ssl_sha1_tostr(evhtp_ssl_t * ssl) {
-    EVP_MD       * md_alg;
-    X509         * cert;
-    unsigned int   n;
+unsigned char*
+ssl_sha1_tostr(evhtp_ssl_t* ssl)
+{
+    LOGD("(%p)", ssl);
+
+    const EVP_MD* md_alg;
+    X509         * cert = NULL;
+    unsigned int   n = 0;
     unsigned char  md[EVP_MAX_MD_SIZE];
     unsigned char* buf = NULL;
-    size_t         offset;
     size_t         nsz;
-    int            sz;
-    int            i;
 
-    if (!ssl) {
-        return NULL;
+    if (!ssl)
+    {
+        LOGD("ssl is null");
     }
-
-    md_alg = EVP_sha1();
-
-    if (!md_alg) {
-        return NULL;
+    else if (!(md_alg = EVP_sha1()))
+    {
+        LOGD("sha1 is null");
     }
-
-    if (!(cert = SSL_get_peer_certificate(ssl))) {
-        return NULL;
+    else if (!(cert = SSL_get_peer_certificate(ssl)))
+    {
+        LOGD("peer cert is null");
     }
-
-    n   = 0;
-    if (!X509_digest(cert, md_alg, md, &n)) {
-        return NULL;
+    else if (!X509_digest(cert, md_alg, md, &n))
+    {
+        LOGE("alloc failed");
     }
-
-    nsz = 3 * n + 1;
-    buf = (unsigned char *)calloc(nsz, 1);
-    if (buf) {
-        offset = 0;
-        for (i = 0; i < n; i++) {
-            sz      = snprintf(buf + offset, nsz - offset, "%02X%c", md[i], (i + 1 == n) ? 0 : ':');
+    else if (!(nsz = 3 * n + 1))
+    {
+        LOGD("impossible to get here; just to maintain if/then/else flow");
+    }
+    else if (!(buf = (unsigned char *)g_malloc0_n(nsz, 1)))
+    {
+        LOGE("alloc failed");
+    }
+    else
+    {
+        size_t offset = 0;
+        for (int i = 0; i < n; i++)
+        {
+            int sz = snprintf((char*)buf + offset, nsz - offset, "%02X%c", md[i], (i + 1 == n) ? 0 : ':');
             offset += sz;
 
-            if (sz < 0 || offset >= nsz) {
-                free(buf);
-                buf = NULL;
+            if (sz < 0 || offset >= nsz)
+            {
+                LOGE("failed");
+                g_clear_pointer(&buf, g_free);
                 break;
             }
         }
+
+        X509_free(cert);
+
+        LOGD("buf \"%s\"", buf);
+        return buf;
     }
 
-    X509_free(cert);
+    g_clear_pointer(&cert, X509_free);
 
-    return buf;
+    LOGD("failed");
+    return NULL;
 } /* ssl_sha1 */
 
-unsigned char *
-ssl_serial_tostr(evhtp_ssl_t * ssl) {
-    BIO           * bio;
-    X509          * cert;
+unsigned char*
+ssl_serial_tostr(evhtp_ssl_t* ssl)
+{
+    LOGD("(%p)", ssl);
+
+    BIO           * bio = NULL;
+    X509          * cert = NULL;
     size_t          len;
-    unsigned char * ser_str;
+    unsigned char * ser_str = NULL;
 
-    if (!ssl) {
-        return NULL;
+    if (!ssl)
+    {
+        LOGD("ssl is null");
     }
-
-    if (!(cert = SSL_get_peer_certificate(ssl))) {
-        return NULL;
+    else if (!(cert = SSL_get_peer_certificate(ssl)))
+    {
+        LOGD("peer cert is null");
     }
+    else if (!(bio = BIO_new(BIO_s_mem())))
+    {
+        LOGE("alloc failed");
+    }
+    else if (i2a_ASN1_INTEGER(bio, X509_get_serialNumber(cert)) < 0)
+    {
+        LOGE("alloc failed");
+    }
+    else if ((len = BIO_pending(bio)) == 0)
+    {
+        LOGD("nothing pending(?)");
+    }
+    else if (!(ser_str = g_malloc0_n(len + 1, 1)))
+    {
+        LOGE("alloc failed");
+    }
+    else
+    {
+        BIO_read(bio, ser_str, len);
 
-    if (!(bio = BIO_new(BIO_s_mem()))) {
         X509_free(cert);
-        return NULL;
-    }
-
-    i2a_ASN1_INTEGER(bio, X509_get_serialNumber(cert));
-
-    if ((len = BIO_pending(bio)) == 0) {
         BIO_free(bio);
-        X509_free(cert);
-        return NULL;
+
+        LOGD("ser_str \"%s\"", ser_str);
+        return ser_str;
     }
 
-    if (!(ser_str = calloc(len + 1, 1))) {
-        return NULL;
-    }
+    g_clear_pointer(&bio, BIO_free);
+    g_clear_pointer(&cert, X509_free);
 
-    BIO_read(bio, ser_str, len);
-
-    X509_free(cert);
-    BIO_free(bio);
-
-    return ser_str;
+    LOGD("failed");
+    return NULL;
 }
 
-unsigned char *
-ssl_cipher_tostr(evhtp_ssl_t * ssl) {
+unsigned char*
+ssl_cipher_tostr(evhtp_ssl_t* ssl)
+{
+    LOGD("(%p)", ssl);
+
     const SSL_CIPHER * cipher;
     const char       * p;
     unsigned char    * cipher_str;
 
-    if (!ssl) {
-        return NULL;
+    if (!ssl)
+    {
+        LOGD("ssl is null");
+    }
+    else if (!(cipher = SSL_get_current_cipher(ssl)))
+    {
+        LOGD("cipher is null");
+    }
+    else if (!(p = SSL_CIPHER_get_name(cipher)))
+    {
+        LOGD("name is null");
+    }
+    else if (!(cipher_str = (unsigned char*)g_strdup(p)))
+    {
+        LOGE("alloc failed");
+    }
+    else
+    {
+        LOGD("cipher_str \"%s\"", cipher_str);
+        return cipher_str;
     }
 
-    if (!(cipher = SSL_get_current_cipher(ssl))) {
-        return NULL;
-    }
-
-    if (!(p = SSL_CIPHER_get_name(cipher))) {
-        return NULL;
-    }
-
-    cipher_str = strdup(p);
-
-    return cipher_str;
+    LOGD("failed");
+    return NULL;
 }
 
-unsigned char *
-ssl_cert_tostr(evhtp_ssl_t * ssl) {
-    X509          * cert;
-    BIO           * bio;
-    unsigned char * raw_cert_str;
-    unsigned char * cert_str;
-    unsigned char * p;
-    size_t          raw_cert_len;
-    size_t          cert_len;
-    int             i;
+static inline size_t
+get_cert_len(const unsigned char* raw_cert_str, size_t raw_cert_len)
+{
+    LOGD("(%p, %zu)", raw_cert_str, raw_cert_len);
 
-    if (!ssl) {
-        return NULL;
-    }
-
-    if (!(cert = SSL_get_peer_certificate(ssl))) {
-        return NULL;
-    }
-
-    if (!(bio = BIO_new(BIO_s_mem()))) {
-        X509_free(cert);
-        return NULL;
-    }
-
-    if (!PEM_write_bio_X509(bio, cert)) {
-        BIO_free(bio);
-        X509_free(cert);
-
-        return NULL;
-    }
-
-    raw_cert_len = BIO_pending(bio);
-    raw_cert_str = calloc(raw_cert_len + 1, 1);
-
-    BIO_read(bio, raw_cert_str, raw_cert_len);
-
-    cert_len     = raw_cert_len - 1;
-
-    for (i = 0; i < raw_cert_len - 1; i++) {
-        if (raw_cert_str[i] == '\n') {
+    size_t cert_len = raw_cert_len - 1;
+    for (int i = 0; i < raw_cert_len - 1; i++)
+    {
+        if (raw_cert_str[i] == '\n')
+        {
             /*
-             * \n's will be converted to \r\n\t, so we must reserve
-             * enough space for that much data.
-             */
+            * \n's will be converted to \r\n\t, so we must reserve
+            * enough space for that much data.
+            */
             cert_len += 2;
         }
     }
+    return cert_len;
+}
 
+unsigned char*
+ssl_cert_tostr(evhtp_ssl_t * ssl)
+{
+    LOGD("(%p)", ssl);
+
+    X509          * cert = NULL;
+    BIO           * bio = NULL;
+    unsigned char * raw_cert_str = NULL;
+    unsigned char * cert_str;
+    size_t          raw_cert_len;
+    size_t          cert_len;
+
+    if (!ssl)
+    {
+        LOGD("ssl is null");
+    }
+    else if (!(cert = SSL_get_peer_certificate(ssl)))
+    {
+        LOGD("peer cert is null");
+    }
+    else if (!(bio = BIO_new(BIO_s_mem())))
+    {
+        LOGE("alloc failed");
+    }
+    else if (!PEM_write_bio_X509(bio, cert))
+    {
+        LOGE("alloc failed");
+    }
+    else if (!(raw_cert_len = BIO_pending(bio)))
+    {
+        LOGD("nothing pending(?)");
+    }
+    else if (!(raw_cert_str = g_malloc0_n(raw_cert_len + 1, 1)))
+    {
+        LOGE("alloc failed");
+    }
+    else if (BIO_read(bio, raw_cert_str, raw_cert_len) != raw_cert_len)
+    {
+        LOGD("short read");
+    }
+    else if (!(cert_len = get_cert_len(raw_cert_str, raw_cert_len)))
+    {
+        LOGD("should never happen");
+    }
     /* 2 extra chars, one for possible last char (if not '\n'), and one for NULL terminator */
-    cert_str = calloc(cert_len + 2, 1);
-    p        = cert_str;
+    else if (!(cert_str = g_malloc0_n(cert_len + 2, 1)))
+    {
+        LOGE("alloc failed");
+    }
+    else
+    {
+        unsigned char* p = cert_str;
+        int i;
+        for (i = 0; i < raw_cert_len - 1; i++)
+        {
+            if (raw_cert_str[i] == '\n')
+            {
+                *p++ = '\r';
+                *p++ = '\n';
+                *p++ = '\t';
+            }
+            else
+            {
+                *p++ = raw_cert_str[i];
+            }
+        }
 
-    for (i = 0; i < raw_cert_len - 1; i++) {
-        if (raw_cert_str[i] == '\n') {
-            *p++ = '\r';
-            *p++ = '\n';
-            *p++ = '\t';
-        } else {
+        /* Don't assume last character is '\n' */
+        if (raw_cert_str[i] != '\n')
+        {
             *p++ = raw_cert_str[i];
         }
+
+        BIO_free(bio);
+        X509_free(cert);
+        g_free(raw_cert_str);
+
+        LOGD("cert_str \"%s\"", cert_str);
+        return cert_str;
     }
 
-    /* Don't assume last character is '\n' */
-    if (raw_cert_str[i] != '\n') {
-        *p++ = raw_cert_str[i];
-    }
+    g_clear_pointer(&bio, BIO_free);
+    g_clear_pointer(&cert, X509_free);
+    g_clear_pointer(&raw_cert_str, g_free);
 
-    BIO_free(bio);
-    X509_free(cert);
-    free(raw_cert_str);
-
-    return cert_str;
+    LOGD("failed");
+    return NULL;
 } /* ssl_cert_tostr */
 
-unsigned char *
-ssl_x509_ext_tostr(evhtp_ssl_t * ssl, const char * oid) {
-    unsigned char * ext_str;
-    X509          * cert;
-    ASN1_OBJECT   * oid_obj;
+unsigned char*
+ssl_x509_ext_tostr(evhtp_ssl_t* ssl, const char* oid)
+{
+    LOGD("(%p, %p(%s))", ssl, oid, oid);
 
-    STACK_OF(X509_EXTENSION) * exts;
+    unsigned char * ext_str = NULL;
+    X509          * cert = NULL;
+    ASN1_OBJECT   * oid_obj = NULL;
+
+    const STACK_OF(X509_EXTENSION) * exts;
     int                   oid_pos;
-    X509_EXTENSION      * ext;
+    X509_EXTENSION* ext;
     ASN1_OCTET_STRING   * octet;
     const unsigned char * octet_data;
     long                  xlen;
     int                   xtag;
     int                   xclass;
 
-    if (!ssl) {
-        return NULL;
+    if (!ssl)
+    {
+        LOGD("ssl is null");
     }
-
-    if (!(cert = SSL_get_peer_certificate(ssl))) {
-        return NULL;
+    else if (!(cert = SSL_get_peer_certificate(ssl)))
+    {
+        LOGD("peer cert is null");
     }
-
-    if (!(oid_obj = OBJ_txt2obj(oid, 1))) {
-        X509_free(cert);
-        return NULL;
+    else if (!(oid_obj = OBJ_txt2obj(oid, 1)))
+    {
+        LOGE("alloc failed");
     }
-
-    ext_str = NULL;
-    exts    = cert->cert_info->extensions;
-    oid_pos = X509v3_get_ext_by_OBJ(exts, oid_obj, -1);
-
-    if (!(ext = X509_get_ext(cert, oid_pos))) {
-        ASN1_OBJECT_free(oid_obj);
-        X509_free(cert);
-        return NULL;
+    else if (!(exts = X509_get0_extensions(cert)))
+    {
+        LOGD("exts is null");
     }
-
-    if (!(octet = X509_EXTENSION_get_data(ext))) {
-        ASN1_OBJECT_free(oid_obj);
-        X509_free(cert);
-        return NULL;
+    else if ((oid_pos = X509v3_get_ext_by_OBJ(exts, oid_obj, -1)) < 0)
+    {
+        LOGD("obj not found");
     }
-
-    octet_data = octet->data;
-
-    if (ASN1_get_object(&octet_data, &xlen, &xtag, &xclass, octet->length)) {
-        ASN1_OBJECT_free(oid_obj);
-        X509_free(cert);
-        return NULL;
+    else if (!(ext = X509_get_ext(cert, oid_pos)))
+    {
+        LOGD("ext is null");
     }
-
+    else if (!(octet = X509_EXTENSION_get_data(ext)))
+    {
+        LOGD("octet is null");
+    }
+    else if (!(octet_data = octet->data))
+    {
+        LOGD("octet data is null");
+    }
+    else if (ASN1_get_object(&octet_data, &xlen, &xtag, &xclass, octet->length))
+    {
+        LOGD("get object failed");
+    }
     /* We're only supporting string data. Could optionally add support
      * for encoded binary data */
-
-    if (xlen > 0 && xtag == 0x0C && octet->type == V_ASN1_OCTET_STRING) {
-        ext_str = strndup(octet_data, xlen);
+    else if ((xlen > 0 && xtag == 0x0C && octet->type == V_ASN1_OCTET_STRING)
+        && !(ext_str = (unsigned char*)g_strndup((const gchar*)octet_data, xlen)))
+    {
+        LOGE("alloc failed");
     }
 
-    ASN1_OBJECT_free(oid_obj);
-    X509_free(cert);
+    g_clear_pointer(&oid_obj, ASN1_OBJECT_free);
+    g_clear_pointer(&cert, X509_free);
 
     return ext_str;
 } /* ssl_x509_ext_tostr */
 
 static int
-ssl_crl_ent_should_reload(ssl_crl_ent_t * crl_ent) {
+ssl_crl_ent_should_reload(ssl_crl_ent_t* crl_ent)
+{
+    LOGD("(%p)", crl_ent);
+
     struct stat statb;
 
-    if (crl_ent->cfg->filename) {
-        if (stat(crl_ent->cfg->filename, &statb) == -1) {
+    if (crl_ent->cfg->filename)
+    {
+        if (stat(crl_ent->cfg->filename, &statb) == -1)
+        {
             /* file doesn't exist, we need to error out of this */
             return -1;
         }
@@ -496,14 +542,17 @@ ssl_crl_ent_should_reload(ssl_crl_ent_t * crl_ent) {
             return 1;
         }
 #else
-        if (statb.st_mtime > crl_ent->last_file_mod) {
+        if (statb.st_mtime > crl_ent->last_file_mod)
+        {
             return 1;
         }
 #endif
     }
 
-    if (crl_ent->cfg->dirname) {
-        if (stat(crl_ent->cfg->dirname, &statb) == -1) {
+    if (crl_ent->cfg->dirname)
+    {
+        if (stat(crl_ent->cfg->dirname, &statb) == -1)
+        {
             return -1;
         }
 
@@ -513,7 +562,8 @@ ssl_crl_ent_should_reload(ssl_crl_ent_t * crl_ent) {
             return 1;
         }
 #else
-        if (statb.st_mtime > crl_ent->last_file_mod) {
+        if (statb.st_mtime > crl_ent->last_file_mod)
+        {
             return 1;
         }
 #endif
@@ -523,30 +573,33 @@ ssl_crl_ent_should_reload(ssl_crl_ent_t * crl_ent) {
 } /* ssl_crl_ent_should_reload */
 
 int
-ssl_crl_ent_reload(ssl_crl_ent_t * crl_ent) {
+ssl_crl_ent_reload(ssl_crl_ent_t * crl_ent)
+{
+    LOGD("(%p)", crl_ent);
+
     X509_LOOKUP * lookup;
     X509_STORE  * old_crl;
-    logger_t    * logger;
     struct stat   file_stat;
     int           res;
 
-    if (crl_ent == NULL) {
-        return -1;
+    if (!crl_ent)
+    {
+        LOGD("crl_ent is null");
     }
-
     /* make sure we have either (or both) a crl file or directory */
-    if (crl_ent->cfg->filename == NULL && crl_ent->cfg->dirname == NULL) {
-        return -1;
+    else if (!crl_ent->cfg->filename && !crl_ent->cfg->dirname)
+    {
+        LOGD("filename and dirname are both null");
     }
 
-    logger = (crl_ent->rproxy != NULL) ? crl_ent->rproxy->err_log : NULL;
-
-    if ((res = ssl_crl_ent_should_reload(crl_ent)) <= 0) {
+    if ((res = ssl_crl_ent_should_reload(crl_ent)) <= 0)
+    {
         /* we should error on a negative status here, but for right now we
          * figure the crl list does not need to be reloaded.
          */
-        if (res < 0) {
-            logger_log(logger, lzlog_err, "SSL: CRL should reload error:%i", res);
+        if (res < 0)
+        {
+            LOGE("SSL: CRL should reload error:%i", res);
         }
         return res;
     }
@@ -556,7 +609,8 @@ ssl_crl_ent_reload(ssl_crl_ent_t * crl_ent) {
      */
     old_crl = NULL;
 
-    if (crl_ent->crl != NULL) {
+    if (crl_ent->crl)
+    {
         old_crl      = crl_ent->crl;
         crl_ent->crl = NULL;
     }
@@ -567,31 +621,36 @@ ssl_crl_ent_reload(ssl_crl_ent_t * crl_ent) {
      * want to allow RProxy to dynamically read in CRL information as it comes
      * in, we must do it ourselves.
      */
-    if ((crl_ent->crl = X509_STORE_new()) == NULL) {
+    if ((crl_ent->crl = X509_STORE_new()) == NULL)
+    {
         /* something bad happened, so add the old crl back and return an error */
-        logger_log(logger, lzlog_err, "SSL: CRL X509 STORE alloc failure");
+        LOGE("SSL: CRL X509 STORE alloc failure");
         crl_ent->crl = old_crl;
         return -1;
     }
 
-    if (crl_ent->cfg->filename != NULL) {
-        if (stat(crl_ent->cfg->filename, &file_stat) == -1) {
-            logger_log(logger, lzlog_err, "SSL: CRL stat failed: %s", crl_ent->cfg->filename);
+    if (crl_ent->cfg->filename != NULL)
+    {
+        if (stat(crl_ent->cfg->filename, &file_stat) == -1)
+        {
+            LOGE("SSL: CRL stat failed: %s", crl_ent->cfg->filename);
             X509_STORE_free(crl_ent->crl);
             crl_ent->crl = old_crl;
             return -1;
         }
 
-        if (!S_ISREG(file_stat.st_mode)) {
-            logger_log(logger, lzlog_err, "SSL: CRL not a regular file: %s", crl_ent->cfg->filename);
+        if (!S_ISREG(file_stat.st_mode))
+        {
+            LOGE("SSL: CRL not a regular file: %s", crl_ent->cfg->filename);
             X509_STORE_free(crl_ent->crl);
             crl_ent->crl = old_crl;
             return -1;
         }
 
         /* attempt to add the filename to our x509 store */
-        if (!(lookup = X509_STORE_add_lookup(crl_ent->crl, X509_LOOKUP_file()))) {
-            logger_log(logger, lzlog_err, "SSL: Cannot add CRL LOOKUP to store");
+        if (!(lookup = X509_STORE_add_lookup(crl_ent->crl, X509_LOOKUP_file())))
+        {
+            LOGE("SSL: Cannot add CRL LOOKUP to store");
             X509_STORE_free(crl_ent->crl);
             crl_ent->crl = old_crl;
             return -1;
@@ -607,33 +666,40 @@ ssl_crl_ent_reload(ssl_crl_ent_t * crl_ent) {
         crl_ent->last_file_mod = file_stat.st_mtime;
 #endif
 
-        if (!X509_LOOKUP_load_file(lookup, crl_ent->cfg->filename, X509_FILETYPE_PEM)) {
-            logger_log(logger, lzlog_err, "SSL: Cannot add CRL to store: %s", crl_ent->cfg->filename);
+        if (!X509_LOOKUP_load_file(lookup, crl_ent->cfg->filename, X509_FILETYPE_PEM))
+        {
+            LOGE("SSL: Cannot add CRL to store: %s", crl_ent->cfg->filename);
             X509_STORE_free(crl_ent->crl);
             crl_ent->crl = old_crl;
             return -1;
-        } else {
-            logger_log(logger, lzlog_info, "SSL: CRL reloaded: %s ", crl_ent->cfg->filename);
+        }
+        else
+        {
+            LOGI("SSL: CRL reloaded: %s ", crl_ent->cfg->filename);
         }
     }
 
-    if (crl_ent->cfg->dirname != NULL) {
-        if (stat(crl_ent->cfg->dirname, &file_stat) == -1) {
-            logger_log(logger, lzlog_err, "SSL: CRL stat failed: %s", crl_ent->cfg->dirname);
+    if (crl_ent->cfg->dirname != NULL)
+    {
+        if (stat(crl_ent->cfg->dirname, &file_stat) == -1)
+        {
+            LOGE("SSL: CRL stat failed: %s", crl_ent->cfg->dirname);
             X509_STORE_free(crl_ent->crl);
             crl_ent->crl = old_crl;
             return -1;
         }
 
-        if (!S_ISDIR(file_stat.st_mode)) {
-            logger_log(logger, lzlog_err, "SSL: CRL not a directory: %s", crl_ent->cfg->dirname);
+        if (!S_ISDIR(file_stat.st_mode))
+        {
+            LOGE("SSL: CRL not a directory: %s", crl_ent->cfg->dirname);
             X509_STORE_free(crl_ent->crl);
             crl_ent->crl = old_crl;
             return -1;
         }
 
-        if (!(lookup = X509_STORE_add_lookup(crl_ent->crl, X509_LOOKUP_hash_dir()))) {
-            logger_log(logger, lzlog_err, "SSL: Cannot add CRL LOOKUP to store");
+        if (!(lookup = X509_STORE_add_lookup(crl_ent->crl, X509_LOOKUP_hash_dir())))
+        {
+            LOGE("SSL: Cannot add CRL LOOKUP to store");
             X509_STORE_free(crl_ent->crl);
             crl_ent->crl = old_crl;
             return -1;
@@ -646,17 +712,21 @@ ssl_crl_ent_reload(ssl_crl_ent_t * crl_ent) {
 #endif
 
 
-        if (!X509_LOOKUP_add_dir(lookup, crl_ent->cfg->dirname, X509_FILETYPE_PEM)) {
-            logger_log(logger, lzlog_err, "SSL: Cannot add CRL directory to store: %s", crl_ent->cfg->dirname);
+        if (!X509_LOOKUP_add_dir(lookup, crl_ent->cfg->dirname, X509_FILETYPE_PEM))
+        {
+            LOGE("SSL: Cannot add CRL directory to store: %s", crl_ent->cfg->dirname);
             X509_STORE_free(crl_ent->crl);
             crl_ent->crl = old_crl;
             return -1;
-        } else {
-            logger_log(logger, lzlog_info, "SSL: CRL directory reloaded: %s ", crl_ent->cfg->dirname);
+        }
+        else
+        {
+            LOGI("SSL: CRL directory reloaded: %s ", crl_ent->cfg->dirname);
         }
     }
 
-    if (old_crl) {
+    if (old_crl)
+    {
         X509_STORE_free(old_crl);
     }
 
@@ -664,10 +734,15 @@ ssl_crl_ent_reload(ssl_crl_ent_t * crl_ent) {
 } /* ssl_crl_ent_reload */
 
 static void
-ssl_reload_timercb(int sock, short which, void * arg) {
-    ssl_crl_ent_t * crl_ent;
+ssl_reload_timercb(int sock, short which, void* arg)
+{
+    LOGD("(%d, %d, %p)", sock, which, arg);
 
-    if (!(crl_ent = (ssl_crl_ent_t *)arg)) {
+    ssl_crl_ent_t* crl_ent;
+
+    if (!(crl_ent = (ssl_crl_ent_t *)arg))
+    {
+        LOGD("arg is null");
         return;
     }
 
@@ -680,27 +755,41 @@ ssl_reload_timercb(int sock, short which, void * arg) {
     pthread_mutex_unlock(&crl_ent->lock);
 }
 
-ssl_crl_ent_t *
-ssl_crl_ent_new(evhtp_t * htp, ssl_crl_cfg_t * config) {
-    ssl_crl_ent_t * crl_ent;
+ssl_crl_ent_t*
+ssl_crl_ent_new(evhtp_t* htp, ssl_crl_cfg_t* config)
+{
+    LOGD("(%p, %p)", htp, config);
 
-    if (htp == NULL || config == NULL) {
-        return NULL;
+    ssl_crl_ent_t* crl_ent;
+
+    if (!htp)
+    {
+        LOGD("htp is null");
+    }
+    else if (!config)
+    {
+        LOGD("config is null");
+    }
+    else if (!(crl_ent = g_malloc0_n(sizeof(ssl_crl_ent_t), 1)))
+    {
+        LOGE("alloc failed");
+    }
+    else
+    {
+        crl_ent->cfg = config;
+        crl_ent->htp = htp;
+        crl_ent->reload_timer_ev = evtimer_new(htp->evbase, ssl_reload_timercb, crl_ent);
+        pthread_mutex_init(&crl_ent->lock, NULL);
+
+        ssl_crl_ent_reload(crl_ent);
+        event_add(crl_ent->reload_timer_ev, &config->reload_timer);
+
+        LOGD("crl_ent %p", crl_ent);
+        return crl_ent;
     }
 
-    if (!(crl_ent = calloc(sizeof(ssl_crl_ent_t), 1))) {
-        return NULL;
-    }
-
-    crl_ent->cfg = config;
-    crl_ent->htp = htp;
-    crl_ent->reload_timer_ev = evtimer_new(htp->evbase, ssl_reload_timercb, crl_ent);
-    pthread_mutex_init(&crl_ent->lock, NULL);
-
-    ssl_crl_ent_reload(crl_ent);
-    event_add(crl_ent->reload_timer_ev, &config->reload_timer);
-
-    return crl_ent;
+    LOGD("failed");
+    return NULL;
 }
 
 /*
@@ -743,7 +832,11 @@ ssl_crl_ent_new(evhtp_t * htp, ssl_crl_cfg_t * config) {
 
 
 static int
-ssl_verify_crl(int ok, X509_STORE_CTX * ctx, ssl_crl_ent_t * crl_ent, logger_t * logger) {
+ssl_verify_crl(int ok, X509_STORE_CTX* ctx, ssl_crl_ent_t* crl_ent)
+{
+    LOGD("(%d, %p, %p)", ok, ctx, crl_ent);
+
+#if 0
     const size_t   kSz = 255;
     char           buf[kSz + 1];
     X509         * cert;
@@ -755,11 +848,15 @@ ssl_verify_crl(int ok, X509_STORE_CTX * ctx, ssl_crl_ent_t * crl_ent, logger_t *
     X509_OBJECT    x509_obj = { 0 };
     int            res;
     int            timestamp_res;
+#endif//
 
-    if (crl_ent == NULL) {
+    if (!crl_ent)
+    {
+        LOGD("crl_ent is null");
         return ok;
     }
 
+#if 0
     cert    = X509_STORE_CTX_get_current_cert(ctx);
     subject = X509_get_subject_name(cert);
     issuer  = X509_get_issuer_name(cert);
@@ -780,7 +877,7 @@ ssl_verify_crl(int ok, X509_STORE_CTX * ctx, ssl_crl_ent_t * crl_ent, logger_t *
 
         if (res <= 0) {
             X509_OBJECT_free_contents(&x509_obj);
-            logger_log(logger, lzlog_err, "SSL: CRL validation failed:%i:%s", res, X509_NAME_oneline(subject, buf, kSz));
+            LOGE("SSL: CRL validation failed:%i:%s", res, X509_NAME_oneline(subject, buf, kSz));
             return 0;
         }
 
@@ -789,14 +886,14 @@ ssl_verify_crl(int ok, X509_STORE_CTX * ctx, ssl_crl_ent_t * crl_ent, logger_t *
         if (timestamp_res == 0) {
             /* invalid nextupdate found */
             X509_OBJECT_free_contents(&x509_obj);
-            logger_log(logger, lzlog_err, "SSL: CRL nextupdate invalid:%s", X509_NAME_oneline(subject, buf, kSz));
+            LOGE("SSL: CRL nextupdate invalid:%s", X509_NAME_oneline(subject, buf, kSz));
             return 0;
         }
 
         if (timestamp_res < 0) {
             /* CRL is expired */
             X509_OBJECT_free_contents(&x509_obj);
-            logger_log(logger, lzlog_err, "SSL: CRL expired:%s", X509_NAME_oneline(subject, buf, kSz));
+            LOGE("SSL: CRL expired:%s", X509_NAME_oneline(subject, buf, kSz));
             return 0;
         }
 
@@ -825,7 +922,7 @@ ssl_verify_crl(int ok, X509_STORE_CTX * ctx, ssl_crl_ent_t * crl_ent, logger_t *
 
             if (!ASN1_INTEGER_cmp(asn1_serial, X509_get_serialNumber(cert))) {
                 X509_OBJECT_free_contents(&x509_obj);
-                logger_log(logger, lzlog_warn, "SSL: Certificate revoked by CRL:%s", X509_NAME_oneline(subject, buf, kSz));
+                LOGI("SSL: Certificate revoked by CRL:%s", X509_NAME_oneline(subject, buf, kSz));
                 return 0;
             }
         }
@@ -835,15 +932,20 @@ ssl_verify_crl(int ok, X509_STORE_CTX * ctx, ssl_crl_ent_t * crl_ent, logger_t *
 
 #ifdef RPROXY_DEBUG
     if (ok) {
-        logger_log(logger, lzlog_debug, "SSL: CRL ok", X509_NAME_oneline(subject, buf, kSz));
+        LOGD("SSL: CRL ok", X509_NAME_oneline(subject, buf, kSz));
     }
 #endif
+
+#endif//0
 
     return ok;
 } /* ssl_verify_crl */
 
 int
-ssl_x509_verifyfn(int ok, X509_STORE_CTX * store) {
+ssl_x509_verifyfn(int ok, X509_STORE_CTX* store)
+{
+    LOGD("(%d, %p)", ok, store);
+
     char                 buf[256];
     X509               * err_cert;
     int                  err;
@@ -865,31 +967,31 @@ ssl_x509_verifyfn(int ok, X509_STORE_CTX * store) {
     rproxy     = evthr_get_aux(connection->thread);
     assert(rproxy != NULL);
 
-    if (depth > ssl_cfg->verify_depth) {
+    if (depth > ssl_cfg->verify_depth)
+    {
         ok  = 0;
         err = X509_V_ERR_CERT_CHAIN_TOO_LONG;
 
         X509_STORE_CTX_set_error(store, err);
     }
 
-
-    if (!ok) {
-        logger_log(rproxy->err_log, lzlog_err,
-                   "SSL: verify error:num=%d:%s:depth=%d:%s", err,
-                   X509_verify_cert_error_string(err), depth, buf);
+    if (!ok)
+    {
+        LOGE("SSL: verify error:num=%d:%s:depth=%d:%s",
+            err, X509_verify_cert_error_string(err), depth, buf);
     }
-
 
     /* right now the only thing using the evhtp argument is the crl_ent_t's, in
      * the future this will become more generic. So here we check to see if the
      * CRL checking is enabled, and if it is, do CRL verification.
      */
-    if (connection->htp->arg) {
+    if (connection->htp->arg)
+    {
         ssl_crl_ent_t * crl_ent = (ssl_crl_ent_t *)connection->htp->arg;
 
         pthread_mutex_lock(&crl_ent->lock);
         {
-            ok = ssl_verify_crl(ok, store, (ssl_crl_ent_t *)connection->htp->arg, rproxy->err_log);
+            ok = ssl_verify_crl(ok, store, (ssl_crl_ent_t *)connection->htp->arg);
         }
         pthread_mutex_unlock(&crl_ent->lock);
     }
@@ -898,7 +1000,8 @@ ssl_x509_verifyfn(int ok, X509_STORE_CTX * store) {
 } /* ssl_x509_verifyfn */
 
 int
-ssl_x509_issuedcb(X509_STORE_CTX * ctx, X509 * x, X509 * issuer) {
+ssl_x509_issuedcb(X509_STORE_CTX* ctx, X509* x, X509* issuer)
+{
+    LOGD("(%p, %p, %p)", ctx, x, issuer);
     return 1;
 }
-

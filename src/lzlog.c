@@ -13,11 +13,15 @@
  * limitations under the License.
  */
 
+#include <syslog.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <errno.h>
+
+#include <glib.h>
 
 #include "lzlog.h"
 
@@ -101,7 +105,7 @@ lzlog_facilitystr_to_facility(const char * str) {
     }
 
     for (i = 0; _facility_strmap[i].str; i++) {
-        if (!strcasecmp(_facility_strmap[i].str, str)) {
+        if (!g_ascii_strcasecmp(_facility_strmap[i].str, str)) {
             return _facility_strmap[i].facility;
         }
     }
@@ -118,7 +122,7 @@ lzlog_levelstr_to_level(const char * str) {
     }
 
     for (i = 0; _level_strmap[i].str; i++) {
-        if (!strcasecmp(_level_strmap[i].str, str)) {
+        if (!g_ascii_strcasecmp(_level_strmap[i].str, str)) {
             return _level_strmap[i].level;
         }
     }
@@ -126,8 +130,8 @@ lzlog_levelstr_to_level(const char * str) {
     return -1;
 }
 
-void
-lzlog_vprintf(lzlog * log, lzlog_level level, const char * fmt, va_list ap) {
+    void
+    lzlog_vprintf(lzlog * log, lzlog_level level, const char * fmt, va_list ap) {
     if (log == NULL) {
         return;
     }
@@ -171,9 +175,9 @@ lzlog_new(lzlog_vtbl * vtbl, const char * ident, int opts) {
     pthread_mutex_init(&log->mutex, NULL);
 
     if (ident) {
-        log->ident = strdup(ident);
+        log->ident = g_strdup(ident);
     } else {
-        log->ident = strdup("pname");
+        log->ident = g_strdup("pname");
     }
 
     log->vtbl  = vtbl;
@@ -216,135 +220,115 @@ lzlog_get_type(lzlog * log) {
     return log->type;
 }
 
-static char *
-_reformat(lzlog * log, const char * fmt, lzlog_level level) {
-    int    sres;
-    char * buf   = NULL;
-    size_t len   = strlen(fmt) + 4;
-    int    wrote = 0;
-
-    if (log->opts == LZLOG_OPT_NONE) {
+static char*
+_reformat(lzlog* self, const char* fmt, lzlog_level level)
+{
+    if (self->opts == LZLOG_OPT_NONE)
+    {
         return NULL;
     }
 
-    if (!(buf = calloc(len, 1))) {
-        abort();
+    g_return_val_if_fail(fmt, NULL);
+
+    GString* buf = g_string_new_len(NULL, strlen(fmt) + 4);
+    if (!buf)
+    {
+        fprintf(stderr, "alloc failed, %d", __LINE__);
+        return NULL;
     }
 
-    if (log->opts & LZLOG_OPT_WDATE) {
-        char   sbuf[255];
+    bool wrote = false;
+
+    if (self->opts & LZLOG_OPT_WDATE)
+    {
         time_t tt = time(NULL);
-
-        len += strftime(sbuf, 254, "%b %d %H:%M:%S ", localtime(&tt));
-        buf  = realloc(buf, len);
-        sres = snprintf(buf, len, "%s", sbuf);
-
-        if (sres >= len || sres < 0) {
-            abort();
-        }
-
-        wrote = 1;
+        char sbuf[255];
+        strftime(sbuf, sizeof(sbuf) - 1, "%b %d %H:%M:%S ", localtime(&tt));
+        g_string_append(buf, sbuf);
+        wrote = true;
     }
 
-    if (log->opts & LZLOG_OPT_WNAME) {
-        len += strlen(log->ident);
-        buf  = realloc(buf, len);
-
-        strncat(buf, log->ident, len);
+    if (self->opts & LZLOG_OPT_WNAME)
+    {
+        g_string_append(buf, self->ident);
     }
 
-    if (log->opts & LZLOG_OPT_WPID) {
-        char  sbuf[10 + 3];    /* pid + [] + null */
-        pid_t pid = getpid();
-
-        sres = snprintf(sbuf, sizeof(sbuf), "[%u]", pid);
-
-        if (sres >= sizeof(sbuf) || sres < 0) {
-            abort();
-        }
-
-        len  += strlen(sbuf);
-        buf   = realloc(buf, len);
-
-        strncat(buf, sbuf, len);
-
-        wrote = 1;
+    if (self->opts & LZLOG_OPT_WPID)
+    {
+        g_string_append_printf(buf, "[%u]", getpid());
+        wrote = true;
     }
 
-    if (log->opts & LZLOG_OPT_WLEVEL) {
-        if (level < lzlog_max) {
-            len += strlen(_level_str[level]) + 3;
-            buf  = realloc(buf, len);
-
-            if (log->opts != LZLOG_OPT_WLEVEL) {
-                strcat(buf, ": ");
+    if (self->opts & LZLOG_OPT_WLEVEL)
+    {
+        if (level < lzlog_max)
+        {
+            if (self->opts != LZLOG_OPT_WLEVEL)
+            {
+                g_string_append(buf, ": ");
             }
-
-            strncat(buf, _level_str[level], len);
-
-            wrote = 1;
+            g_string_append(buf, _level_str[level]);
+            wrote = true;
         }
     }
 
-    if (wrote == 1) {
-        strncat(buf, ": ", len);
+    if (wrote)
+    {
+        g_string_append(buf, ": ");
     }
 
-    strncat(buf, fmt, len);
+    g_string_append(buf, fmt);
 
-    if (log->opts & LZLOG_OPT_NEWLINE) {
-        strncat(buf, "\n", len);
+    if (self->opts & LZLOG_OPT_NEWLINE)
+    {
+        g_string_append(buf, "\n");
     }
 
-    return buf;
+    return g_string_free_and_steal(buf);
 } /* _reformat */
 
-static void
-_syslog_print(lzlog * log, lzlog_level level, const char * fmt, va_list ap) {
-    int    priority = 0;
-    char * nfmt     = NULL;
-
-    nfmt = _reformat(log, fmt, level);
-
-    switch (level) {
+static inline int
+get_priority(lzlog_level level)
+{
+    switch (level)
+    {
         case lzlog_emerg:
-            priority = LOG_EMERG;
-            break;
+            return LOG_EMERG;
         case lzlog_alert:
-            priority = LOG_ALERT;
-            break;
+            return LOG_ALERT;
         case lzlog_crit:
-            priority = LOG_CRIT;
-            break;
+            return LOG_CRIT;
         case lzlog_err:
-            priority = LOG_ERR;
-            break;
+            return LOG_ERR;
         case lzlog_warn:
-            priority = LOG_WARNING;
-            break;
+            return LOG_WARNING;
         case lzlog_notice:
-            priority = LOG_NOTICE;
-            break;
+            return LOG_NOTICE;
         case lzlog_info:
-            priority = LOG_INFO;
-            break;
+            return LOG_INFO;
         case lzlog_debug:
-            priority = LOG_DEBUG;
-            break;
+            return LOG_DEBUG;
         default:
-            priority = LOG_ERR;
-            break;
+            return LOG_ERR;
     } /* switch */
+}
 
-    vsyslog(priority, nfmt ? nfmt : fmt, ap);
+static void
+_syslog_print(lzlog* self, lzlog_level level, const char* fmt, va_list ap)
+{
+    g_return_if_fail(self != NULL);
+    g_return_if_fail(fmt != NULL);
 
-    if (nfmt) {
-        free(nfmt);
-    }
+    char* nfmt = _reformat(self, fmt, level);
+    vsyslog(get_priority(level), nfmt ? nfmt : fmt, ap);
+
+    if (nfmt) g_free(nfmt);
+
 }     /* _syslog_print */
 
 static void
-_syslog_destroy(lzlog * log) {
+_syslog_destroy(lzlog* self G_GNUC_UNUSED)
+{
     return closelog();
 }
 
@@ -380,37 +364,40 @@ struct _log_file {
 };
 
 static void
-_file_print(lzlog * log, lzlog_level level, const char * fmt, va_list ap) {
-    struct _log_file * this = (struct _log_file *)log;
-    char             * nfmt = NULL;
+_file_print(lzlog* self, lzlog_level level, const char* fmt, va_list ap)
+{
+    g_return_if_fail(self != NULL);
+    g_return_if_fail(fmt != NULL);
 
+    struct _log_file* me = (struct _log_file*)self;
 
-    nfmt = _reformat(log, fmt, level);
+    char* nfmt = _reformat(self, fmt, level);
 
-    pthread_mutex_lock(&log->mutex);
+    pthread_mutex_lock(&self->mutex);
     {
-        vfprintf(this->file, nfmt ? nfmt : fmt, ap);
-        fflush(this->file);
+        vfprintf(me->file, nfmt ? nfmt : fmt, ap);
+        fflush(me->file);
     }
-    pthread_mutex_unlock(&log->mutex);
+    pthread_mutex_unlock(&self->mutex);
 
-    if (nfmt) {
-        free(nfmt);
-    }
+    if (nfmt) g_free(nfmt);
 }
 
 static void
-_file_destroy(lzlog * log) {
-    struct _log_file * this = (struct _log_file *)log;
+_file_destroy(lzlog* self)
+{
+    g_return_if_fail(self != NULL);
 
-    pthread_mutex_lock(&log->mutex);
+    struct _log_file* me = (struct _log_file*)self;
+
+    pthread_mutex_lock(&self->mutex);
     {
-        fflush(this->file);
-        fclose(this->file);
+        fflush(me->file);
+        fclose(me->file);
     }
-    pthread_mutex_unlock(&log->mutex);
+    pthread_mutex_unlock(&self->mutex);
 
-    free(this);
+    free(me);
 }
 
 static lzlog_vtbl _file_vtbl = {
@@ -419,7 +406,7 @@ static lzlog_vtbl _file_vtbl = {
     _file_print
 };
 
-lzlog *
+lzlog*
 lzlog_file_new(const char * file, const char * ident, int opts) {
     lzlog            * result;
     struct _log_file * lfile;
@@ -451,7 +438,7 @@ lzlog_from_template(const char * template, const char * ident, int opts) {
         return NULL;
     }
 
-    template_cpy = strdup(template);
+    template_cpy = g_strdup(template);
 
     /*
      * templates are as follows:
@@ -469,7 +456,7 @@ lzlog_from_template(const char * template, const char * ident, int opts) {
         return NULL;
     }
 
-    if (!strcasecmp(scheme, "syslog")) {
+    if (!g_ascii_strcasecmp(scheme, "syslog")) {
         int facility;
 
         if (!(facility = lzlog_facilitystr_to_facility(path))) {
@@ -478,7 +465,7 @@ lzlog_from_template(const char * template, const char * ident, int opts) {
         }
 
         log = lzlog_syslog_new(ident, opts, facility);
-    } else if (!strcasecmp(scheme, "file")) {
+    } else if (!g_ascii_strcasecmp(scheme, "file")) {
         log = lzlog_file_new(path, ident, opts);
     } else {
         free(template_cpy);
@@ -655,7 +642,7 @@ lzlog_asl_new(const char * ident, int opts, int facility) {
     lasl           = (struct _log_asl *)result;
 
     lasl->asl_f    = asl_open(ident, facility_str, 0);
-    lasl->facility = strdup(facility_str);
+    lasl->facility = g_strdup(facility_str);
 
     return result;
 }

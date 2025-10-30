@@ -12,6 +12,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,6 +24,7 @@
 #include <fcntl.h>
 #include <sys/time.h>
 #include <unistd.h>
+#include <signal.h>
 
 #ifdef USE_MALLOPT
 #include <malloc.h>
@@ -32,696 +34,56 @@
 #include <sys/resource.h>
 #endif
 
+#include <glib.h>
+
+#ifndef ML_LOG_LEVEL
+#define ML_LOG_LEVEL 4
+#endif
+#include "macrologger.h"
+
 #include "rproxy.h"
 
-static void rproxy_process_pending(int, short, void *);
-
-int
-append_ssl_x_headers(headers_cfg_t * headers_cfg, evhtp_request_t * upstream_req) {
-    evhtp_headers_t * headers;
-    x509_ext_cfg_t  * x509_ext_cfg;
-
-    evhtp_ssl_t     * ssl;
-
-    if (!headers_cfg || !upstream_req) {
-        return -1;
-    }
-
-    if (!(ssl = upstream_req->conn->ssl)) {
-        return 0;
-    }
-
-    if (!(headers = upstream_req->headers_in)) {
-        return -1;
-    }
-
-    /* remove all headers the client might have sent, if any of these
-     * configurations are set to false, this allows the client to send
-     * their own versions. This is potentially dangerous, so we remove them
-     */
-
-    evhtp_kv_rm_and_free(headers, evhtp_kvs_find_kv(headers, "X-SSL-Subject"));
-    evhtp_kv_rm_and_free(headers, evhtp_kvs_find_kv(headers, "X-SSL-Issuer"));
-    evhtp_kv_rm_and_free(headers, evhtp_kvs_find_kv(headers, "X-SSL-Notbefore"));
-    evhtp_kv_rm_and_free(headers, evhtp_kvs_find_kv(headers, "X-SSL-Notafter"));
-    evhtp_kv_rm_and_free(headers, evhtp_kvs_find_kv(headers, "X-SSL-Serial"));
-    evhtp_kv_rm_and_free(headers, evhtp_kvs_find_kv(headers, "X-SSL-Cipher"));
-    evhtp_kv_rm_and_free(headers, evhtp_kvs_find_kv(headers, "X-SSL-Certificate"));
-
-    if (headers_cfg->x_ssl_subject == true) {
-        unsigned char * subj_str;
-
-        if ((subj_str = ssl_subject_tostr(ssl))) {
-            evhtp_headers_add_header(headers,
-                                     evhtp_header_new("X-SSL-Subject", subj_str, 0, 1));
-
-            free(subj_str);
-        }
-    }
-
-    if (headers_cfg->x_ssl_issuer == true) {
-        unsigned char * issr_str;
-
-        if ((issr_str = ssl_issuer_tostr(ssl))) {
-            evhtp_headers_add_header(headers,
-                                     evhtp_header_new("X-SSL-Issuer", issr_str, 0, 1));
-
-            free(issr_str);
-        }
-    }
-
-    if (headers_cfg->x_ssl_notbefore == true) {
-        unsigned char * nbf_str;
-
-        if ((nbf_str = ssl_notbefore_tostr(ssl))) {
-            evhtp_headers_add_header(headers,
-                                     evhtp_header_new("X-SSL-Notbefore", nbf_str, 0, 1));
-
-            free(nbf_str);
-        }
-    }
-
-    if (headers_cfg->x_ssl_notafter == true) {
-        unsigned char * naf_str;
-
-        if ((naf_str = ssl_notafter_tostr(ssl))) {
-            evhtp_headers_add_header(headers,
-                                     evhtp_header_new("X-SSL-Notafter", naf_str, 0, 1));
-
-            free(naf_str);
-        }
-    }
-
-    if (headers_cfg->x_ssl_serial == true) {
-        unsigned char * ser_str;
-
-        if ((ser_str = ssl_serial_tostr(ssl))) {
-            evhtp_headers_add_header(headers,
-                                     evhtp_header_new("X-SSL-Serial", ser_str, 0, 1));
-
-            free(ser_str);
-        }
-    }
-
-    if (headers_cfg->x_ssl_cipher == true) {
-        unsigned char * cip_str;
-
-        if ((cip_str = ssl_cipher_tostr(ssl))) {
-            evhtp_headers_add_header(headers,
-                                     evhtp_header_new("X-SSL-Cipher", cip_str, 0, 1));
-
-            free(cip_str);
-        }
-    }
-
-    if (headers_cfg->x_ssl_sha1 == true) {
-        unsigned char * sha1_str;
-
-        if ((sha1_str = ssl_sha1_tostr(ssl))) {
-            evhtp_headers_add_header(headers,
-                                     evhtp_header_new("X-SSL-Sha1", sha1_str, 0, 1));
-
-            free(sha1_str);
-        }
-    }
-
-    if (headers_cfg->x_ssl_certificate == true) {
-        unsigned char * cert_str;
-
-        if ((cert_str = ssl_cert_tostr(ssl))) {
-            evhtp_headers_add_header(headers,
-                                     evhtp_header_new("X-SSL-Certificate", cert_str, 0, 1));
-
-            free(cert_str);
-        }
-    }
-
-    {
-        lztq_elem * x509_elem;
-        lztq_elem * x509_save;
-
-        for (x509_elem = lztq_first(headers_cfg->x509_exts); x509_elem; x509_elem = x509_save) {
-            unsigned char * ext_str;
-
-            x509_ext_cfg = lztq_elem_data(x509_elem);
-            assert(x509_ext_cfg != NULL);
-
-            if ((ext_str = ssl_x509_ext_tostr(ssl, x509_ext_cfg->oid))) {
-                evhtp_headers_add_header(headers,
-                                         evhtp_header_new(x509_ext_cfg->name, ext_str, 0, 1));
-                free(ext_str);
-            }
-
-            x509_save = lztq_next(x509_elem);
-        }
-    }
-
-    return 0;
-} /* append_ssl_x_headers */
-
-int
-append_x_headers(headers_cfg_t * headers_cfg, evhtp_request_t * upstream_req) {
-    evhtp_headers_t * headers;
-    char              tmp1[1024];
-    char              tmp2[1024];
-
-    if (!headers_cfg || !upstream_req) {
-        return -1;
-    }
-
-    if (!(headers = upstream_req->headers_in)) {
-        return -1;
-    }
-
-    if (headers_cfg->x_forwarded_for == true) {
-        struct sockaddr * sa;
-        void            * src;
-        char            * fmt;
-        unsigned short    port;
-        int               sres;
-
-        src = NULL;
-        sa  = upstream_req->conn->saddr;
-
-        if (sa->sa_family == AF_INET) {
-            src  = &(((struct sockaddr_in *)sa)->sin_addr);
-            port = ntohs(((struct sockaddr_in *)sa)->sin_port);
-            fmt  = "%s:%hu";
-        } else if (sa->sa_family == AF_INET6) {
-            src  = &(((struct sockaddr_in6 *)sa)->sin6_addr);
-            port = ntohs(((struct sockaddr_in6 *)sa)->sin6_port);
-            fmt  = "[%s]:%hu";
-        }
-
-        if (!src || !evutil_inet_ntop(sa->sa_family, src, tmp1, sizeof(tmp1))) {
-            return -1;
-        }
-
-        sres = snprintf(tmp2, sizeof(tmp2), fmt, tmp1, port);
-
-        if (sres < 0 || sres >= sizeof(tmp2)) {
-            return -1;
-        }
-
-        evhtp_kv_rm_and_free(headers, evhtp_kvs_find_kv(headers, "X-Forwarded-For"));
-
-        evhtp_headers_add_header(headers,
-                                 evhtp_header_new("X-Forwarded-For", tmp2, 0, 1));
-    }
-
-    if (upstream_req->conn->ssl) {
-        if (append_ssl_x_headers(headers_cfg, upstream_req) < 0) {
-            return -1;
-        }
-    }
-
-    return 0;
-} /* append_x_headers */
-
-evhtp_res
-upstream_on_write(evhtp_connection_t * conn, void * args) {
-    request_t * ds_req;
-
-    ds_req = args;
-    assert(ds_req != NULL);
-
-    if (ds_req->hit_upstream_highwm) {
-        /* upstream hit a high watermark for its write buffer, but now the
-         * buffer has been fully flushed, so we can enable the read side of the
-         * downstream again.
-         */
-        bufferevent_enable(ds_req->downstream_conn->connection, EV_READ);
-        ds_req->hit_upstream_highwm = 0;
-    }
-
-    return EVHTP_RES_OK;
-}
-
-/**
- * @brief data was read from an upstream connection, pass it down to the
- * downstream.
- *
- * @param bev
- * @param arg
- */
-void
-passthrough_readcb(evbev_t * bev, void * arg) {
-    request_t * request;
-
-    request = arg;
-    assert(request != NULL);
-
-    /* write the data read from the upstream bufferevent to the downstream
-     * bufferevent.
-     */
-    bufferevent_write_buffer(request->downstream_bev, bufferevent_get_input(bev));
-}
-
-void
-passthrough_writecb(evbev_t * bev, void * arg) {
-    return;
-}
-
-void
-passthrough_eventcb(evbev_t * bev, short events, void * arg) {
-    int              res;
-    request_t      * request;
-    downstream_c_t * ds_conn;
-
-
-    request = arg;
-    assert(request != NULL);
-
-    ds_conn = request->downstream_conn;
-
-    bufferevent_free(request->upstream_bev);
-    downstream_connection_set_down(ds_conn);
-
-    request_free(request);
-
-    ds_conn->request = NULL;
-}
-
-evhtp_res
-send_upstream_headers(evhtp_request_t * upstream_req, evhtp_headers_t * hdrs, void * arg) {
-    /* evhtp has parsed the inital request (request + headers). From this
-     * request generate a proper request which can be pipelined to the
-     * downstream connection
-     */
-    request_t      * request;
-    rproxy_t       * rproxy;
-    evhtp_header_t * connection_hdr;
-    evbuf_t        * buf;
-    rule_cfg_t     * rule_cfg;
-    rule_t         * rule;
-    headers_cfg_t  * headers;
-    char           * query_args;
-    evhtp_res        res = EVHTP_RES_OK;
-
-    request  = arg;
-    assert(request != NULL);
-
-    rproxy   = request->rproxy;
-    assert(rproxy != NULL);
-
-    rule     = request->rule;
-    assert(rule != NULL);
-
-    rule_cfg = rule->config;
-    assert(rule_cfg != NULL);
-
-    if (request->pending == 1) {
-        abort();
-    }
-
-    if (!request->downstream_conn->connection) {
-        logger_log_request_error(rule->err_log, request, "%s(): conn == NULL", __FUNCTION__);
-        return EVHTP_RES_ERROR;
-    }
-
-    /* default the x-header configuration to the rule, but if not found,
-     * fallback to the vhost parent's config.
-     */
-    headers = rule->config->headers;
-
-    if (!headers) {
-        headers = rule->parent_vhost->config->headers;
-    }
-
-    /* Add X-Headers to the request if applicable */
-    if (headers) {
-        if (append_x_headers(headers, upstream_req) < 0) {
-            logger_log_request_error(rule->err_log, request,
-                                     "%s(): append_x_headers < 0", __FUNCTION__);
-            return EVHTP_RES_ERROR;
-        }
-    }
-
-    /* checks to determine of the upstream request is set to a
-     * non keep-alive state, and if it is it magically converts
-     * it to a keep-alive request to send to the downstream so
-     * the connection remains open
-     */
-    switch (upstream_req->proto) {
-        case EVHTP_PROTO_10:
-            if (upstream_req->keepalive > 0) {
-                break;
-            }
-
-            /* upstream request is HTTP/1.0 with no keep-alive header,
-             * to keep our connection alive to the downstream we insert
-             * a Connection: Keep-Alive header
-             */
-
-            if ((connection_hdr = evhtp_headers_find_header(hdrs, "Connection"))) {
-                evhtp_header_rm_and_free(hdrs, connection_hdr);
-            }
-
-            connection_hdr = evhtp_header_new("Connection", "Keep-Alive", 0, 0);
-
-            if (connection_hdr == NULL) {
-                logger_log_request_error(rule->err_log, request,
-                                         "%s(): couldn't create new header %s",
-                                         __FUNCTION__, strerror(errno));
-                exit(EXIT_FAILURE);
-            }
-
-            evhtp_headers_add_header(hdrs, connection_hdr);
-            break;
-        case EVHTP_PROTO_11:
-            if (upstream_req->keepalive > 0) {
-                break;
-            }
-
-            /* upstream request is HTTP/1.1 but the Connection: close header was
-             * present, so just remove the header to keep downstream connection
-             * alive.
-             */
-
-            const char * v = evhtp_kv_find(hdrs, "Connection");
-
-            connection_hdr = evhtp_headers_find_header(hdrs, "Connection");
-
-            if (!strcasecmp(v, "close")) {
-                upstream_req->keepalive = 0;
-            }
-
-            evhtp_header_rm_and_free(hdrs, connection_hdr);
-            break;
-        default:
-            logger_log_request_error(rule->err_log, request,
-                                     "%s(): unknown proto %d",
-                                     __FUNCTION__, upstream_req->proto);
-            return EVHTP_RES_ERROR;
-    } /* switch */
-
-    buf = util_request_to_evbuffer(upstream_req);
-    assert(buf != NULL);
-
-    bufferevent_write_buffer(request->downstream_bev, buf);
-    evbuffer_free(buf);
-
-    /* TODO: if the upstream's input bev still has data, write it here... */
-    if (rule_cfg->passthrough == true) {
-        /* rule configured to be passthrough, so we take ownership of the
-         * bufferevent and ignore any state based processing of the request.
-         * This allows for non-http specific protocols to flow such as
-         * websocket.
-         */
-        evbev_t * bev;
-
-        bev = evhtp_connection_take_ownership(evhtp_request_get_connection(upstream_req));
-        assert(bev != NULL);
-
-        /* our on_headers_complete hook will call this function before the last
-         * \n in the \r\n\r\n part, so we have to remove this.
-         */
-        evbuffer_drain(bufferevent_get_input(bev), 1);
-
-        bufferevent_enable(bev, EV_READ | EV_WRITE);
-        bufferevent_setcb(bev,
-                          passthrough_readcb,
-                          passthrough_writecb,
-                          passthrough_eventcb, request);
-
-        request->upstream_request = NULL;
-
-        return EVHTP_RES_USER;
-    }
-
-
-
-    return res;
-} /* send_upstream_headers */
-
-evhtp_res
-send_upstream_body(evhtp_request_t * upstream_req, evbuf_t * buf, void * arg) {
-    /* stream upstream request body to the downstream server */
-    request_t      * request;
-    rule_t         * rule;
-    rproxy_t       * rproxy;
-    downstream_c_t * ds_conn;
-
-    request = arg;
-    assert(request != NULL);
-
-    rproxy  = request->rproxy;
-    assert(rproxy != NULL);
-
-    rule    = request->rule;
-    assert(rule != NULL);
-
-    if (!upstream_req || !buf) {
-        logger_log_request_error(rule->err_log, request,
-                                 "%s(): up_req = %p, buf = %p", __FUNCTION__, upstream_req, buf);
-        return EVHTP_RES_FATAL;
-    }
-
-    if (!(ds_conn = request->downstream_conn)) {
-        logger_log_request_error(rule->err_log, request,
-                                 "%s(): downstream_conn == NULL", __FUNCTION__);
-        return EVHTP_RES_FATAL;
-    }
-
-    if (!ds_conn->connection || request->error > 0) {
-        logger_log_request_error(rule->err_log, request,
-                                 "%s(): conn = %p, req error = %d",
-                                 __FUNCTION__, ds_conn->connection, request->error);
-        evbuffer_drain(buf, -1);
-
-        return EVHTP_RES_ERROR;
-    }
-
-    bufferevent_write_buffer(ds_conn->connection, buf);
-
-    if (ds_conn->parent->config->high_watermark > 0) {
-        if (evbuffer_get_length(bufferevent_get_output(ds_conn->connection)) >= ds_conn->parent->config->high_watermark) {
-            request->hit_highwm = 1;
-#ifdef RPROXY_DEBUG
-            printf("Hit high-watermark %zu: %zu in output\n",
-                   ds_conn->parent->config->high_watermark,
-                   evbuffer_get_length(bufferevent_get_output(ds_conn->connection)));
+#include "event/rp-dispatcher-impl.h"
+#include "event/rp-real-time-system.h"
+#include "network/rp-accepted-socket-impl.h"
+#include "network/rp-default-client-conn-factory.h"
+#include "network/rp-transport-socket-factory-impl.h"
+#include "router/rp-router-filter.h"
+#include "server/rp-instance-impl.h"
+#include "server/rp-factory-context-impl.h"
+#include "stream_info/rp-stream-info-impl.h"
+#include "upstream/rp-cluster-factory-impl.h"
+#include "upstream/rp-cluster-manager-impl.h"
+#include "upstream/rp-host-impl.h"
+#include "rp-active-tcp-conn.h"
+#include "rp-cluster-configuration.h"
+#include "rp-codec-client-prod.h"
+#include "rp-dfp-cluster-factory.h"
+#include "rp-headers.h"
+#include "rp-http-conn-manager-config.h"
+#include "rp-http-conn-manager-impl.h"
+#include "rp-net-server-conn-impl.h"
+#include "rp-per-host-upstream.h"
+#include "rp-static-cluster-factory.h"
+
+#if (defined(rproxy_NOISY) || defined(ALL_NOISY)) && !defined(NO_rproxy_NOISY)
+#   define NOISY_MSG_ LOGD
+#else
+#   define NOISY_MSG_(x, ...)
 #endif
-            evhtp_request_pause(upstream_req);
-            return EVHTP_RES_PAUSE;
-        }
-    }
 
-    return EVHTP_RES_OK;
-} /* send_upstream_body */
+typedef struct thread_ctx thread_ctx_t;
+struct thread_ctx {
+    server_cfg_t* m_server_cfg;
+    const rproxy_hooks_t* m_hooks;
+};
 
-evhtp_res
-send_upstream_new_chunk(evhtp_request_t * upstream_req, uint64_t len, void * arg) {
-    request_t      * request;
-    rproxy_t       * rproxy;
-    downstream_c_t * ds_conn;
-    rule_t         * rule;
+static RpInstanceImpl* server = NULL;
+static RpFactoryContextImpl* factory_context = NULL; // It *appears* this is the listener_manger (or listener?) in envoy.???
+static RpTransportSocketFactoryImpl* transport_socket_factory = NULL;
 
-    request = arg;
-    assert(request != NULL);
-
-    rproxy  = request->rproxy;
-    assert(rproxy != NULL);
-
-    rule    = request->rule;
-    assert(rproxy != NULL);
-
-    if (!upstream_req) {
-        logger_log(rproxy->err_log, lzlog_err, "%s(): !upstream_req", __FUNCTION__);
-
-        return EVHTP_RES_FATAL;
-    }
-
-    if (!(ds_conn = request->downstream_conn)) {
-        logger_log_request_error(rule->err_log, request,
-                                 "%s(): downstream_conn == NULL", __FUNCTION__);
-        return EVHTP_RES_FATAL;
-    }
-
-    if (!ds_conn->connection || request->error > 0) {
-        logger_log_request_error(rule->err_log, request,
-                                 "%s(): conn = %p, err = %d",
-                                 __FUNCTION__, ds_conn->connection, request->error);
-        return EVHTP_RES_ERROR;
-    }
-
-    evbuffer_add_printf(bufferevent_get_output(ds_conn->connection),
-                        "%x\r\n", (unsigned int)len);
-
-    return EVHTP_RES_OK;
-} /* send_upstream_new_chunk */
-
-evhtp_res
-send_upstream_chunk_done(evhtp_request_t * upstream_req, void * arg) {
-    request_t      * request;
-    rproxy_t       * rproxy;
-    downstream_c_t * ds_conn;
-    rule_t         * rule;
-
-    request = arg;
-    assert(request != NULL);
-
-    rule    = request->rule;
-    assert(rule != NULL);
-
-    rproxy  = request->rproxy;
-    assert(rproxy != NULL);
-
-    ds_conn = request->downstream_conn;
-    assert(ds_conn != NULL);
-
-    if (!ds_conn->connection || request->error > 0) {
-        logger_log_request_error(rule->err_log, request,
-                                 "%s(): conn = %p, err = %d",
-                                 __FUNCTION__, ds_conn->connection, request->error);
-        return EVHTP_RES_ERROR;
-    }
-
-    bufferevent_write(ds_conn->connection, "\r\n", 2);
-    return EVHTP_RES_OK;
-}
-
-evhtp_res
-send_upstream_chunks_done(evhtp_request_t * upstream_req, void * arg) {
-    request_t      * request;
-    rproxy_t       * rproxy;
-    rule_t         * rule;
-    downstream_c_t * ds_conn;
-
-    request = arg;
-    assert(request != NULL);
-
-    rule    = request->rule;
-    assert(rule != NULL);
-
-    rproxy  = request->rproxy;
-    assert(rproxy != NULL);
-
-    ds_conn = request->downstream_conn;
-    assert(ds_conn != NULL);
-
-    if (!ds_conn->connection || request->error > 0) {
-        logger_log_request_error(rule->err_log, request,
-                                 "%s(): dsconn = %p, err = %d", __FUNCTION__,
-                                 ds_conn->connection, request->error);
-        return EVHTP_RES_ERROR;
-    }
-
-    bufferevent_write(ds_conn->connection, "0\r\n\r\n", 5);
-    return EVHTP_RES_OK;
-}
-
-evhtp_res
-upstream_fini(evhtp_request_t * upstream_req, void * arg) {
-    request_t      * request;
-    rproxy_t       * rproxy;
-    downstream_c_t * ds_conn;
-    downstream_t   * downstream;
-    rule_t         * rule;
-    int              res;
-
-    request = arg;
-    assert(request != NULL);
-
-    rule    = request->rule;
-    assert(rule != NULL);
-
-    rproxy  = request->rproxy;
-    assert(rproxy != NULL);
-
-    /* if this downstream request is still pending, remove it from the queue */
-    if (request->pending) {
-        TAILQ_REMOVE(&rproxy->pending, request, next);
-        rproxy->n_pending -= 1;
-        request_free(request);
-        return EVHTP_RES_OK;
-    }
-
-    ds_conn = request->downstream_conn;
-    assert(ds_conn != NULL);
-
-    if (REQUEST_HAS_ERROR(request)) {
-        logger_log_request_error(rule->err_log, request,
-                                 "%s(): we should never get here!", __FUNCTION__);
-        downstream_connection_set_down(ds_conn);
-    } else {
-        downstream_connection_set_idle(ds_conn);
-    }
-
-    request_free(request);
-
-    return EVHTP_RES_OK;
-} /* upstream_fini */
-
-/**
- * @brief called when an upstream socket encounters an error.
- *
- * @param upstream_req
- * @param arg
- */
-static void
-upstream_error(evhtp_request_t * upstream_req, short events, void * arg) {
-    request_t      * request;
-    rproxy_t       * rproxy;
-    downstream_c_t * ds_conn;
-    rule_t         * rule;
-
-    request = arg;
-    assert(request != NULL);
-
-    rule    = request->rule;
-    assert(rule != NULL);
-
-    rproxy  = request->rproxy;
-    assert(rproxy != NULL);
-
-    evhtp_unset_all_hooks(&upstream_req->hooks);
-
-    logger_log(rule->err_log, lzlog_warn, "%s(): client aborted, err = %x",
-               __FUNCTION__, events);
-
-    if (request->pending) {
-        /* upstream encountered socket error while still in a pending state */
-        assert(request->downstream_conn == NULL);
-
-        TAILQ_REMOVE(&rproxy->pending, request, next);
-        rproxy->n_pending -= 1;
-        request_free(request);
-        return;
-    }
-
-    request->upstream_err = 1;
-
-    ds_conn = request->downstream_conn;
-    assert(ds_conn != NULL);
-
-    if (!request->reading) {
-        /* since we are not currently dealing with data being parsed by
-         * downstream_connection_readcb, we must do all the resource cleanup
-         * here.
-         */
-
-        if (request->done) {
-            /* the request was completely finished, so we can safely set the
-             * downstream as idle.
-             */
-            logger_log_request_error(rule->err_log, request,
-                                     "%s(): req completed, client aborted", __FUNCTION__);
-            downstream_connection_set_idle(ds_conn);
-        } else {
-            /* request never completed, set the connection to down */
-            logger_log_request_error(rule->err_log, request,
-                                     "req incomplete, client aborted", __FUNCTION__);
-            downstream_connection_set_down(ds_conn);
-        }
-
-        if (ds_conn->request == request) {
-            ds_conn->request = NULL;
-        }
-
-        request_free(request);
-    }
-} /* upstream_error */
+RpPerHostGenericConnPoolFactory* default_conn_pool_factory = NULL;
+RpDefaultClientConnectionFactory* default_client_connection_factory = NULL;
 
 /**
  * @brief allocates a new downstream_t, and appends it to the
@@ -734,46 +96,68 @@ upstream_error(evhtp_request_t * upstream_req, short events, void * arg) {
  * @return
  */
 static int
-add_downstream(lztq_elem * elem, void * arg) {
-    rproxy_t         * rproxy = arg;
-    downstream_cfg_t * ds_cfg = lztq_elem_data(elem);
-    downstream_t     * downstream;
-    lztq_elem        * nelem;
+add_downstream(lztq_elem* elem, void* arg)
+{
+    LOGD("(%p, %p)", elem, arg);
 
-    assert(rproxy != NULL);
-    assert(ds_cfg != NULL);
+    rproxy_t* rproxy = arg;
+    g_assert(rproxy != NULL);
 
-    downstream = downstream_new(rproxy, ds_cfg);
-    assert(downstream != NULL);
+    downstream_cfg_t* ds_cfg = lztq_elem_data(elem);
+    g_assert(ds_cfg != NULL);
 
-    nelem      = lztq_append(rproxy->downstreams, downstream,
-                             sizeof(downstream), downstream_free);
-    assert(nelem != NULL);
+    downstream_t* downstream = downstream_new(rproxy, ds_cfg);
+    g_assert(downstream != NULL);
+
+    lztq_elem* nelem = lztq_append(rproxy->downstreams, downstream,
+                                    sizeof(downstream), downstream_free);
+    g_assert(nelem != NULL);
 
     return 0;
 }
 
-/**
- * @brief creates n connections to the server information contained in a
- *        downstream_t instance. This is the callback for the lztq_for_each
- *        function from rproxy_thread_init() (after the downstream list has been
- *        created.
- *
- * @param elem
- * @param arg
- *
- * @return
- */
 static int
-start_downstream(lztq_elem * elem, void * arg) {
-    evbase_t     * evbase     = arg;
-    downstream_t * downstream = lztq_elem_data(elem);
+map_rule_to_downstreams(rule_t* rule, rule_cfg_t* rule_cfg, rproxy_t* rproxy)
+{
+    LOGD("(%p, %p, %p)", rule, rule_cfg, rproxy);
 
-    assert(evbase != NULL);
-    assert(downstream != NULL);
+    LOGD("rule_cfg %p(%s)", rule_cfg, rule_cfg->name);
 
-    return downstream_connection_init(evbase, downstream);
-}
+    rule->rproxy       = rproxy;
+    rule->config       = rule_cfg;
+
+    rule->downstreams = lztq_new();
+    g_assert(rule->downstreams != NULL);
+
+    /* for each string in the rule_cfg's downstreams section, find the matching
+     * downstream_t and append it.
+     */
+    for (lztq_elem* elem = lztq_first(rule_cfg->downstreams); elem; elem = lztq_next(elem))
+    {
+        const char* ds_name = lztq_elem_data(elem);
+        g_assert(ds_name != NULL);
+
+        downstream_t* ds;
+        if (!(ds = downstream_find_by_name(rproxy->downstreams, ds_name)))
+        {
+            /* could not find a downstream_t which has this name! */
+            LOGE("Could not find downstream named '%s!", ds_name);
+            exit(EXIT_FAILURE);
+        }
+
+        lztq_elem* nelem = lztq_append(rule->downstreams, ds, sizeof(ds), NULL);
+        g_assert(nelem != NULL);
+    }
+
+    /* upstream_request_start_hook is passed only the rule_cfg as an argument.
+     * This function will call file_rule_from_cfg to get the actual rule from
+     * the global rproxy->rules list. Since we compare pointers, it is safe to
+     * keep this as one single list.
+     */
+    lztq_append(rproxy->rules, rule, sizeof(rule), NULL);
+
+    return 0;
+} /* map_rule_to_downstreams */
 
 /**
  * @brief match up names in the list of downstream_cfg_t's in rule_cfg->downstreams
@@ -786,28 +170,27 @@ start_downstream(lztq_elem * elem, void * arg) {
  * @return
  */
 static int
-map_vhost_rules_to_downstreams(lztq_elem * elem, void * arg) {
-    vhost_t    * vhost = arg;
-    rproxy_t   * rproxy;
-    rule_cfg_t * rule_cfg;
-    lztq_elem  * name_elem;
-    lztq_elem  * name_elem_temp;
-    rule_t     * rule;
+map_vhost_rules_to_downstreams(lztq_elem* elem, void* arg)
+{
+    LOGD("(%p, %p)", elem, arg);
 
-    vhost              = arg;
-    assert(arg != NULL);
+    vhost_t* vhost = arg;
+    g_assert(vhost != NULL);
 
-    rproxy             = vhost->rproxy;
-    assert(rproxy != NULL);
+    LOGD("vhost %p(%s)", vhost, vhost->config->server_name);
 
-    rule_cfg           = lztq_elem_data(elem);
-    assert(rule_cfg != NULL);
+    rproxy_t* rproxy = vhost->rproxy;
+    g_assert(rproxy != NULL);
 
-    rule               = calloc(sizeof(rule_t), 1);
-    assert(rule != NULL);
+    rule_cfg_t* rule_cfg = lztq_elem_data(elem);
+    g_assert(rule_cfg != NULL);
 
-    rule->rproxy       = rproxy;
-    rule->config       = rule_cfg;
+    LOGD("rule_cfg %p(%s)", rule_cfg, rule_cfg->name);
+
+    rule_t* rule = g_new0(rule_t, 1);
+    g_assert(rule != NULL);
+
+    map_rule_to_downstreams(rule, rule_cfg, rproxy);
     rule->parent_vhost = vhost;
 
     /*
@@ -815,12 +198,21 @@ map_vhost_rules_to_downstreams(lztq_elem * elem, void * arg) {
      * if a vhost specific logging is found then set it to rule. otherwise
      * if a server specific logging is found, set both vhost and rule to this.
      */
-
-    if (rule_cfg->req_log) {
+// REVISIT: not sure how this would EVER be set in its current from.(?)
+#ifdef WITH_LOGGER
+    if (rule_cfg->req_log)
+    {
+        LOGD("rule_cfg->req_log");
         rule->req_log = logger_init(rule_cfg->req_log, 0);
-    } else if (vhost->req_log) {
+    }
+    else if (vhost->req_log)
+    {
+        LOGD("vhost->req_log");
         rule->req_log = vhost->req_log;
-    } else {
+    }
+    else
+    {
+        LOGD("rproxy->req_log");
         rule->req_log  = rproxy->req_log;
         vhost->req_log = rproxy->req_log;
     }
@@ -828,140 +220,71 @@ map_vhost_rules_to_downstreams(lztq_elem * elem, void * arg) {
     /*
      * the same logic applies as above for error logging.
      */
-
-    if (rule_cfg->err_log) {
+    if (rule_cfg->err_log)
+    {
+        LOGD("rule_cfg->err_log");
         rule->err_log = logger_init(rule_cfg->err_log, 0);
-    } else if (vhost->err_log) {
+    }
+    else if (vhost->err_log)
+    {
+        LOGD("vhost->err_log");
         rule->err_log = vhost->err_log;
-    } else {
+    }
+    else
+    {
+        LOGD("rproxy->err_log");
         rule->err_log  = rproxy->err_log;
         vhost->err_log = rproxy->err_log;
     }
-
-    rule->downstreams = lztq_new();
-    assert(rule->downstreams != NULL);
-
-    /* for each string in the rule_cfg's downstreams section, find the matching
-     * downstream_t and append it.
-     */
-    for (name_elem = lztq_first(rule_cfg->downstreams); name_elem != NULL; name_elem = name_elem_temp) {
-        const char   * ds_name;
-        downstream_t * ds;
-        lztq_elem    * nelem;
-
-        ds_name = lztq_elem_data(name_elem);
-        assert(ds_name != NULL);
-
-        if (!(ds = downstream_find_by_name(rproxy->downstreams, ds_name))) {
-            /* could not find a downstream_t which has this name! */
-            fprintf(stderr, "Could not find downstream named '%s!\n", ds_name);
-            exit(EXIT_FAILURE);
-        }
-
-        nelem          = lztq_append(rule->downstreams, ds, sizeof(ds), NULL);
-        assert(nelem != NULL);
-
-        name_elem_temp = lztq_next(name_elem);
-    }
-
-
-    /* upstream_request_start is passed only the rule_cfg as an argument. this
-     * function will call file_rule_from_cfg to get the actual rule from the
-     * global rproxy->rules list. Since we compare pointers, it is safe to keep
-     * this as one single list.
-     */
-    lztq_append(rproxy->rules, rule, sizeof(rule), NULL);
+#endif//WITH_LOGGER
 
     return 0;
 } /* map_vhost_rules_to_downstreams */
 
-static rule_t *
-find_rule_from_cfg(rule_cfg_t * rule_cfg, lztq * rules) {
-    lztq_elem * rule_elem;
-    lztq_elem * rule_elem_temp;
+static int
+map_default_rule_to_downstreams(rule_t* rule, rule_cfg_t* rule_cfg, rproxy_t* rproxy)
+{
+    LOGD("(%p, %p, %p)", rule, rule_cfg, rproxy);
 
-    for (rule_elem = lztq_first(rules); rule_elem != NULL; rule_elem = rule_elem_temp) {
-        rule_t * rule = lztq_elem_data(rule_elem);
+    LOGD("rule_cfg %p(%s)", rule_cfg, rule_cfg->name);
 
-        if (rule->config == rule_cfg) {
-            return rule;
-        }
+    map_rule_to_downstreams(rule, rule_cfg, rproxy);
 
-        rule_elem_temp = lztq_next(rule_elem);
+    /*
+     * if a rule specific logging is found then all is good to go. otherwise
+     * if a vhost specific logging is found then set it to rule. otherwise
+     * if a server specific logging is found, set both vhost and rule to this.
+     */
+// REVISIT: not sure how this would EVER be set in its current from.(?)
+#ifdef WITH_LOGGER
+    if (rule_cfg->req_log)
+    {
+        LOGD("rule_cfg->req_log");
+        rule->req_log = logger_init(rule_cfg->req_log, 0);
+    }
+    else
+    {
+        LOGD("rproxy->req_log");
+        rule->req_log  = rproxy->req_log;
     }
 
-    return NULL;
-}
-
-/**
- * @brief Called when an upstream request is in the pending queue and the
- *        configured timeout has been reached.
- *
- * @param fd
- * @param what
- * @param arg
- */
-static void
-downstream_pending_timeout(evutil_socket_t fd, short what, void * arg) {
-    request_t       * ds_req;
-    rproxy_t        * rproxy;
-    evhtp_request_t * up_req;
-    rule_t          * rule;
-    rule_cfg_t      * rule_cfg;
-
-    ds_req   = arg;
-    assert(ds_req != NULL);
-
-    rule     = ds_req->rule;
-    assert(rule != NULL);
-
-    rule_cfg = rule->config;
-    assert(rule_cfg != NULL);
-
-    rproxy   = ds_req->rproxy;
-    assert(rproxy != NULL);
-
-    if (rule_cfg->passthrough == true) {
-        /*
-         * since we're in passthrough mode, we don't need to free any evhtp
-         * resources; so we just close the upstream socket and free the request
-         */
-        if (ds_req->pending) {
-            TAILQ_REMOVE(&rproxy->pending, ds_req, next);
-            rproxy->n_pending -= 1;
-        }
-
-        bufferevent_free(ds_req->upstream_bev);
-
-        logger_log(rule->err_log, lzlog_notice,
-                   "%s(): pending timeout hit for upstream (passthrough)", __FUNCTION__);
-
-        return request_free(ds_req);
+    /*
+     * the same logic applies as above for error logging.
+     */
+    if (rule_cfg->err_log)
+    {
+        LOGD("rule_cfg->err_log");
+        rule->err_log = logger_init(rule_cfg->err_log, 0);
     }
-
-    up_req = ds_req->upstream_request;
-    assert(up_req != NULL);
-
-    /* unset all hooks except for the fini, evhtp_send_reply() will call the
-     * fini function after the 503 message has been delivered */
-    evhtp_unset_hook(&up_req->hooks, evhtp_hook_on_headers);
-    evhtp_unset_hook(&up_req->hooks, evhtp_hook_on_new_chunk);
-    evhtp_unset_hook(&up_req->hooks, evhtp_hook_on_chunk_complete);
-    evhtp_unset_hook(&up_req->hooks, evhtp_hook_on_chunks_complete);
-    evhtp_unset_hook(&up_req->hooks, evhtp_hook_on_read);
-    evhtp_unset_hook(&up_req->hooks, evhtp_hook_on_error);
-
-    up_req->keepalive = 0;
-
-    evhtp_headers_add_header(up_req->headers_out, evhtp_header_new("Connection", "close", 0, 0));
-    evhtp_request_resume(up_req);
-    evhtp_send_reply(up_req, 503);
-
-    if (ds_req->rule) {
-        logger_log(rule->err_log, lzlog_notice,
-                   "%s(): pending timeout hit for upstream client", __FUNCTION__);
+    else
+    {
+        LOGD("rproxy->err_log");
+        rule->err_log  = rproxy->err_log;
     }
-} /* downstream_pending_timeout */
+#endif//WITH_LOGGER
+
+    return 0;
+} /* map_default_rule_to_downstreams */
 
 /**
  * @brief Before accepting an upstream connection, evhtp will call this function
@@ -974,178 +297,220 @@ downstream_pending_timeout(evutil_socket_t fd, short what, void * arg) {
  * @return
  */
 evhtp_res
-upstream_pre_accept(evhtp_connection_t * up_conn, void * arg) {
-    rproxy_t * rproxy;
+upstream_pre_accept(evhtp_connection_t* up_conn, void* arg)
+{
+    LOGD("(%p, %p)", up_conn, arg);
 
-    if (!(rproxy = evthr_get_aux(up_conn->thread))) {
-        return EVHTP_RES_FATAL;
-    }
+    rproxy_t* rproxy = evthr_get_aux(up_conn->thread);
+    NOISY_MSG_("rproxy %p, server_cfg %p(%s)", rproxy, rproxy->server_cfg, rproxy->server_cfg->name);
 
-    if (rproxy->server_cfg->max_pending <= 0) {
+    if (rproxy->server_cfg->max_pending <= 0)
+    {
         /* configured with unlimited pending */
+        LOGD("unlimited pending");
         return EVHTP_RES_OK;
     }
 
     /* check to see if we have too many pending requests, and if so, drop this
      * connection.
      */
-    if ((rproxy->n_pending + 1) > rproxy->server_cfg->max_pending) {
-#ifdef RPROXY_DEBUG
-        printf("Dropped connection, too many pending requests\n");
-#endif
+    if ((rproxy->n_pending + 1) > rproxy->server_cfg->max_pending)
+    {
+        LOGE("Dropped connection, too many pending requests");
         return EVHTP_RES_ERROR;
     }
 
-    if (rproxy->server_cfg->disable_client_nagle == 1) {
+    if (rproxy->server_cfg->disable_client_nagle)
+    {
         /* config has requested that client sockets have the nagle algorithm
          * turned off.
          */
 
+        LOGD("disabling nagle");
         setsockopt(up_conn->sock, IPPROTO_TCP, TCP_NODELAY, (int[]) { 1 }, sizeof(int));
     }
 
+    LOGD("returning EVHTP_RES_OK");
+    return EVHTP_RES_OK;
+}
 
+static inline RpNetworkTransportSocket*
+create_transport_socket(evhtp_connection_t* conn)
+{
+    NOISY_MSG_("(%p)", conn);
+    RpDownstreamTransportSocketFactory* factory = RP_DOWNSTREAM_TRANSPORT_SOCKET_FACTORY(transport_socket_factory);
+    return rp_downstream_transport_socket_factory_create_downstream_transport_socket(factory, conn);
+}
+
+static evhtp_res
+upstream_post_accept(evhtp_connection_t* up_conn, void* arg)
+{
+    LOGD("(%p, %p)", up_conn, arg);
+
+    rproxy_t* rproxy = evthr_get_aux(up_conn->thread);
+    NOISY_MSG_("rproxy %p, fd %d", rproxy, bufferevent_getfd(evhtp_connection_get_bev(up_conn)));
+
+    RpConnectionManagerConfig* config = RP_CONNECTION_MANAGER_CONFIG(rproxy->m_filter_config);
+    RpCommonFactoryContext* context = RP_COMMON_FACTORY_CONTEXT(rproxy->m_context);
+    RpNetworkTransportSocket* transport_socket = create_transport_socket(up_conn);
+    RpIoHandle* io_handle = rp_network_transport_socket_create_io_handle(transport_socket);
+    g_autoptr(RpAcceptedSocketImpl) socket = rp_accepted_socket_impl_new(io_handle, up_conn);
+    RpConnectionInfoSetter* info = rp_socket_connection_info_provider(RP_SOCKET(socket));
+    g_autoptr(RpStreamInfoImpl) stream_info =
+        rp_stream_info_impl_new(EVHTP_PROTO_INVALID,
+                                RP_CONNECTION_INFO_PROVIDER(info),
+                                RpFilterStateLifeSpan_Connection,
+                                NULL);
+    g_autoptr(RpNetworkServerConnectionImpl) connection =
+        rp_network_server_connection_impl_new(rproxy->m_dispatcher,
+                                                RP_CONNECTION_SOCKET(socket),
+                                                transport_socket,
+                                                RP_STREAM_INFO(stream_info));
+    g_autoptr(RpHttpConnectionManagerImpl) hcm =
+        rp_http_connection_manager_impl_new(config,
+                                            rp_common_factory_context_local_info(context),
+                                            rproxy->m_cluster_manager);
+    rp_network_filter_manager_add_read_filter(RP_NETWORK_FILTER_MANAGER(connection),
+                                                RP_NETWORK_READ_FILTER(g_steal_pointer(&hcm)));
+    g_autoptr(RpActiveTcpConn) active_conn =
+        rp_active_tcp_conn_new(&rproxy->m_active_connections,
+                                RP_NETWORK_CONNECTION(g_steal_pointer(&connection)),
+                                RP_STREAM_INFO(g_steal_pointer(&stream_info)));
+    rproxy->m_active_connections = g_list_append(rproxy->m_active_connections,
+                                                    g_steal_pointer(&active_conn));
     return EVHTP_RES_OK;
 }
 
 static evhtp_res
-upstream_dump_request(evhtp_request_t * r, const char * host, void * arg) {
+upstream_dump_request(evhtp_request_t * r, const char * host, void * arg)
+{
+    LOGD("(%p, %p(%s), %p)", r, host, host, arg);
     evhtp_send_reply(r, EVHTP_RES_NOTFOUND);
 
     return EVHTP_RES_ERROR;
 }
 
-evhtp_res
-upstream_request_start(evhtp_request_t * up_req, const char * hostname, void * arg) {
-    /* This function is called whenever evhtp has matched a hostname on a request.
-     *
-     * Once the downstream request has been initialized and setup, this function
-     * will *NOT* immediately start processing the request. This is because a
-     * downstream connection may not be available at the time this function is
-     * called.
-     *
-     * Instead, the request is placed in a pending request queue where this
-     * queue is processed once downstream_connection_set_idle() has signaled the
-     * process_pending event handler that a downstream connection is available.
-     *
-     * The return value of this function, EVHTP_RES_PAUSE, informs the evhtp
-     * backend to suspend reading on the socket on the upstream until
-     * process_pending successfully finds an idle downstream connection. From
-     * there the upstream request is resumed.
-     *
-     * TL;DNR: upstream request is not immediately processed, but placed in a
-     *         pending queue until a downstream connection becomes available.
-     */
-    rule_cfg_t         * rule_cfg   = NULL;
-    rule_t             * rule       = NULL;
-    rproxy_t           * rproxy     = NULL;
-    request_t          * ds_req     = NULL;
-    server_cfg_t       * serv_cfg   = NULL;
-    vhost_cfg_t        * vhost_cfg  = NULL;
-    evhtp_connection_t * up_conn    = NULL;
-    struct timeval     * pending_tv = NULL;
+/**
+ * @brief the evthr backlog callback used by evthr to "calculate" the most
+ *         appropriate threadpool worker to handle new connections.
+ *
+ * @param thr
+ *
+ * @return an integer number that indicates how "busy" |thr| is at the moment
+ *          (the higher the number, the "busier" it is).
+ */
+#ifdef WITH_BACKLOG_GETTER
+static int
+get_backlog_(evthr_t* thr)
+{
+    NOISY_MSG_("(%p)", thr);
 
-    /* the rproxy structure is contained within the evthr's aux var */
-    if (!(rproxy = evthr_get_aux(up_req->conn->thread))) {
-        return EVHTP_RES_FATAL;
+    rproxy_t* self = evthr_get_aux(thr);
+    g_assert(self != NULL);
+
+    return self->n_pending + self->n_processing;
+}
+#endif
+
+static inline RpLbPolicy_e
+translate_lb_policy(rule_cfg_t* cfg)
+{
+    NOISY_MSG_("(%p)", cfg);
+    switch (cfg->lb_method)
+    {
+        case lb_method_rr:
+        case lb_method_none:
+        default:
+            NOISY_MSG_("round_robin");
+            return RpLbPolicy_ROUND_ROBIN;
+        case lb_method_most_idle:
+            NOISY_MSG_("most_idle");
+            return RpLbPolicy_LEAST_REQUEST;
+        case lb_method_rand:
+            NOISY_MSG_("random");
+            return RpLbPolicy_RANDOM;
+    }
+}
+
+static inline RpDiscoveryType_e
+translate_discovery_type(rule_cfg_t* cfg)
+{
+    NOISY_MSG_("(%p)", cfg);
+    switch (cfg->discovery_type)
+    {
+        default:
+        case discovery_type_static:
+            NOISY_MSG_("static");
+            return RpDiscoveryType_STATIC;
+        case discovery_type_strict_dns:
+            NOISY_MSG_("strict_dns");
+            return RpDiscoveryType_STRICT_DNS;
+        case discovery_type_local_dns:
+            NOISY_MSG_("local_dns");
+            return RpDiscoveryType_LOCAL_DNS;
+        case discovery_type_eds:
+            NOISY_MSG_("eds");
+            return RpDiscoveryType_EDS;
+        case discovery_type_original_dst:
+            NOISY_MSG_("original_dst");
+            return RpDiscoveryType_ORIGINAL_DST;
+    }
+}
+
+static inline void
+create_dispatcher(rproxy_t* rproxy, const gchar* name)
+{
+    g_autoptr(RpRealTimeSystem) time_system = rp_real_time_system_new();
+    rproxy->m_dispatcher = RP_DISPATCHER(rp_dispatcher_impl_new(name, RP_TIME_SYSTEM(time_system), rproxy->thr));
+}
+
+static inline void
+create_cluster_manager(rproxy_t* rproxy)
+{
+    LOGD("(%p)", rproxy);
+
+    g_autoptr(RpClusterFactory) factory = RP_CLUSTER_FACTORY(
+        rp_static_cluster_factory_new());
+    g_autoptr(RpClusterFactory) dfp_factory = RP_CLUSTER_FACTORY(
+        rp_dfp_cluster_factory_new());
+    RpGenericFactoryContext* generic_context = RP_GENERIC_FACTORY_CONTEXT(factory_context);
+    RpServerFactoryContext* server_context = rp_generic_factory_context_server_factory_context(generic_context);
+    g_autoptr(RpClusterManager) cluster_manager = RP_CLUSTER_MANAGER(
+        rp_prod_cluster_manager_factory_new(server_context, RP_INSTANCE(server)));
+
+    for (lztq_elem* elem = lztq_first(rproxy->rules); elem; elem = lztq_next(elem))
+    {
+        rule_t* rule = lztq_elem_data(elem);
+        RpDiscoveryType_e cluster_discovery_type = translate_discovery_type(rule->config);
+        RpClusterFactory* cluster_factory = cluster_discovery_type == RpDiscoveryType_STRICT_DNS ? dfp_factory : factory;
+        gchar* name = g_strdup_printf("%p", rule->config);
+
+        NOISY_MSG_("rule %p, rule->config %p, name %p(%s), dispatcher %p",
+            rule, rule->config, name, name, rproxy->m_dispatcher);
+
+        RpClusterCfg cluster = {
+            .preconnect_policy = {
+                .per_upstream_preconnect_ratio = 1.0,
+                .predictive_preconnect_ratio = 1.0
+            },
+            .name = name,
+            .cluster_discovery_type = cluster_discovery_type,
+            .connect_timeout_secs = 5,
+            .per_connection_buffer_limit_bytes = 1024*1024,
+            .lb_policy = translate_lb_policy(rule->config),
+            .dns_lookup_family = RpDnsLookupFamily_AUTO,
+            .connection_pool_per_downstream_connection = false,
+            .lb_endpoints = rule->downstreams,
+            .factory = cluster_factory,
+            .dispatcher = rproxy->m_dispatcher,
+            .rule = rule
+        };
+        rp_cluster_manager_add_or_update_cluster(cluster_manager, &cluster, "");
     }
 
-    if (!(rule_cfg = arg)) {
-        return EVHTP_RES_FATAL;
-    }
-
-    if (!(rule = find_rule_from_cfg(rule_cfg, rproxy->rules))) {
-        return EVHTP_RES_FATAL;
-    }
-
-    if (lztq_size(rule_cfg->downstreams) == 0) {
-        /* no downstreams configured for this request, so we 404 this request */
-        logger_log(rule->err_log, lzlog_err,
-                   "no downstreams configured for rule %s (query %s)",
-                   rule_cfg->name, up_req->uri->path->full);
-        evhtp_send_reply(up_req, EVHTP_RES_NOTFOUND);
-        return EVHTP_RES_ERROR;
-    }
-
-
-    serv_cfg = rproxy->server_cfg;
-    assert(serv_cfg != NULL);
-
-    ds_req   = request_new(rproxy);
-    assert(ds_req != NULL);
-
-    up_conn  = evhtp_request_get_connection(up_req);
-    assert(up_conn != NULL);
-
-    ds_req->upstream_bev     = evhtp_request_get_bev(up_req);
-    ds_req->downstream_bev   = NULL;
-    ds_req->upstream_request = up_req;
-    ds_req->rule = rule;
-    ds_req->pending          = 1;
-    rproxy->n_pending       += 1;
-
-    /* if a rule has an upstream-[read|write]-timeout config set, we will set a
-     * upstream connection-specific timeout that overrides the global one.
-     */
-    if (rule_cfg->has_up_read_timeout || rule_cfg->has_up_write_timeout) {
-        evhtp_connection_set_timeouts(up_conn,
-                                      &rule_cfg->up_read_timeout,
-                                      &rule_cfg->up_write_timeout);
-    }
-
-    if (serv_cfg->pending_timeout.tv_sec || serv_cfg->pending_timeout.tv_usec) {
-        /* a pending timeout has been configured, so set an evtimer to trigger
-         * if this upstream request remains in the pending queue for that amount
-         * of time.
-         */
-        ds_req->pending_ev = evtimer_new(rproxy->evbase, downstream_pending_timeout, ds_req);
-        assert(ds_req->pending_ev != NULL);
-
-        evtimer_add(ds_req->pending_ev, &serv_cfg->pending_timeout);
-    }
-
-    /* Since this is called after a host header match, we set upstream request
-     * specific evhtp hooks specific to this request. This is done in order
-     * to stream the upstream data directly to the downstream and allow for
-     * the modification of the request made to the downstream.
-     */
-
-    /* call this function once all headers from the upstream have been parsed */
-    evhtp_set_hook(&up_req->hooks, evhtp_hook_on_headers,
-                   send_upstream_headers, ds_req);
-
-    evhtp_set_hook(&up_req->hooks, evhtp_hook_on_new_chunk,
-                   send_upstream_new_chunk, ds_req);
-
-    evhtp_set_hook(&up_req->hooks, evhtp_hook_on_chunk_complete,
-                   send_upstream_chunk_done, ds_req);
-
-    evhtp_set_hook(&up_req->hooks, evhtp_hook_on_chunks_complete,
-                   send_upstream_chunks_done, ds_req);
-
-    /* call this function if the upstream request contains a body */
-    evhtp_set_hook(&up_req->hooks, evhtp_hook_on_read,
-                   send_upstream_body, ds_req);
-
-    /* call this function after the upstream request has been marked as complete
-     */
-    evhtp_set_hook(&up_req->hooks, evhtp_hook_on_request_fini,
-                   upstream_fini, ds_req);
-
-    /* call this function if the upstream request encounters a socket error */
-    evhtp_set_hook(&up_req->hooks, evhtp_hook_on_error,
-                   upstream_error, ds_req);
-
-    evhtp_set_hook(&up_req->conn->hooks, evhtp_hook_on_write,
-                   upstream_on_write, ds_req);
-
-    /* insert this request into our pending queue and signal processor event */
-    TAILQ_INSERT_TAIL(&rproxy->pending, ds_req, next);
-    event_active(rproxy->request_ev, EV_WRITE, 1);
-
-    /* tell evhtp to stop reading from the upstream socket */
-    return EVHTP_RES_PAUSE;
-} /* upstream_request_start */
+    rproxy->m_cluster_manager = g_steal_pointer(&cluster_manager);
+    rproxy->m_context = server_context;
+}
 
 /**
  * @brief the evthr init callback. Setup rproxy event base and initialize
@@ -1155,106 +520,241 @@ upstream_request_start(evhtp_request_t * up_req, const char * hostname, void * a
  * @param thr
  * @param arg
  */
-void
-rproxy_thread_init(evhtp_t * htp, evthr_t * thr, void * arg) {
-    evbase_t     * evbase;
-    rproxy_t     * rproxy;
-    server_cfg_t * server_cfg;
-    int            res;
+static void
+rproxy_thread_init(evhtp_t* htp, evthr_t* thr, void* arg)
+{
+    LOGD("(%p(%p), %p(%p), %p)", htp, htp->evbase, thr, evthr_get_base(thr), arg);
 
-    assert(htp != NULL);
-    assert(thr != NULL);
+    g_return_if_fail(htp != NULL);
+    g_return_if_fail(thr != NULL);
+    g_return_if_fail(arg != NULL);
 
-    server_cfg          = arg;
-    assert(server_cfg != NULL);
+    g_object_ref(factory_context);
+    g_object_ref(transport_socket_factory);
+    g_object_ref(default_conn_pool_factory);
+    g_object_ref(default_client_connection_factory);
 
-    evbase              = evthr_get_base(thr);
-    assert(evbase != NULL);
+    thread_ctx_t* thread_ctx = arg;
+    g_atomic_rc_box_acquire(thread_ctx);
 
-    rproxy              = calloc(sizeof(rproxy_t), 1);
-    assert(rproxy != NULL);
+    server_cfg_t* server_cfg = thread_ctx->m_server_cfg;
 
-    rproxy->req_log     = logger_init(server_cfg->req_log_cfg, 0);
-    rproxy->err_log     = logger_init(server_cfg->err_log_cfg,
-                                      LZLOG_OPT_WNAME | LZLOG_OPT_WPID | LZLOG_OPT_WDATE);
+    LOGD("server %p(%s)", server_cfg, server_cfg->name);
+
+    evbase_t* evbase = evthr_get_base(thr);
+    g_assert(evbase != NULL);
+
+    rproxy_t* rproxy = g_new0(rproxy_t, 1);
+    g_assert(rproxy != NULL);
+    LOGD("rproxy %p", rproxy);
+
+    rproxy->worker_num = server_cfg_get_worker_num(server_cfg);
+
+#ifdef WITH_LOGGER
+    rproxy->req_log = logger_init(server_cfg->req_log_cfg, 0);
+    rproxy->err_log = logger_init(server_cfg->err_log_cfg,
+                                    LZLOG_OPT_WNAME | LZLOG_OPT_WPID | LZLOG_OPT_WDATE);
+#endif//WITH_LOGGER
 
     rproxy->downstreams = lztq_new();
-    assert(rproxy->downstreams != NULL);
+    g_assert(rproxy->downstreams != NULL);
 
-    rproxy->rules       = lztq_new();
-    assert(rproxy->rules != NULL);
+    rproxy->rules = lztq_new();
+    g_assert(rproxy->rules != NULL);
 
     /* create a dns_base which is used for various resolution functions, e.g.,
      * bufferevent_socket_connect_hostname()
      */
-    rproxy->dns_base    = evdns_base_new(evbase, 1);
-    assert(rproxy->dns_base != NULL);
-
-    /* init our pending request tailq */
-    TAILQ_INIT(&rproxy->pending);
+    rproxy->dns_base = evdns_base_new(evbase, 1);
+    g_assert(rproxy->dns_base != NULL);
 
     rproxy->server_cfg = server_cfg;
     rproxy->evbase     = evbase;
     rproxy->htp        = htp;
+    rproxy->thr        = thr;
+
+    g_autofree gchar* name = g_strdup_printf("%s(%u)", server_cfg->name, rproxy->worker_num);
+
+    create_dispatcher(rproxy, name);
+
+    RpRouteConfiguration route_config = {
+        .name = server_cfg->name,//TODO...use |name| from above.(?)
+        .virtual_hosts = server_cfg->vhosts,
+        .max_direct_response_body_size_bytes = 4*1024,
+        .ignore_port_in_host_matching = true,
+        .ignore_path_paramaters_in_path_matching = false
+    };
+    RpHttpConnectionManagerCfg proto_config = {
+        .codec_type = "HTTP1",
+        .max_request_headers_kb = DEFAULT_MAX_REQUEST_HEADERS_KB,
+        .http_protocol_options.max_headers_count = DEFAULT_MAX_HEADERS_COUNT,
+        .route_config = route_config,
+        .rules = rproxy->rules
+    };
+    rproxy->m_filter_config = rp_http_connection_manager_config_new(&proto_config,
+                                                                    RP_FACTORY_CONTEXT(factory_context));
+
+    /* create a pre-accept callback which will disconnect the client
+     * immediately if the max-pending request queue is over the configured
+     * limit.
+     */
+    evhtp_set_pre_accept_cb(htp, upstream_pre_accept, rproxy);
+    /* Create a post-accept callback which will configure and allocate a newly-
+     * accepted connection for processing.
+     */
+    evhtp_set_post_accept_cb(htp, upstream_post_accept, rproxy);
 
     /* create a downstream_t instance for each configured downstream */
-    res = lztq_for_each(server_cfg->downstreams, add_downstream, rproxy);
-    assert(res == 0);
-
-    /* enable the pending request processing event, this event is triggered
-     * whenever a downstream connection becomes available.
-     */
-    rproxy->request_ev = event_new(evbase, -1, EV_READ | EV_PERSIST,
-                                   rproxy_process_pending, rproxy);
-    assert(rproxy->request_ev != NULL);
+    int res = lztq_for_each(server_cfg->downstreams, add_downstream, rproxy);
+    g_assert(res == 0);
 
     /* set aux data argument to this threads specific rproxy_t structure */
     evthr_set_aux(thr, rproxy);
 
-    /* start all of our downstream connections */
-    res = lztq_for_each(rproxy->downstreams, start_downstream, evbase);
-    assert(res == 0);
+#ifdef WITH_BACKLOG_GETTER
+    /* ser the thread backlog getter callback to our own */
+    evthr_set_backlog_getter(thr, get_backlog_);
+#endif
 
+    /* for each virtual server, iterate over each rule_cfg and create a
+     * rule_t structure.
+     *
+     * Since each of these rule_t's are unique pointers, we append them
+     * to the global rproxy->rules list (evhtp takes care of the vhost
+     * matching, and the rule_cfg is passed as the argument to
+     * upstream_request_start_hook).
+     *
+     * Each rule_t has a downstreams list containing pointers to
+     * (already allocated) downstream_t structures.
+     */
+    lztq_elem* vhost_cfg_elem = lztq_first(server_cfg->vhosts);
+    while (vhost_cfg_elem)
     {
-        /* for each virtual server, iterate over each rule_cfg and create a
-         * rule_t structure.
-         *
-         * Since each of these rule_t's are unique pointers, we append them
-         * to the global rproxy->rules list (evhtp takes care of the vhost
-         * matching, and the rule_cfg is passed as the argument to
-         * upstream_request_start).
-         *
-         * Each rule_t has a downstreams list containing pointers to
-         * (already allocated) downstream_t structures.
+        vhost_cfg_t* vhost_cfg = lztq_elem_data(vhost_cfg_elem);
+        LOGD("vhost_cfg %p(%s)", vhost_cfg, vhost_cfg->server_name);
+
+        vhost_t* vhost = g_new0(vhost_t, 1);
+        g_assert(vhost != NULL);
+
+        /* initialize the vhost specific logging, these are used if a rule
+         * does not have its own logging configuration. This allows for rule
+         * specific logs, and falling back to a global one.
          */
-        lztq_elem * vhost_cfg_elem = NULL;
-        lztq_elem * vhost_cfg_temp = NULL;
+#ifdef WITH_LOGGER
+        vhost->req_log = logger_init(vhost_cfg->req_log, 0);
+        vhost->err_log = logger_init(vhost_cfg->err_log, 0);
+#endif//WITH_LOGGER
+        vhost->config  = vhost_cfg;
+        vhost->rproxy  = rproxy;
 
-        for (vhost_cfg_elem = lztq_first(server_cfg->vhosts); vhost_cfg_elem; vhost_cfg_elem = vhost_cfg_temp) {
-            vhost_cfg_t * vhost_cfg = lztq_elem_data(vhost_cfg_elem);
-            vhost_t     * vhost;
+        res = lztq_for_each(vhost_cfg->rule_cfgs, map_vhost_rules_to_downstreams, vhost);
+        g_assert(res == 0);
 
-            vhost          = calloc(sizeof(vhost_t), 1);
-            assert(vhost != NULL);
+        vhost_cfg_elem = lztq_next(vhost_cfg_elem);
+    }
 
-            /* initialize the vhost specific logging, these are used if a rule
-             * does not have its own logging configuration. This allows for rule
-             * specific logs, and falling back to a global one.
-             */
-            vhost->req_log = logger_init(vhost_cfg->req_log, 0);
-            vhost->err_log = logger_init(vhost_cfg->err_log, 0);
-            vhost->config  = vhost_cfg;
-            vhost->rproxy  = rproxy;
+    if (server_cfg->default_rule_cfg)
+    {
+        server_cfg->default_rule = g_new0(rule_t, 1);
+        g_assert(server_cfg->default_rule != NULL);
+        map_default_rule_to_downstreams(server_cfg->default_rule, server_cfg->default_rule_cfg, rproxy);
+        evhtp_set_gencb(htp, NULL, server_cfg->default_rule_cfg);
+    }
 
-            res = lztq_for_each(vhost_cfg->rule_cfgs, map_vhost_rules_to_downstreams, vhost);
-            assert(res == 0);
+    create_cluster_manager(rproxy);
 
-            vhost_cfg_temp = lztq_next(vhost_cfg_elem);
-        }
+    const rproxy_hooks_t* hooks = thread_ctx->m_hooks;
+    if (hooks && hooks->on_thread_init)
+    {
+        LOGD("calling hooks->on_thread_init(%p, %p)", rproxy, hooks->on_thread_init_arg);
+        hooks->on_thread_init(rproxy, hooks->on_thread_init_arg);
     }
 
     return;
 } /* rproxy_thread_init */
+
+static evhtp_t* create_htp(evbase_t* evbase, server_cfg_t* server_cfg);
+
+static void
+htp_worker_thread_init(evthr_t* thr, void* arg)
+{
+    LOGD("(%p, %p)", thr, arg);
+
+    struct thread_ctx* thread_ctx = arg;
+    struct server_cfg* server_cfg = thread_ctx->m_server_cfg;
+    struct event_base* evbase = evthr_get_base(thr);
+    struct evhtp* htp = create_htp(evbase, server_cfg);
+    if (!htp)
+    {
+        LOGE("alloc failed");
+        evthr_stop(thr);
+        return;
+    }
+
+    evhtp_enable_flag(htp, EVHTP_FLAG_ENABLE_REUSEPORT|EVHTP_FLAG_ENABLE_DEFER_ACCEPT);
+
+    if (evhtp_bind_socket(htp,
+                            server_cfg->bind_addr,
+                            server_cfg->bind_port,
+                            server_cfg->listen_backlog) < 0)
+    {
+        LOGE("[ERROR] unable to bind to %s:%d (%s)",
+                server_cfg->bind_addr,
+                server_cfg->bind_port,
+                strerror(errno));
+        exit(-1);
+    }
+
+    if (server_cfg->disable_server_nagle)
+    {
+        LOGD("disabling nagle");
+
+        /* disable the tcp nagle algorithm for the listener socket */
+        evutil_socket_t sock = evconnlistener_get_fd(htp->server);
+        g_assert(sock >= 0);
+
+        setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, (int[]) { 1 }, sizeof(int));
+    }
+
+    rproxy_thread_init(htp, thr, arg);
+
+} /* htp_worker_thread_init */
+
+static void
+rproxy_thread_exit(evhtp_t* htp, evthr_t* thr, void* arg)
+{
+    LOGD("(%p, %p, %p)", htp, thr, arg);
+
+    rproxy_t* rproxy = evthr_get_aux(thr);
+    thread_ctx_t* thread_ctx = arg;
+
+    const rproxy_hooks_t* hooks = thread_ctx->m_hooks;
+    if (hooks && hooks->on_thread_exit)
+    {
+        LOGD("calling hooks->on_thread_exit(%p, %p)", rproxy, hooks->on_thread_exit_arg);
+        hooks->on_thread_exit(rproxy, hooks->on_thread_exit_arg);
+    }
+
+    g_clear_object(&rproxy->m_filter_config);
+    g_clear_object(&rproxy->m_dispatcher);
+
+    g_object_unref(factory_context);
+    g_object_unref(transport_socket_factory);
+    g_object_unref(default_conn_pool_factory);
+    g_object_unref(default_client_connection_factory);
+
+    g_atomic_rc_box_release(thread_ctx);
+
+} /* rproxy_thread_exit */
+
+static void
+htp_worker_thread_exit(evthr_t* thr, void* arg)
+{
+    LOGD("(%p, %p)", thr, arg);
+
+    rproxy_t* rproxy = evthr_get_aux(thr);
+    rproxy_thread_exit(rproxy->htp, thr, arg);
+} /* htp_worker_thread_exit */
 
 /**
  * @brief Set an evhtp callback based on information in a single rule_cfg_t
@@ -1267,70 +767,84 @@ rproxy_thread_init(evhtp_t * htp, evthr_t * thr, void * arg) {
  * @return
  */
 static int
-add_callback_rule(lztq_elem * elem, void * arg) {
-    evhtp_t          * htp  = arg;
-    rule_cfg_t       * rule = lztq_elem_data(elem);
-    evhtp_callback_t * cb   = NULL;
+add_callback_rule(lztq_elem* elem, void* arg)
+{
+    LOGD("(%p, %p)", elem, arg);
 
-    switch (rule->type) {
+    evhtp_t* htp = arg;
+    g_assert(htp != NULL);
+
+    rule_cfg_t* rule = lztq_elem_data(elem);
+    LOGD("rule %p(%s), matchstr %p(%s)", rule, rule->name, rule->matchstr, rule->matchstr);
+
+    evhtp_callback_t* cb = NULL;
+    switch (rule->type)
+    {
         case rule_type_exact:
+            LOGD("exact");
             cb = evhtp_set_cb(htp, rule->matchstr, NULL, rule);
             break;
         case rule_type_regex:
+            LOGD("regex");
             cb = evhtp_set_regex_cb(htp, rule->matchstr, NULL, rule);
             break;
         case rule_type_glob:
+            LOGD("glob");
             cb = evhtp_set_glob_cb(htp, rule->matchstr, NULL, rule);
             break;
         case rule_type_default:
+            LOGD("default");
+        default:
             /* default rules will match anything */
             cb = evhtp_set_glob_cb(htp, "*", NULL, rule);
             break;
     }
 
-    if (cb == NULL) {
-        fprintf(stderr, "Could not compile evhtp callback for pattern \"%s\"\n", rule->matchstr);
+    if (cb == NULL)
+    {
+        LOGE("Could not compile evhtp callback for pattern \"%s\"", rule->matchstr);
+// REVISIT: should not be fatal.(?)
         exit(EXIT_FAILURE);
     }
-
-    /* if one of the callbacks matches, upstream_request_start will be called
-     * with the argument of this rule_cfg_t
-     */
-    evhtp_set_hook(&cb->hooks, evhtp_hook_on_hostname,
-                   upstream_request_start, rule);
 
     return 0;
 }
 
 static int
-add_vhost_name(lztq_elem * elem, void * arg) {
-    evhtp_t * htp_vhost = arg;
-    char    * name      = lztq_elem_data(elem);
+add_vhost_name(lztq_elem* elem, void* arg)
+{
+    LOGD("(%p, %p)", elem, arg);
 
-    assert(htp_vhost != NULL);
-    assert(name != NULL);
+    evhtp_t* htp_vhost = arg;
+    g_assert(htp_vhost != NULL);
 
+    char* name = lztq_elem_data(elem);
+    g_assert(name != NULL);
+
+    NOISY_MSG_("calling evhtp_add_alias(%p, %p(%s))", htp_vhost, name, name);
     return evhtp_add_alias(htp_vhost, name);
 }
 
 static int
-add_vhost(lztq_elem * elem, void * arg) {
-    evhtp_t     * htp       = arg;
-    vhost_cfg_t * vcfg      = lztq_elem_data(elem);
-    evhtp_t     * htp_vhost = NULL;
+add_vhost(lztq_elem* elem, void* arg)
+{
+    LOGD("(%p, %p)", elem, arg);
 
     /* create a new child evhtp for this vhost */
-    htp_vhost = evhtp_new(htp->evbase, NULL);
+    evhtp_t* htp = arg;
+    evhtp_t* htp_vhost = evhtp_new(htp->evbase, NULL);
 
     /* disable 100-continue responses, we let the downstreams deal with this.
      */
-    evhtp_disable_100_continue(htp_vhost);
+    evhtp_disable_flag(htp_vhost, EVHTP_FLAG_ENABLE_100_CONT);
 
     /* for each rule, create a evhtp callback with the defined type */
+    vhost_cfg_t* vcfg = lztq_elem_data(elem);
     lztq_for_each(vcfg->rule_cfgs, add_callback_rule, htp_vhost);
 
     /* add the vhost using the name of the vhost config directive */
     evhtp_add_vhost(htp, vcfg->server_name, htp_vhost);
+    LOGD("vhost server name %p(%s)", vcfg->server_name, vcfg->server_name);
 
     /* create an alias for the vhost for each configured alias directive */
     lztq_for_each(vcfg->aliases, add_vhost_name, htp_vhost);
@@ -1343,18 +857,22 @@ add_vhost(lztq_elem * elem, void * arg) {
      * This is bad.
      */
     {
-        evhtp_callback_t * cb;
+        evhtp_callback_t* cb;
 
-        if (!(cb = evhtp_set_glob_cb(htp_vhost, "*", NULL, htp_vhost))) {
-            fprintf(stderr, "Could not alloc callback: %s\n", strerror(errno));
+        if (!(cb = evhtp_set_glob_cb(htp_vhost, "*", NULL, htp_vhost)))
+        {
+            gint errnum = errno;
+            LOGE("Could not alloc callback: %s", g_strerror(errnum));
             exit(EXIT_FAILURE);
         }
 
-        evhtp_set_hook(&cb->hooks, evhtp_hook_on_hostname,
-                       upstream_dump_request, htp_vhost);
+        evhtp_callback_set_hook(cb, evhtp_hook_on_hostname,
+                                    (evhtp_hook)upstream_dump_request,
+                                    htp_vhost);
     }
 
-    if (vcfg->ssl_cfg != NULL) {
+    if (vcfg->ssl_cfg != NULL)
+    {
         /* vhost specific ssl configuration found */
         evhtp_ssl_init(htp_vhost, vcfg->ssl_cfg);
 
@@ -1364,13 +882,16 @@ add_vhost(lztq_elem * elem, void * arg) {
          * arguments, but for now, the only thing that we care about is the
          * CRL context.
          */
-        if (vcfg->ssl_cfg->args) {
-            ssl_crl_cfg_t * crl_cfg = vcfg->ssl_cfg->args;
+        if (vcfg->ssl_cfg->args)
+        {
+            ssl_crl_cfg_t* crl_cfg = vcfg->ssl_cfg->args;
 
             htp->arg = (void *)ssl_crl_ent_new(htp, crl_cfg);
-            assert(htp->arg != NULL);
+            g_assert(htp->arg != NULL);
         }
-    } else if (htp->ssl_ctx != NULL) {
+    }
+    else if (htp->ssl_ctx != NULL)
+    {
         /* use the global SSL context */
         htp_vhost->ssl_ctx = htp->ssl_ctx;
         htp_vhost->ssl_cfg = htp->ssl_cfg;
@@ -1380,163 +901,178 @@ add_vhost(lztq_elem * elem, void * arg) {
     return 0;
 } /* add_vhost */
 
-int
-rproxy_init(evbase_t * evbase, rproxy_cfg_t * cfg) {
-    lztq_elem * serv_elem;
-    lztq_elem * serv_temp;
+static evhtp_t*
+create_htp(evbase_t* evbase, server_cfg_t* server_cfg)
+{
+    LOGD("(%p, %p(%s))", evbase, server_cfg, server_cfg->name);
 
-    assert(evbase != NULL);
-    assert(cfg != NULL);
+    /* create a new evhtp base structure for just this server, all vhosts
+     * will use this as a parent
+     */
+    evhtp_t* htp = evhtp_new(evbase, NULL);
+    if (!htp)
+    {
+        LOGE("alloc failed");
+        return NULL;
+    }
 
-    /* iterate over each server_cfg, and set up evhtp stuff */
-    for (serv_elem = lztq_first(cfg->servers); serv_elem != NULL; serv_elem = serv_temp) {
-        struct timeval * tv_read  = NULL;
-        struct timeval * tv_write = NULL;
-        evhtp_t        * htp;
-        server_cfg_t   * server;
+    /* we want to make sure 100-continue is not sent by evhtp, but the
+     * downstreams themselves.
+     */
+    evhtp_disable_flag(htp, EVHTP_FLAG_ENABLE_100_CONT);
 
-        server = lztq_elem_data(serv_elem);
-        assert(server != NULL);
+    if (server_cfg->ssl_cfg)
+    {
+        LOGD("configuring SSL support");
+        /* enable SSL support on this server */
+        evhtp_ssl_init(htp, server_cfg->ssl_cfg);
 
-        /* create a new evhtp base structure for just this server, all vhosts
-         * will use this as a parent
+        /* if CRL checking is enabled, create a new ssl_crl_ent_t and add it
+         * to the evhtp_t's arguments. XXX: in the future we should create a
+         * generic wrapper for various things we want to put in the evhtp
+         * arguments, but for now, the only thing that we care about is the
+         * CRL context.
          */
-        htp    = evhtp_new(evbase, NULL);
-        assert(htp != NULL);
+        if (server_cfg->ssl_cfg->args)
+        {
+            ssl_crl_cfg_t* crl_cfg = server_cfg->ssl_cfg->args;
 
-        /* we want to make sure 100-continue is not sent by evhtp, but the
-         * downstreams themselves.
-         */
-        evhtp_disable_100_continue(htp);
+            htp->arg = ssl_crl_ent_new(htp, crl_cfg);
+            g_assert(htp->arg != NULL);
+        }
+    }
 
-        /* create a pre-accept callback which will disconnect the client
-         * immediately if the max-pending request queue is over the configured
-         * limit.
-         */
-        evhtp_set_pre_accept_cb(htp, upstream_pre_accept, NULL);
+    /* for each vhost, create a child virtual host and stick it in our main
+     * evhtp structure.
+     */
+    lztq_for_each(server_cfg->vhosts, add_vhost, htp);
 
-        if (server->ssl_cfg) {
-            /* enable SSL support on this server */
-            evhtp_ssl_init(htp, server->ssl_cfg);
+    struct timeval* tv_read  = NULL;
+    /* if configured, set our upstream connection's read/write timeouts */
+    if (server_cfg->read_timeout.tv_sec || server_cfg->read_timeout.tv_usec)
+    {
+        LOGD("tv_read %zu.%zu seconds",
+            server_cfg->read_timeout.tv_sec, server_cfg->read_timeout.tv_usec);
+        tv_read = &server_cfg->read_timeout;
+    }
 
-            /* if CRL checking is enabled, create a new ssl_crl_ent_t and add it
-             * to the evhtp_t's arguments. XXX: in the future we should create a
-             * generic wrapper for various things we want to put in the evhtp
-             * arguments, but for now, the only thing that we care about is the
-             * CRL context.
+    struct timeval* tv_write = NULL;
+    if (server_cfg->write_timeout.tv_sec || server_cfg->write_timeout.tv_usec)
+    {
+        LOGD("tv_write %zu.%zu seconds",
+            server_cfg->write_timeout.tv_sec, server_cfg->write_timeout.tv_usec);
+        tv_write = &server_cfg->write_timeout;
+    }
+
+    if (tv_read || tv_write)
+    {
+        LOGD("setting evhtp timeouts");
+        evhtp_set_timeouts(htp, tv_read, tv_write);
+    }
+
+    return htp;
+} /* create_htp */
+
+static bool
+rproxy_init(evbase_t* evbase, rproxy_cfg_t* cfg, const rproxy_hooks_t* hooks)
+{
+    LOGD("(%p, %p, %p)", evbase, cfg, hooks);
+
+    g_return_val_if_fail(evbase != NULL, false);
+    g_return_val_if_fail(cfg != NULL, false);
+    g_return_val_if_fail(hooks != NULL, false);
+
+    if (hooks->on_cfg_init && !hooks->on_cfg_init(cfg, hooks->on_cfg_init_arg))
+    {
+        LOGE("alloc failed");
+        return false;
+    }
+
+    // Iterate over each server_cfg, and set up evhtp stuff.
+    lztq_elem* serv_elem = lztq_first(cfg->servers);
+    while (serv_elem)
+    {
+        server_cfg_t* server_cfg = lztq_elem_data(serv_elem);
+        g_assert(server_cfg != NULL);
+
+        LOGD("server %p(%s:%d)", server_cfg, server_cfg->bind_addr, server_cfg->bind_port);
+
+        thread_ctx_t* thread_ctx = g_atomic_rc_box_new0(thread_ctx_t);
+        thread_ctx->m_hooks = hooks;
+        thread_ctx->m_server_cfg = server_cfg;
+
+        // Use a single listener for all workers unless the
+        // enable-workers-listen cfg option is set.
+        if (server_cfg->enable_workers_listen)
+        {
+            evthr_pool_t* workers = evthr_pool_wexit_new(server_cfg->num_threads,
+                                                            htp_worker_thread_init,
+                                                            htp_worker_thread_exit,
+                                                            thread_ctx);
+            g_assert(workers != NULL);
+
+            evthr_pool_start(workers);
+
+            server_cfg->m_thr_pool = workers;
+        }
+        else
+        {
+            evhtp_t* htp = create_htp(evbase, server_cfg);
+            g_assert(htp != NULL);
+
+            /* use a worker thread pool for connections, and for each
+             * thread that is initialized call the rproxy_thread_init
+             * function. rproxy_thread_init will create a new rproxy_t
+             * instance for each of the threads
              */
-            if (server->ssl_cfg->args) {
-                ssl_crl_cfg_t * crl_cfg = server->ssl_cfg->args;
+            evhtp_use_threads_wexit(htp,
+                                    rproxy_thread_init,
+                                    rproxy_thread_exit,
+                                    server_cfg->num_threads,
+                                    thread_ctx);
 
-                htp->arg = ssl_crl_ent_new(htp, crl_cfg);
-                assert(htp->arg != NULL);
+            if (evhtp_bind_socket(htp,
+                                    server_cfg->bind_addr,
+                                    server_cfg->bind_port,
+                                    server_cfg->listen_backlog) < 0)
+            {
+                LOGE("[ERROR] unable to bind to %s:%d (%s)",
+                        server_cfg->bind_addr,
+                        server_cfg->bind_port,
+                        strerror(errno));
+                exit(-1);
             }
+
+            if (server_cfg->disable_server_nagle)
+            {
+                LOGD("disabling nagle");
+
+                // Disable the tcp nagle algorithm for the listener socket.
+                evutil_socket_t sock = evconnlistener_get_fd(htp->server);
+                g_assert(sock >= 0);
+                setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, (int[]) { 1 }, sizeof(int));
+            }
+
+            server_cfg->m_htp = htp;
         }
 
-        /* for each vhost, create a child virtual host and stick it in our main
-         * evhtp structure.
-         */
-        lztq_for_each(server->vhosts, add_vhost, htp);
+        server_cfg->m_arg = thread_ctx;
 
-        /* if configured, set our upstream connection's read/write timeouts */
-        if (server->read_timeout.tv_sec || server->read_timeout.tv_usec) {
-            tv_read = &server->read_timeout;
-        }
-
-        if (server->write_timeout.tv_sec || server->write_timeout.tv_usec) {
-            tv_write = &server->write_timeout;
-        }
-
-        if (tv_read || tv_write) {
-            evhtp_set_timeouts(htp, tv_read, tv_write);
-        }
-
-        /* use a worker thread pool for connections, and for each
-         * thread that is initialized call the rproxy_thread_init
-         * function. rproxy_thread_init will create a new rproxy_t
-         * instance for each of the threads
-         */
-        evhtp_use_threads(htp, rproxy_thread_init,
-                          server->num_threads, server);
-
-        if (evhtp_bind_socket(htp,
-                              server->bind_addr,
-                              server->bind_port,
-                              server->listen_backlog) < 0) {
-            fprintf(stderr, "[ERROR] unable to bind to %s:%d (%s)\n",
-                    server->bind_addr,
-                    server->bind_port,
-                    strerror(errno));
-            exit(-1);
-        }
-
-        if (server->disable_server_nagle == 1) {
-            /* disable the tcp nagle algorithm for the listener socket */
-            evutil_socket_t sock;
-
-            sock = evconnlistener_get_fd(htp->server);
-            assert(sock >= 0);
-
-            setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, (int[]) { 1 }, sizeof(int));
-        }
-
-
-        serv_temp = lztq_next(serv_elem);
+        serv_elem = lztq_next(serv_elem);
     }
 
-    return 0;
-}     /* rproxy_init */
+    NOISY_MSG_("done");
+    return true;
+} /* rproxy_init */
 
 static void
-rproxy_process_pending(int fd, short which, void * arg) {
-    rproxy_t  * rproxy;
-    request_t * request;
-    request_t * save;
-    int         res;
+rproxy_report_rusage(rproxy_rusage_t * rusage)
+{
+    LOGD("(%p)", rusage);
 
-    rproxy = arg;
-    assert(rproxy != NULL);
-
-    for (request = TAILQ_FIRST(&rproxy->pending); request; request = save) {
-        evhtp_request_t    * us_req;
-        evhtp_connection_t * us_conn;
-        rule_cfg_t         * rule_cfg;
-
-        save = TAILQ_NEXT(request, next);
-
-        if (!(request->downstream_conn = downstream_connection_get(request->rule))) {
-            continue;
-        }
-
-        /* set the connection to an active state so that other pending requests
-         * do not get this same downstream connection.
-         */
-        res = downstream_connection_set_active(request->downstream_conn);
-        assert(res >= 0);
-
-        /* remove this request from the pending queue */
-        TAILQ_REMOVE(&rproxy->pending, request, next);
-
-        request->downstream_bev           = request->downstream_conn->connection;
-        request->downstream_conn->request = request;
-        request->pending   = 0;
-        rproxy->n_pending -= 1;
-
-        if (request->pending_ev != NULL) {
-            /* delete the pending timer so that it does not trigger */
-            evtimer_del(request->pending_ev);
-        }
-
-        /* since the upstream request processing has been paused, we must
-         * unpause it to process it.
-         */
-        evhtp_request_resume(request->upstream_request);
-    }
-} /* rproxy_process_pending */
-
-static void
-rproxy_report_rusage(rproxy_rusage_t * rusage) {
-    if (!rusage) {
+    if (!rusage)
+    {
+        LOGE("rusage is null");
         return;
     }
 
@@ -1562,7 +1098,9 @@ rproxy_report_rusage(rproxy_rusage_t * rusage) {
         struct rlimit limit;
         unsigned int  needed_fds;
 
-        if (getrlimit(RLIMIT_NOFILE, &limit) == -1) {
+        if (getrlimit(RLIMIT_NOFILE, &limit) == -1)
+        {
+            LOGE("getrlimi() failed");
             return;
         }
 
@@ -1572,14 +1110,18 @@ rproxy_report_rusage(rproxy_rusage_t * rusage) {
         printf("  Your *CURRENT* rlimit is : %u\n", (unsigned int)limit.rlim_cur);
         printf("  Your *MAXIMUM* rlimit is : %u\n\n", (unsigned int)limit.rlim_max);
 
-        if ((unsigned int)limit.rlim_cur < needed_fds) {
+        if ((unsigned int)limit.rlim_cur < needed_fds)
+        {
             printf("** WARNING: Needed resources exceed the current limits!\n");
 
-            if ((unsigned int)limit.rlim_max > needed_fds) {
+            if ((unsigned int)limit.rlim_max > needed_fds)
+            {
                 printf("** WARNING: The good news is that you do have the "
                        "ability to obtain the resources! Try increasing the "
                        "option 'max-nofiles' in your configuration.\n");
-            } else {
+            }
+            else
+            {
                 printf("** WARNING: You must consult your operating systems "
                        "documentation in order to increase the resources "
                        "needed.\n");
@@ -1589,56 +1131,172 @@ rproxy_report_rusage(rproxy_rusage_t * rusage) {
 #endif
 } /* rproxy_report_rusage */
 
-int
-main(int argc, char ** argv) {
-    rproxy_cfg_t * rproxy_cfg;
-    evbase_t     * evbase;
+static void
+sigint_cb(int fd G_GNUC_UNUSED, short event, void* arg)
+{
+    printf("\n");
+    LOGD("(%d, %d, %p)", fd, event, arg);
 
-    if (argc < 2) {
+    rproxy_cfg_t* cfg = arg;
+    g_assert(cfg != NULL);
+
+    evbase_t* evbase = cfg->evbase;
+    g_assert(evbase != NULL);
+
+    const rproxy_hooks_t* hooks = rp_instance_hooks(RP_INSTANCE(server));
+    if (hooks->on_sigint) hooks->on_sigint(cfg, hooks->on_sigint_arg);
+
+    /* iterate over each server_cfg, and tear down up evhtp stuff */
+    lztq_elem * serv_elem = lztq_first(cfg->servers);
+    while (serv_elem)
+    {
+        server_cfg_t* server_cfg = lztq_elem_data(serv_elem);
+        g_assert(server_cfg != NULL);
+
+        if (server_cfg->m_thr_pool)
+        {
+            evthr_pool_t* thr_pool = server_cfg->m_thr_pool;
+            LOGD("stopping pool %p", thr_pool);
+            evthr_pool_stop(thr_pool);
+            g_clear_pointer(&server_cfg->m_thr_pool, evthr_pool_free);
+        }
+        else
+        {
+            LOGD("freeing htp %p", server_cfg->m_htp);
+            g_clear_pointer(&server_cfg->m_htp, evhtp_free);
+        }
+
+        LOGD("releasing %p", server_cfg->m_arg);
+        g_atomic_rc_box_release(server_cfg->m_arg);
+
+        serv_elem = lztq_next(serv_elem);
+    }
+
+    struct timeval tv = {
+        .tv_sec = 0,
+        .tv_usec = 100000
+    }; // 100 ms.
+    event_base_loopexit(evbase, &tv);
+}
+
+static void
+create_server_instance(const rproxy_hooks_t* hooks)
+{
+    NOISY_MSG_("(%p)", hooks);
+    server = rp_instance_impl_new(hooks);
+    rp_instance_base_initialize(RP_INSTANCE_BASE(server));
+}
+
+static void
+create_rp_instances(const rproxy_hooks_t* hooks)
+{
+    NOISY_MSG_("(%p)", hooks);
+    // Create a single RpInstanceImpl instance.
+    create_server_instance(hooks);
+    // Create a single RpFactoryContext instance.
+    factory_context = rp_factory_context_impl_new(RP_INSTANCE(server));
+    // Create a single RpTransportSocketFactoryImpl instance.
+    transport_socket_factory = rp_transport_socket_factory_impl_new(NULL);
+    // Create a global, default RpPerHostGenericConnPoolFactory instance.
+    default_conn_pool_factory = rp_per_host_generic_conn_pool_factory_new();
+    // Create a global, default RpDefaultClientConnectionFactory instance.
+    default_client_connection_factory = rp_default_client_connection_factory_new();
+}
+
+static void
+clear_rp_instances(void)
+{
+    NOISY_MSG_("()");
+    g_clear_object(&default_conn_pool_factory);
+    g_clear_object(&default_client_connection_factory);
+    g_clear_object(&transport_socket_factory);
+    g_clear_object(&factory_context);
+    g_clear_object(&server);
+}
+
+int
+rproxy_main(int argc, char** argv, const rproxy_hooks_t* hooks)
+{
+    g_debug(LOC_FMT"(%d, %p, %p)", LOC_ARG, argc, argv, hooks);
+
+    if (argc < 2)
+    {
         printf("RProxy Version: %s (Libevhtp Version: %s, Libevent Version: %s, OpenSSL Version: %s)\n",
                RPROXY_VERSION, EVHTP_VERSION, event_get_version(), SSLeay_version(SSLEAY_VERSION));
-        fprintf(stderr, "Usage: %s <config>\n", argv[0]);
+        LOGE("Usage: %s <config>", argv[0]);
         return -1;
     }
 
-    if (!(rproxy_cfg = rproxy_cfg_parse(argv[1]))) {
-        fprintf(stderr, "Error parsing file %s\n", argv[1]);
+    rproxy_cfg_t* rproxy_cfg = rproxy_cfg_parse(argv[1]);
+    if (!rproxy_cfg)
+    {
+        LOGE("Error parsing file %s", argv[1]);
         return -1;
     }
 
 #ifdef USE_MALLOPT
-    if (rproxy_cfg->mem_trimsz) {
+    if (rproxy_cfg->mem_trimsz)
+    {
+        LOGD("using mallopt");
         mallopt(M_TRIM_THRESHOLD, rproxy_cfg->mem_trimsz);
     }
 #endif
 
-    if (util_set_rlimits(rproxy_cfg->max_nofile) < 0) {
+    if (util_set_rlimits(rproxy_cfg->max_nofile) < 0)
+    {
+        LOGE("set rlimits failed");
         exit(-1);
     }
 
     /* calculate and report on resources needed for the current configuration */
     rproxy_report_rusage(&rproxy_cfg->rusage);
 
-    if (rproxy_cfg->daemonize == true) {
-        if (util_daemonize(rproxy_cfg->rootdir, 1) < 0) {
+    if (rproxy_cfg->daemonize == true)
+    {
+        if (util_daemonize(rproxy_cfg->rootdir, 1) < 0)
+        {
+            LOGE("deamonize failed");
             exit(-1);
         }
     }
 
-    if (!(evbase = event_base_new())) {
-        fprintf(stderr, "Error creating event_base: %s\n", strerror(errno));
+    // Create the rp instance singletons.
+    create_rp_instances(hooks);
+
+    evbase_t* evbase = event_base_new();
+    if (!evbase)
+    {
+        LOGE("Error creating event_base: %s\n", g_strerror(errno));
         rproxy_cfg_free(rproxy_cfg);
         return -1;
     }
 
-    rproxy_init(evbase, rproxy_cfg);
+    // Associate the evbase with the cfg object to use during shutdown.
+    rproxy_cfg->evbase = evbase;
+
+    // Install Ctrl+C/SIGINT handler for graceful shutdown.
+    struct event* ev_sigint = evsignal_new(evbase, SIGINT, sigint_cb, rproxy_cfg);
+    evsignal_add(ev_sigint, NULL);
+
+    if (!rproxy_init(evbase, rproxy_cfg, hooks))
+    {
+        LOGE("rproxy_init() failed");
+        rproxy_cfg_free(rproxy_cfg);
+        return -1;
+    }
 
     if (rproxy_cfg->user || rproxy_cfg->group) {
         util_dropperms(rproxy_cfg->user, rproxy_cfg->group);
     }
 
+    // Run the main event loop until it is instructed to exit.
     event_base_loop(evbase, 0);
 
-    return 0;
-} /* main */
+    event_free(ev_sigint);
 
+    // Clear the rp instance singletons.
+    clear_rp_instances();
+
+    LOGD("done");
+    return 0;
+} /* rproxy_main */

@@ -13,8 +13,7 @@
  * limitations under the License.
  */
 
-#ifndef __RPROXY_H__
-#define __RPROXY_H__
+#pragma once
 
 #include <stdbool.h>
 #include <syslog.h>
@@ -28,6 +27,9 @@
 #include <netinet/tcp.h>
 #include <pthread.h>
 
+#include <glib.h>
+#include <gio/gio.h>
+
 #include "lzq.h"
 #include "lzlog.h"
 
@@ -39,6 +41,39 @@
 #error RProxy requires libevhtp v1.2.3 or greater
 #endif
 #endif
+#endif
+
+// Simple helper to check for a "zero" timeval.
+#define IS_TIMEVAL_ZERO(tv) ((tv)->tv_sec == 0 && (tv)->tv_usec == 0)
+
+// evbuffer_get_length() helper.
+#define evbuf_length(b) ((b) ? evbuffer_get_length(b) : 0)
+
+// Identifies "owned" pointers that are to be freed by said owner.
+#ifndef UNIQUE_PTR
+#define UNIQUE_PTR(p) p*
+#endif
+
+// Identifies a shared pointer that is freed by some other owner.
+#ifndef SHARED_PTR
+#define SHARED_PTR(p) p*
+#endif
+
+// Simple way to indicate a private function overrides a parent instance
+// method.
+#ifndef OVERRIDE
+#define OVERRIDE static
+#endif
+
+#ifndef LOC_FMT
+#define LOC_FMT "%s:%s"
+#endif
+#ifndef LOC_ARG
+#define LOC_ARG G_STRLOC, G_STRFUNC
+#endif
+
+#ifndef NUL
+#define NUL '\0'
 #endif
 
 /************************************************
@@ -65,9 +100,32 @@ enum logger_type {
     logger_type_syslog
 };
 
+enum enc_type {
+    enc_type_none = 0,
+    enc_type_deflate,
+    enc_type_gzip,
+    enc_type_br
+};
+
+enum discovery_type {
+    discovery_type_static = 0,
+    discovery_type_strict_dns,
+    discovery_type_local_dns,
+    discovery_type_eds,
+    discovery_type_original_dst
+};
+
+typedef struct evdns_base evdns_base_t;
+
+typedef struct _RpHttpConnectionManagerConfig RpHttpConnectionManagerConfig;
+typedef struct _RpClusterManager RpClusterManager;
+typedef struct _RpServerFactoryContext RpServerFactoryContext;
+typedef struct _RpDispatcher RpDispatcher;
+
 typedef struct rproxy_rusage  rproxy_rusage_t;
 typedef struct rproxy_cfg     rproxy_cfg_t;
 typedef struct rule_cfg       rule_cfg_t;
+typedef struct rule           rule_t;
 typedef struct vhost_cfg      vhost_cfg_t;
 typedef struct server_cfg     server_cfg_t;
 typedef struct downstream_cfg downstream_cfg_t;
@@ -79,6 +137,8 @@ typedef struct logger_cfg     logger_cfg_t;
 typedef enum rule_type        rule_type;
 typedef enum lb_method        lb_method;
 typedef enum logger_type      logger_type;
+typedef enum enc_type         enc_type;
+typedef enum discovery_type   discovery_type;
 
 struct logger_cfg {
     lzlog_level level;
@@ -92,6 +152,7 @@ struct rule_cfg {
     char          * name;            /**< the name of the rule */
     rule_type       type;            /**< what type of rule this is (regex/exact/glob) */
     lb_method       lb_method;       /**< method of load-balacinging (defaults to RTT) */
+    discovery_type  discovery_type;
     char          * matchstr;        /**< the uri to match on */
     headers_cfg_t * headers;         /**< headers which are added to the backend request */
     lztq          * downstreams;     /**< list of downstream names (as supplied by downstream_cfg_t->name */
@@ -141,6 +202,7 @@ struct headers_cfg {
  * @brief configuration for a single downstream.
  */
 struct downstream_cfg {
+    evhtp_ssl_cfg_t * ssl_cfg;      /**< if enabled, the ssl configuration */
     bool     enabled;               /**< true if server is enabled */
     char   * name;                  /**< the name of this downstream. the name is used as an identifier for rules */
     char   * host;                  /**< the hostname of the downstream */
@@ -158,12 +220,13 @@ struct downstream_cfg {
 struct vhost_cfg {
     evhtp_ssl_cfg_t * ssl_cfg;
     lztq            * rule_cfgs;        /**< list of rule_cfg_t's */
-    lztq            * rules;            /* list of rule_t's */
+    lztq            * rules;            /**< list of rule_t's */
     char            * server_name;
     lztq            * aliases;          /**< other hostnames this vhost is associated with */
     lztq            * strip_hdrs;       /**< headers to strip out from downstream responses */
-    logger_cfg_t    * req_log;          /* request logging configuration */
-    logger_cfg_t    * err_log;          /* error logging configuration */
+    lztq            * rewrite_urls;     /**< urls to rewrite (incoming and outgoing?) */
+    logger_cfg_t    * req_log;          /**< request logging configuration */
+    logger_cfg_t    * err_log;          /**< error logging configuration */
     headers_cfg_t   * headers;          /**< headers which are added to the backend request */
 };
 
@@ -171,12 +234,15 @@ struct vhost_cfg {
  * @brief configuration for a single listening frontend server.
  */
 struct server_cfg {
+    char   * name;
     char   * bind_addr;                 /**< address to bind on */
     uint16_t bind_port;                 /**< port to bind on */
     int      num_threads;               /**< number of worker threads to start */
     int      max_pending;               /**< max pending requests before new connections are dropped */
     int      listen_backlog;            /**< listen backlog */
     size_t   high_watermark;            /**< upstream high-watermark */
+
+    uint16_t worker_num;                /**< simple zero-based index worker number */
 
     struct timeval read_timeout;        /**< time to wait for reading before client is dropped */
     struct timeval write_timeout;       /**< time to wait for writing before client is dropped */
@@ -189,11 +255,25 @@ struct server_cfg {
     logger_cfg_t    * req_log_cfg;
     logger_cfg_t    * err_log_cfg;
 
-    int disable_server_nagle;           /**< disable nagle for listening sockets */
-    int disable_client_nagle;           /**< disable nagle for upstream sockets */
-    int disable_downstream_nagle;       /**< disable nagle for downstream sockets */
+    rule_cfg_t      * default_rule_cfg; /**< default rule_cfg_t */
+    rule_t          * default_rule;     /**< default rule_t */
+
+    evhtp_t* m_htp;
+    evthr_pool_t* m_thr_pool;
+    void* m_arg;
+
+    bool disable_server_nagle : 1;      /**< disable nagle for listening sockets */
+    bool disable_client_nagle : 1;      /**< disable nagle for upstream sockets */
+    bool disable_downstream_nagle : 1;  /**< disable nagle for downstream sockets */
+    bool enable_workers_listen : 1;     /**< enable worker thread listening */
 };
 
+static inline uint16_t
+server_cfg_get_worker_num(server_cfg_t* self)
+{
+    uint16_t worker_num = self->worker_num++;
+    return worker_num % self->num_threads;
+}
 
 
 /**
@@ -221,23 +301,16 @@ struct rproxy_cfg {
     char          * user;               /**< user to run as */
     char          * group;              /**< group to run as */
     lztq          * servers;            /**< list of server_cfg_t's */
+    const char    * filename;           /**< config file name */
     logger_cfg_t  * log;                /**< generic log configuration */
     rproxy_rusage_t rusage;             /**< the needed resource totals */
+
+    evbase_t* evbase;
 };
 
 /********************************************
 * Main structures
 ********************************************/
-
-/**
- * @brief a downstream's connection status.
- */
-enum downstream_status {
-    downstream_status_nil = 0,          /**< connection has never been used */
-    downstream_status_active,           /**< connection is actively processing */
-    downstream_status_idle,             /**< connection is idle and available */
-    downstream_status_down              /**< connection is down and cannot be used */
-};
 
 enum logger_argtype {
     logger_argtype_nil = 0,
@@ -262,16 +335,17 @@ enum logger_argtype {
 typedef struct rproxy            rproxy_t;
 typedef struct downstream        downstream_t;
 typedef struct downstream_c      downstream_c_t;
-typedef struct request           request_t;
-typedef struct rule              rule_t;
 typedef struct vhost             vhost_t;
+#ifdef WITH_LOGGER
 typedef struct logger_arg        logger_arg_t;
 typedef struct logger            logger_t;
-typedef struct pending_request_q pending_request_q_t;
+#endif//WITH_LOGGER
 typedef struct ssl_crl_ent       ssl_crl_ent_t;
+typedef struct request_hooks     request_hooks_t;
 
-typedef enum downstream_status   downstream_status;
 typedef enum logger_argtype      logger_argtype;
+typedef enum request_hook_status request_hook_status;
+typedef enum request_hook_type   request_hook_type;
 
 #define REQUEST_HAS_ERROR(req) (req->error ? 1 : req->upstream_err ? 1 : 0)
 
@@ -310,33 +384,10 @@ struct ssl_crl_ent {
 struct vhost {
     vhost_cfg_t * config;
     rproxy_t    * rproxy;
+#ifdef WITH_LOGGER
     logger_t    * req_log;
     logger_t    * err_log;
-};
-
-/**
- * @brief structure which represents a full proxy request
- *
- */
-struct request {
-    rproxy_t        * rproxy;            /**< the parent rproxy_t structure */
-    evhtp_request_t * upstream_request;  /**< the client request */
-    evbev_t         * upstream_bev;
-    downstream_c_t  * downstream_conn;   /**< the downstream connection */
-    rule_t          * rule;              /**< the matched rule */
-    htparser        * parser;            /**< htparser for responses from the downstream */
-    event_t         * pending_ev;        /**< event timer for pending status */
-    evbev_t         * downstream_bev;
-
-    uint8_t error;                       /**< set of downstream returns some type of error */
-    uint8_t upstream_err;                /**< set if the upstream encountered a socket error */
-    uint8_t done;                        /**< request fully proxied and completed */
-    uint8_t pending;                     /**< request is waiting for a downstream connection to be avail */
-    uint8_t hit_highwm;
-    uint8_t hit_upstream_highwm;
-    uint8_t reading;
-
-    TAILQ_ENTRY(request) next;
+#endif//WITH_LOGGER
 };
 
 /**
@@ -344,32 +395,30 @@ struct request {
  */
 struct downstream_c {
     downstream_t    * parent;          /**< the parent downstream structure */
-    evbev_t         * connection;      /**< the bufferevent connection */
-    request_t       * request;         /**< the currently running request */
+    evhtp_ssl_t     * ssl;
+#ifdef WITH_RETRY_TIMER
     event_t         * retry_timer;     /**< the timer event for reconnecting if down */
-    downstream_status status;          /**< the status of this downstream */
+#endif//WITH_RETRY_TIMER
     double            rtt;             /**< the last RTT for a request made to the connection */
     uint16_t          sport;           /**< the source port of the connected socket */
-    uint8_t           bootstrapped;    /**< if not set to 1, the connection will immediately attempt the reconnect */
-    struct timeval    tv_start;        /**< the time which the connection was set to active, used to calculate RTT */
 
     TAILQ_ENTRY(downstream_c) next;
 };
 
 /**
- * @brief a container active/idle/downed downstream connections
+ * @brief a container active/idle downstream connections
  */
 struct downstream {
     downstream_cfg_t * config;         /**< this downstreams configuration */
     evbase_t         * evbase;
     rproxy_t         * rproxy;
-    uint16_t           num_active;     /**< number of ents in the active list */
+    evhtp_ssl_ctx_t  * ssl_ctx;
     uint16_t           num_idle;       /**< number of ents in the idle list */
-    uint16_t           num_down;       /**< number of ents in the down list */
+
+    double             m_rtt;          /**< the last RTT for a request made to the host */
 
     TAILQ_HEAD(, downstream_c) active; /**< list of active connections */
     TAILQ_HEAD(, downstream_c) idle;   /**< list of idle and ready connections */
-    TAILQ_HEAD(, downstream_c) down;   /**< list of connections which are down */
 };
 
 struct rule {
@@ -378,33 +427,48 @@ struct rule {
     vhost_t    * parent_vhost;         /**< the vhost this rule is under */
     lztq       * downstreams;          /**< list of downstream_t's configured for this rule */
     lztq_elem  * last_downstream_used; /**< the last downstream used to service a request. Used for round-robin loadbalancing */
+#ifdef WITH_LOGGER
     logger_t   * req_log;              /**< rule specific request log */
     logger_t   * err_log;              /**< rule specific error log */
+#endif//WITH_LOGGER
 };
-
-TAILQ_HEAD(pending_request_q, request);
 
 struct rproxy {
     rproxy_cfg_t      * config;
     evhtp_t           * htp;
+    evthr_t           * thr;
     evbase_t          * evbase;
     struct evdns_base * dns_base;
     event_t           * request_ev;
     server_cfg_t      * server_cfg;
+#ifdef WITH_LOGGER
     logger_t          * request_log;              /* server specific request logging */
     logger_t          * error_log;                /* server specific error logging */
+#endif//WITH_LOGGER
     lztq              * rules;
     lztq              * downstreams;              /**< list of all downstream_t's */
     int                 n_pending;                /**< number of pending requests */
-    pending_request_q_t pending;                  /**< list of pending upstream request_t's */
+    int                 n_processing;             /**< number of in-flight requests */
+    uint16_t worker_num;
+#ifdef WITH_LOGGER
     logger_t          * req_log;
     logger_t          * err_log;
+#endif//WITH_LOGGER
+
+    RpHttpConnectionManagerConfig* m_filter_config;
+    RpClusterManager* m_cluster_manager;
+    RpServerFactoryContext* m_context;
+    RpDispatcher* m_dispatcher;
+    GList* m_active_connections;
 };
 
 /************************************************
 * Configuration parsing function definitions.
 ************************************************/
 rproxy_cfg_t * rproxy_cfg_parse(const char * filename);
+void rproxy_cfg_free(rproxy_cfg_t * cfg);
+downstream_cfg_t* downstream_cfg_parse(cfg_t* cfg);
+server_cfg_t* server_cfg_parse(cfg_t* cfg);
 
 /***********************************************
 * Downstream handling functions
@@ -412,20 +476,12 @@ rproxy_cfg_t * rproxy_cfg_parse(const char * filename);
 downstream_t   * downstream_new(rproxy_t *, downstream_cfg_t *);
 void             downstream_free(void *);
 
-downstream_c_t * downstream_connection_new(evbase_t *, downstream_t *);
-downstream_c_t * downstream_connection_get(rule_t *);
-void             downstream_connection_free(downstream_c_t *);
-int              downstream_connection_init(evbase_t *, downstream_t *);
-
-int              downstream_connection_set_active(downstream_c_t *);
-int              downstream_connection_set_idle(downstream_c_t *);
-int              downstream_connection_set_down(downstream_c_t *);
+downstream_c_t * downstream_conn_new(evbase_t *, downstream_t *);
+downstream_t   * downstream_get(rule_t *);
+void             downstream_conn_free(downstream_c_t *);
+int              downstream_conn_init(evbase_t *, downstream_t *);
 
 downstream_t   * downstream_find_by_name(lztq *, const char *);
-
-/* downstream socket handling callbacks */
-void downstream_connection_eventcb(evbev_t *, short, void *);
-void downstream_connection_retry(int, short, void *);
 
 /********************************************
 * SSL verification callback functions
@@ -433,14 +489,6 @@ void downstream_connection_retry(int, short, void *);
 int             ssl_x509_verifyfn(int, X509_STORE_CTX *);
 int             ssl_x509_issuedcb(X509_STORE_CTX *, X509 *, X509 *);
 ssl_crl_ent_t * ssl_crl_ent_new(evhtp_t *, ssl_crl_cfg_t *);
-
-
-
-/***********************************************
-* Request handling funcs (upstream/downstream)
-***********************************************/
-request_t * request_new(rproxy_t *);
-void        request_free(request_t *);
 
 /***********************************************
  * SSL helper functions.
@@ -456,27 +504,79 @@ unsigned char * ssl_cert_tostr(evhtp_ssl_t *);
 unsigned char * ssl_x509_ext_tostr(evhtp_ssl_t *, const char *);
 
 /***********************************************
- * Logging functions
- **********************************************/
-logger_t * logger_init(logger_cfg_t * config, int opts);
-void       logger_log(logger_t * logger, lzlog_level level, char * fmt, ...);
-void       logger_log_request(logger_t * logger, request_t * request);
-void       logger_log_request_error(logger_t * logger, request_t * request, char * fmt, ...);
-
-/***********************************************
  * Utility functions.
  **********************************************/
+#define UTIL_IS_DEFAULT_PORT(p) ((p) == 80 || (p) == 443)
+
 void      util_dropperms(const char * user, const char * group);
 int       util_daemonize(char * root, int noclose);
 int       util_set_rlimits(int nofiles);
 
-evbuf_t * util_request_to_evbuffer(evhtp_request_t * request);
+evbuf_t * util_request_to_evbuffer(evhtp_request_t * request, evbuf_t* obuf);
+evbuf_t * util_response_to_evbuffer(evhtp_request_t* request, evbuf_t* obuf);
 int       util_write_header_to_evbuffer(evhtp_header_t * hdr, void * arg);
 
-int       util_glob_match(const char * pattern, const char * string);
-int       util_glob_match_lztq(lztq *, const char *);
+bool      util_glob_match(const char * pattern, const char * string);
+bool      util_glob_match_lztq(lztq *, const char *);
 
 int       util_rm_headers_via_lztq(lztq * tq, evhtp_headers_t * headers);
 
-#endif
+bool      util_uri_to_evbuffer(const evhtp_request_t* req,
+                                const char* hostname,
+                                evbuf_t* obuf);
+bool      util_filename_is_uri(const char* filename);
 
+const char* util_format_sockaddr_port(const struct sockaddr* sa,
+                                        char* out,
+                                        size_t outlen);
+
+bool util_is_text_content_type(const char* value);
+enc_type util_get_enc_type(const char* enc_value);
+GInputStream* util_create_input_stream(GInputStream* base, enc_type type);
+
+static inline const char*
+util_htp_proto_to_modsec_version(evhtp_proto proto)
+{
+    switch (proto)
+    {
+        case EVHTP_PROTO_11:
+            return "1.1";
+        case EVHTP_PROTO_10:
+            return "1.0";
+        case EVHTP_PROTO_INVALID:
+        default:
+            return "invalid";
+    }
+}
+
+typedef struct rproxy_hooks rproxy_hooks_t;
+struct rproxy_hooks {
+    bool (* on_cfg_init)(rproxy_cfg_t*, void*);
+    void (* on_thread_init)(rproxy_t*, void*);
+    void (* on_thread_exit)(rproxy_t*, void*);
+    void (* on_sigint)(rproxy_cfg_t*, void*);
+
+    void* on_cfg_init_arg;
+    void* on_thread_init_arg;
+    void* on_thread_exit_arg;
+    void* on_sigint_arg;
+};
+static inline rproxy_hooks_t
+rproxy_hooks_ctor(bool (* cfg_init)(rproxy_cfg_t*, void*), void* cfg_init_arg,
+                    void (* thread_init)(rproxy_t*, void*), void* thread_init_arg,
+                    void (* thread_exit)(rproxy_t*, void*), void* thread_exit_arg,
+                    void (* sigint)(rproxy_cfg_t*, void*), void* sigint_arg)
+{
+    rproxy_hooks_t hooks = {
+        .on_cfg_init = cfg_init,
+        .on_thread_init = thread_init,
+        .on_thread_exit = thread_exit,
+        .on_sigint = sigint,
+        .on_cfg_init_arg = cfg_init_arg,
+        .on_thread_init_arg = thread_init_arg,
+        .on_thread_exit_arg = thread_exit_arg,
+        .on_sigint_arg = sigint_arg
+    };
+    return hooks;
+}
+int rproxy_main(int argc, char** argv, const rproxy_hooks_t* hooks);
