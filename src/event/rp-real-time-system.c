@@ -16,11 +16,8 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
-#ifndef OVERRIDE
-#define OVERRIDE static
-#endif
-
 #include <stdio.h>
+#include "rproxy.h"
 #include "event/rp-real-time-system.h"
 
 struct _RpRealTimeSystem {
@@ -91,16 +88,6 @@ time_system_iface_init(RpTimeSystemInterface* iface)
 }
 
 OVERRIDE void
-constructed(GObject* obj)
-{
-    NOISY_MSG_("(%p)", obj);
-
-    G_OBJECT_CLASS(rp_real_time_system_parent_class)->constructed(obj);
-
-    RpRealTimeSystem* self = RP_REAL_TIME_SYSTEM(obj);
-}
-
-OVERRIDE void
 dispose(GObject* obj)
 {
     NOISY_MSG_("(%p)", obj);
@@ -113,7 +100,6 @@ rp_real_time_system_class_init(RpRealTimeSystemClass* klass)
     LOGD("(%p)", klass);
 
     GObjectClass* object_class = G_OBJECT_CLASS(klass);
-    object_class->constructed = constructed;
     object_class->dispose = dispose;
 }
 

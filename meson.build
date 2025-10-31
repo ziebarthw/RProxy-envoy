@@ -23,8 +23,6 @@ rproxycore_soversion = '@0@.@1@.@2@'.format(rproxycore_soversion_major, rproxyco
 
 project_version_components = meson.project_version().split('.')
 
-manette_dep = dependency('manette-0.2', version: '>=0.2.4', required: false)
-
 glib_dep = dependency('glib-2.0', required: true)
 openssl_dep = dependency('openssl')
 libevent_dep = dependency('libevent', required: true)
@@ -33,15 +31,10 @@ libevent_openssl_dep = dependency('libevent_openssl', required: true)
 libevent_pthreads_dep = dependency('libevent_pthreads', required: true)
 libevent_extra_dep = dependency('libevent_extra', required: true)
 libevhtp_dep = dependency('evhtp', required: true)
-oniguruma_dep = dependency('oniguruma')
 confuse_dep = dependency('libconfuse')
-#flatcc_dep = cc1.find_library('flatcc', dirs: ldir)
 brotlicommon_dep = dependency('libbrotlicommon')
 brotlidec_dep = dependency('libbrotlidec')
 brotlienc_dep = dependency('libbrotlienc')
-
-#subdir('core')
-#subdir('platform')
 
 #if get_option('documentation')
 #    subdir('docs')

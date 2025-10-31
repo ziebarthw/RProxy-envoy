@@ -16,10 +16,7 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
-#ifndef OVERRIDE
-#define OVERRIDE static
-#endif
-
+#include "rproxy.h"
 #include "utils/gduration.h"
 #include "event/rp-timer-impl.h"
 
@@ -32,18 +29,6 @@ struct _RpTimerImpl {
     gpointer m_arg;
     RpDispatcher* m_dispatcher;
 };
-
-enum
-{
-    PROP_0, // Reserved.
-    PROP_EVBASE,
-    PROP_CB,
-    PROP_ARG,
-    PROP_DISPATCHER,
-    N_PROPERTIES
-};
-
-static GParamSpec* obj_properties[N_PROPERTIES] = { NULL, };
 
 static void timer_iface_init(RpTimerInterface* iface);
 
@@ -125,54 +110,6 @@ timer_iface_init(RpTimerInterface* iface)
     iface->enabled = enabled_i;
 }
 
-OVERRIDE void
-get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_EVBASE:
-            g_value_set_pointer(value, RP_TIMER_IMPL(obj)->m_evbase);
-            break;
-        case PROP_CB:
-            g_value_set_pointer(value, RP_TIMER_IMPL(obj)->m_cb);
-            break;
-        case PROP_ARG:
-            g_value_set_pointer(value, RP_TIMER_IMPL(obj)->m_arg);
-            break;
-        case PROP_DISPATCHER:
-            g_value_set_object(value, RP_TIMER_IMPL(obj)->m_dispatcher);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
-set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_EVBASE:
-            RP_TIMER_IMPL(obj)->m_evbase = g_value_get_pointer(value);
-            break;
-        case PROP_CB:
-            RP_TIMER_IMPL(obj)->m_cb = g_value_get_pointer(value);
-            break;
-        case PROP_ARG:
-            RP_TIMER_IMPL(obj)->m_arg = g_value_get_pointer(value);
-            break;
-        case PROP_DISPATCHER:
-            RP_TIMER_IMPL(obj)->m_dispatcher = g_value_get_object(value);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
 static void
 timer_cb(evutil_socket_t fd, short events, void* arg)
 {
@@ -182,24 +119,14 @@ timer_cb(evutil_socket_t fd, short events, void* arg)
 }
 
 OVERRIDE void
-constructed(GObject* obj)
-{
-    NOISY_MSG_("(%p)", obj);
-
-    G_OBJECT_CLASS(rp_timer_impl_parent_class)->constructed(obj);
-
-    RpTimerImpl* self = RP_TIMER_IMPL(obj);
-    self->m_raw_event = rp_event_impl_base_raw_event_(RP_EVENT_IMPL_BASE(self));
-    evtimer_assign(self->m_raw_event, self->m_evbase, timer_cb, obj);
-}
-
-OVERRIDE void
 dispose(GObject* obj)
 {
     NOISY_MSG_("(%p)", obj);
 
+#if 0
     RpTimerImpl* self = RP_TIMER_IMPL(obj);
-//    if (timer_enabled(self)) timer_cancel(self);
+    if (timer_enabled(self)) timer_cancel(self);
+#endif//0
 
     G_OBJECT_CLASS(rp_timer_impl_parent_class)->dispose(obj);
 }
@@ -210,30 +137,7 @@ rp_timer_impl_class_init(RpTimerImplClass* klass)
     LOGD("(%p)", klass);
 
     GObjectClass* object_class = G_OBJECT_CLASS(klass);
-    object_class->get_property = get_property;
-    object_class->set_property = set_property;
-    object_class->constructed = constructed;
     object_class->dispose = dispose;
-
-    obj_properties[PROP_EVBASE] = g_param_spec_pointer("evbase",
-                                                    "evbase",
-                                                    "Base event loop (evbase_t) Instance",
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-    obj_properties[PROP_CB] = g_param_spec_pointer("cb",
-                                                    "callback",
-                                                    "Callback func",
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-    obj_properties[PROP_ARG] = g_param_spec_pointer("arg",
-                                                    "arg",
-                                                    "Argument",
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-    obj_properties[PROP_DISPATCHER] = g_param_spec_object("dispatcher",
-                                                    "Dispatcher",
-                                                    "Dispatcher Instance",
-                                                    RP_TYPE_DISPATCHER,
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-
-    g_object_class_install_properties(object_class, N_PROPERTIES, obj_properties);
 }
 
 static void
@@ -242,13 +146,24 @@ rp_timer_impl_init(RpTimerImpl* self G_GNUC_UNUSED)
     NOISY_MSG_("(%p)", self);
 }
 
+static inline RpTimerImpl*
+constructed(RpTimerImpl* self)
+{
+    NOISY_MSG_("(%p)", self);
+
+    self->m_raw_event = rp_event_impl_base_raw_event_(RP_EVENT_IMPL_BASE(self));
+    evtimer_assign(self->m_raw_event, self->m_evbase, timer_cb, self);
+    return self;
+}
+
 RpTimerImpl*
 rp_timer_impl_new(evbase_t* evbase, RpTimerCb cb, gpointer arg, RpDispatcher* dispatcher)
 {
     LOGD("(%p, %p, %p, %p)", evbase, cb, arg, dispatcher);
-    return g_object_new(RP_TYPE_TIMER_IMPL,
-                        "evbase", evbase,
-                        "cb", cb,
-                        "arg", arg,
-                        NULL);
+    RpTimerImpl* self = g_object_new(RP_TYPE_TIMER_IMPL, NULL);
+    self->m_evbase = evbase;
+    self->m_cb = cb;
+    self->m_arg = arg;
+    self->m_dispatcher = dispatcher;
+    return constructed(self);
 }
