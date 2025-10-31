@@ -16,10 +16,6 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
-#ifndef OVERRIDE
-#define OVERRIDE static
-#endif
-
 #include "event/rp-libevent-scheduler.h"
 #include "event/rp-schedulable-cb-impl.h"
 #include "event/rp-dispatcher-impl.h"
@@ -33,10 +29,10 @@ struct _pointer_node {
 struct _RpDispatcherImpl {
     GObject parent_instance;
 
-    gchar* m_name;
+    UNIQUE_PTR(gchar) m_name;
     evthr_t* m_thr;
 
-    RpTimeSystem* m_time_system;
+    UNIQUE_PTR(RpTimeSystem) m_time_system;
     RpLibeventScheduler* m_base_scheduler;
     RpScheduler* m_scheduler;
     RpSchedulableCallback* m_deferred_delete_cb;
@@ -54,17 +50,6 @@ struct _RpDispatcherImpl {
     bool m_deferred_deleting : 1;
     bool m_deferred_destroying : 1;
 };
-
-enum
-{
-    PROP_0, // Reserved.
-    PROP_NAME,
-    PROP_TIME_SYSTEM,
-    PROP_THR,
-    N_PROPERTIES
-};
-
-static GParamSpec* obj_properties[N_PROPERTIES] = { NULL, };
 
 static void dispatcher_base_iface_init(RpDispatcherBaseInterface* iface);
 static void dispatcher_iface_init(RpDispatcherInterface* iface);
@@ -299,77 +284,6 @@ dispatcher_iface_init(RpDispatcherInterface* iface)
     iface->deferred_destroy = deferred_destroy_i;
 }
 
-OVERRIDE void
-get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_NAME:
-            g_value_set_string(value, RP_DISPATCHER_IMPL(obj)->m_name);
-            break;
-        case PROP_THR:
-            g_value_set_pointer(value, RP_DISPATCHER_IMPL(obj)->m_thr);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
-set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_NAME:
-            g_clear_pointer(&RP_DISPATCHER_IMPL(obj)->m_name, g_free);
-            RP_DISPATCHER_IMPL(obj)->m_name = g_strdup(g_value_get_string(value));
-            break;
-        case PROP_TIME_SYSTEM:
-            RP_DISPATCHER_IMPL(obj)->m_time_system = g_value_get_object(value);
-            break;
-        case PROP_THR:
-            RP_DISPATCHER_IMPL(obj)->m_thr = g_value_get_pointer(value);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
-constructed(GObject* obj)
-{
-    NOISY_MSG_("(%p)", obj);
-
-    G_OBJECT_CLASS(rp_dispatcher_impl_parent_class)->constructed(obj);
-
-    RpDispatcherImpl* self = RP_DISPATCHER_IMPL(obj);
-
-    g_object_ref(self->m_time_system);
-NOISY_MSG_("obj %p, time system %p(%u)", obj, self->m_time_system, G_OBJECT(self->m_time_system)->ref_count);
-
-    self->m_base_scheduler = rp_libevent_scheduler_new(self->m_thr);
-    self->m_scheduler = rp_time_system_create_scheduler(self->m_time_system, RP_SCHEDULER(self->m_base_scheduler), NULL);
-NOISY_MSG_("obj %p, scheduler %p", obj, self->m_scheduler);
-
-    self->m_deferred_delete_cb = RP_SCHEDULABLE_CALLBACK(
-        rp_schedulable_callback_impl_new(rp_libevent_scheduler_base(self->m_base_scheduler), clear_deferred_delete_list, self));
-    self->m_deferred_destroy_cb = RP_SCHEDULABLE_CALLBACK(
-        rp_schedulable_callback_impl_new(rp_libevent_scheduler_base(self->m_base_scheduler), clear_deferred_destroy_list, self));
-
-    self->m_to_delete_1 = g_array_new(false, false, sizeof(GObject*));
-    self->m_to_delete_2 = g_array_new(false, false, sizeof(GObject*));
-    self->m_current_to_delete = &self->m_to_delete_1;
-
-    self->m_to_destroy_1 = g_ptr_array_new();
-    self->m_to_destroy_2 = g_ptr_array_new();
-    self->m_current_to_destroy = &self->m_to_destroy_1;
-    self->m_free_nodes = g_ptr_array_new_full(3, NULL);
-}
-
 // REVISIT - this is "hokey".(?)
 static inline RpScheduler*
 reinit_scheduler(RpDispatcherImpl* self)
@@ -432,27 +346,7 @@ rp_dispatcher_impl_class_init(RpDispatcherImplClass* klass)
     LOGD("(%p)", klass);
 
     GObjectClass* object_class = G_OBJECT_CLASS(klass);
-    object_class->get_property = get_property;
-    object_class->set_property = set_property;
-    object_class->constructed = constructed;
     object_class->dispose = dispose;
-
-    obj_properties[PROP_NAME] = g_param_spec_string("name",
-                                                    "Name",
-                                                    "Name",
-                                                    "[unset]",
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-    obj_properties[PROP_TIME_SYSTEM] = g_param_spec_object("time-system",
-                                                    "Time system",
-                                                    "TimeSystem Instance",
-                                                    RP_TYPE_TIME_SYSTEM,
-                                                    G_PARAM_WRITABLE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-    obj_properties[PROP_THR] = g_param_spec_pointer("thr",
-                                                    "Thr",
-                                                    "Thread (evthr_t) Instance",
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-
-    g_object_class_install_properties(object_class, N_PROPERTIES, obj_properties);
 }
 
 static void
@@ -463,16 +357,42 @@ rp_dispatcher_impl_init(RpDispatcherImpl* self)
     self->m_deferred_destroying = false;
 }
 
-RpDispatcherImpl*
-rp_dispatcher_impl_new(const char* name, RpTimeSystem* time_system, evthr_t* thr)
+static inline RpDispatcherImpl*
+constructed(RpDispatcherImpl* self)
 {
-    LOGD("(%p(%s), %p)", name, name, thr);
+    NOISY_MSG_("(%p)", self);
+
+    self->m_base_scheduler = rp_libevent_scheduler_new(self->m_thr);
+    self->m_scheduler = rp_time_system_create_scheduler(self->m_time_system, RP_SCHEDULER(self->m_base_scheduler), NULL);
+
+    self->m_deferred_delete_cb = RP_SCHEDULABLE_CALLBACK(
+        rp_schedulable_callback_impl_new(rp_libevent_scheduler_base(self->m_base_scheduler), clear_deferred_delete_list, self));
+    self->m_deferred_destroy_cb = RP_SCHEDULABLE_CALLBACK(
+        rp_schedulable_callback_impl_new(rp_libevent_scheduler_base(self->m_base_scheduler), clear_deferred_destroy_list, self));
+
+    self->m_to_delete_1 = g_array_new(false, false, sizeof(GObject*));
+    self->m_to_delete_2 = g_array_new(false, false, sizeof(GObject*));
+    self->m_current_to_delete = &self->m_to_delete_1;
+
+    self->m_to_destroy_1 = g_ptr_array_new();
+    self->m_to_destroy_2 = g_ptr_array_new();
+    self->m_current_to_destroy = &self->m_to_destroy_1;
+    self->m_free_nodes = g_ptr_array_new_full(3, NULL);
+
+    return self;
+}
+
+RpDispatcherImpl*
+rp_dispatcher_impl_new(const char* name, UNIQUE_PTR(RpTimeSystem) time_system, SHARED_PTR(evthr_t) thr)
+{
+    LOGD("(%p(%s), %p, %p)", name, name, time_system, thr);
+    g_return_val_if_fail(RP_IS_TIME_SYSTEM(time_system), NULL);
     g_return_val_if_fail(thr != NULL, NULL);
-    return g_object_new(RP_TYPE_DISPATCHER_IMPL,
-                        "name", name,
-                        "time-system", time_system,
-                        "thr", thr,
-                        NULL);
+    RpDispatcherImpl* self = g_object_new(RP_TYPE_DISPATCHER_IMPL, NULL);
+    self->m_name = name ? g_strdup(name) : NULL;
+    self->m_time_system = time_system;
+    self->m_thr = thr;
+    return constructed(self);
 }
 
 evthr_t*

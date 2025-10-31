@@ -25,46 +25,7 @@ struct _RpHttp1RequestEncoderWrapper {
     RpHttp1StreamWrapper* m_parent;
 };
 
-enum
-{
-    PROP_0, // Reserved.
-    PROP_PARENT,
-    N_PROPERTIES
-};
-
-static GParamSpec* obj_properties[N_PROPERTIES] = { NULL, };
-
 G_DEFINE_FINAL_TYPE(RpHttp1RequestEncoderWrapper, rp_http1_request_encoder_wrapper, RP_TYPE_REQUEST_ENCODER_WRAPPER)
-
-OVERRIDE void
-get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_PARENT:
-            g_value_set_object(value, RP_HTTP1_REQUEST_ENCODER_WRAPPER(obj)->m_parent);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
-set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_PARENT:
-            RP_HTTP1_REQUEST_ENCODER_WRAPPER(obj)->m_parent = g_value_get_object(value);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
 
 OVERRIDE void
 dispose(GObject* obj)
@@ -93,19 +54,9 @@ rp_http1_request_encoder_wrapper_class_init(RpHttp1RequestEncoderWrapperClass* k
     LOGD("(%p)", klass);
 
     GObjectClass* object_class = G_OBJECT_CLASS(klass);
-    object_class->get_property = get_property;
-    object_class->set_property = set_property;
     object_class->dispose = dispose;
 
     request_encoder_wrapper_class_init(RP_REQUEST_ENCODER_WRAPPER_CLASS(klass));
-
-    obj_properties[PROP_PARENT] = g_param_spec_object("parent",
-                                                    "Parent",
-                                                    "Parent Http1StreamWrapper Instance",
-                                                    RP_TYPE_HTTP1_STREAM_WRAPPER,
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-
-    g_object_class_install_properties(object_class, N_PROPERTIES, obj_properties);
 }
 
 static void
@@ -118,8 +69,9 @@ RpHttp1RequestEncoderWrapper*
 rp_http1_request_encoder_wrapper_new(RpHttp1StreamWrapper* parent, RpRequestEncoder* encoder)
 {
     LOGD("(%p, %p)", parent, encoder);
-    return g_object_new(RP_TYPE_HTTP1_REQUEST_ENCODER_WRAPPER,
-                        "inner", encoder,
-                        "parent", parent,
-                        NULL);
+    RpHttp1RequestEncoderWrapper* self = g_object_new(RP_TYPE_HTTP1_REQUEST_ENCODER_WRAPPER,
+                                                        "inner", encoder,
+                                                        NULL);
+    self->m_parent = parent;
+    return self;
 }

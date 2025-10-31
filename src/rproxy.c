@@ -460,8 +460,10 @@ translate_discovery_type(rule_cfg_t* cfg)
 static inline void
 create_dispatcher(rproxy_t* rproxy, const gchar* name)
 {
-    g_autoptr(RpRealTimeSystem) time_system = rp_real_time_system_new();
-    rproxy->m_dispatcher = RP_DISPATCHER(rp_dispatcher_impl_new(name, RP_TIME_SYSTEM(time_system), rproxy->thr));
+    RpTimeSystem* time_system = RP_TIME_SYSTEM(rp_real_time_system_new());
+    rproxy->m_dispatcher = RP_DISPATCHER(rp_dispatcher_impl_new(name,
+                                                                g_steal_pointer(&time_system),
+                                                                rproxy->thr));
 }
 
 static inline void

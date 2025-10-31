@@ -35,16 +35,6 @@ struct _RpHttp1StreamWrapper {
     bool m_close_connection : 1;
 };
 
-enum
-{
-    PROP_0, // Reserved.
-    PROP_PARENT,
-    PROP_RESPONSE_DECODER,
-    N_PROPERTIES
-};
-
-static GParamSpec* obj_properties[N_PROPERTIES] = { NULL, };
-
 static void stream_callbacks_iface_init(RpStreamCallbacksInterface* iface);
 static void response_decoder_iface_init(RpResponseDecoderInterface* iface);
 static void stream_encoder_iface_init(RpStreamEncoderInterface* iface);
@@ -172,56 +162,6 @@ request_encoder_iface_init(RpRequestEncoderInterface* iface)
 }
 
 OVERRIDE void
-get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_PARENT:
-            g_value_set_object(value, RP_HTTP1_STREAM_WRAPPER(obj)->m_parent);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
-set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_PARENT:
-            RP_HTTP1_STREAM_WRAPPER(obj)->m_parent = g_value_get_object(value);
-            break;
-        case PROP_RESPONSE_DECODER:
-            RP_HTTP1_STREAM_WRAPPER(obj)->m_response_decoder = g_value_get_object(value);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
-constructed(GObject* obj)
-{
-    NOISY_MSG_("(%p)", obj);
-
-    G_OBJECT_CLASS(rp_http1_stream_wrapper_parent_class)->constructed(obj);
-
-    RpHttp1StreamWrapper* self = RP_HTTP1_STREAM_WRAPPER(obj);
-
-    RpCodecClient* codec_client = get_codec_client(self);
-    RpRequestEncoder* request_encoder = rp_codec_client_new_stream(codec_client, RP_RESPONSE_DECODER(self));
-    self->m_encoder_wrapper = rp_http1_request_encoder_wrapper_new(self, request_encoder);
-
-    rp_stream_add_callbacks(
-        rp_stream_encoder_get_stream(RP_STREAM_ENCODER(request_encoder)), RP_STREAM_CALLBACKS(self));
-}
-
-OVERRIDE void
 dispose(GObject* obj)
 {
     NOISY_MSG_("(%p)", obj);
@@ -284,25 +224,9 @@ rp_http1_stream_wrapper_class_init(RpHttp1StreamWrapperClass* klass)
     LOGD("(%p)", klass);
 
     GObjectClass* object_class = G_OBJECT_CLASS(klass);
-    object_class->get_property = get_property;
-    object_class->set_property = set_property;
-    object_class->constructed = constructed;
     object_class->dispose = dispose;
 
     response_decoder_wrapper_class_init(RP_RESPONSE_DECODER_WRAPPER_CLASS(klass));
-
-    obj_properties[PROP_PARENT] = g_param_spec_object("parent",
-                                                    "Parent",
-                                                    "Parent ActiveClient Instance",
-                                                    RP_TYPE_HTTP1_CP_ACTIVE_CLIENT,
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-    obj_properties[PROP_RESPONSE_DECODER] = g_param_spec_object("response-decoder",
-                                                    "Response decoder",
-                                                    "ResponseDecoder Instance",
-                                                    RP_TYPE_RESPONSE_DECODER,
-                                                    G_PARAM_WRITABLE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-
-    g_object_class_install_properties(object_class, N_PROPERTIES, obj_properties);
 }
 
 static void
@@ -311,17 +235,32 @@ rp_http1_stream_wrapper_init(RpHttp1StreamWrapper* self G_GNUC_UNUSED)
     NOISY_MSG_("(%p)", self);
 }
 
+static inline RpHttp1StreamWrapper*
+constructed(RpHttp1StreamWrapper* self)
+{
+    NOISY_MSG_("(%p)", self);
+
+    RpCodecClient* codec_client = get_codec_client(self);
+    RpRequestEncoder* request_encoder = rp_codec_client_new_stream(codec_client, RP_RESPONSE_DECODER(self));
+    self->m_encoder_wrapper = rp_http1_request_encoder_wrapper_new(self, request_encoder);
+
+    rp_stream_add_callbacks(
+        rp_stream_encoder_get_stream(RP_STREAM_ENCODER(request_encoder)), RP_STREAM_CALLBACKS(self));
+    return self;
+}
+
 RpHttp1StreamWrapper*
 rp_http1_stream_wrapper_new(RpResponseDecoder* response_decoder, RpHttp1CpActiveClientPtr parent)
 {
     LOGD("(%p, %p)", response_decoder, parent);
     g_return_val_if_fail(RP_IS_RESPONSE_DECODER(response_decoder), NULL);
     g_return_val_if_fail(RP_IS_HTTP1_CP_ACTIVE_CLIENT(parent), NULL);
-    return g_object_new(RP_TYPE_HTTP1_STREAM_WRAPPER,
-                        "response-decoder", response_decoder,
-                        "inner", response_decoder,
-                        "parent", parent,
-                        NULL);
+    RpHttp1StreamWrapper* self = g_object_new(RP_TYPE_HTTP1_STREAM_WRAPPER,
+                                                "inner", response_decoder,
+                                                NULL);
+    self->m_response_decoder =  response_decoder;
+    self->m_parent = parent;
+    return constructed(self);
 }
 
 void

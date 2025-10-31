@@ -60,15 +60,6 @@ struct _RpHttp1ClientConnectionImpl {
     bool m_encode_complete : 1;
 };
 
-enum
-{
-    PROP_0, // Reserved.
-    PROP_PASSING_THROUGH_PROXY,
-    N_PROPERTIES
-};
-
-static GParamSpec* obj_properties[N_PROPERTIES] = { NULL, };
-
 static void http_client_connection_iface_init(RpHttpClientConnectionInterface* iface);
 
 G_DEFINE_FINAL_TYPE_WITH_CODE(RpHttp1ClientConnectionImpl, rp_http1_client_connection_impl, RP_TYPE_HTTP1_CONNECTION_IMPL,
@@ -91,36 +82,6 @@ http_client_connection_iface_init(RpHttpClientConnectionInterface* iface)
 {
     LOGD("(%p)", iface);
     iface->new_stream = new_stream_i;
-}
-
-OVERRIDE void
-get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_PASSING_THROUGH_PROXY:
-            g_value_set_boolean(value, RP_HTTP1_CLIENT_CONNECTION_IMPL(obj)->m_passing_through_proxy);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
-set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_PASSING_THROUGH_PROXY:
-            RP_HTTP1_CLIENT_CONNECTION_IMPL(obj)->m_passing_through_proxy = g_value_get_boolean(value);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
 }
 
 OVERRIDE void
@@ -336,19 +297,9 @@ rp_http1_client_connection_impl_class_init(RpHttp1ClientConnectionImplClass* kla
     LOGD("(%p)", klass);
 
     GObjectClass* object_class = G_OBJECT_CLASS(klass);
-    object_class->get_property = get_property;
-    object_class->set_property = set_property;
     object_class->dispose = dispose;
 
     http1_connection_impl_class_init(RP_HTTP1_CONNECTION_IMPL_CLASS(klass));
-
-    obj_properties[PROP_PASSING_THROUGH_PROXY] = g_param_spec_boolean("passing-through-proxy",
-                                                    "Passing through proxy",
-                                                    "Passing through proxy flag",
-                                                    false,
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-
-    g_object_class_install_properties(object_class, N_PROPERTIES, obj_properties);
 }
 
 static void
@@ -370,14 +321,15 @@ rp_http1_client_connection_impl_new(RpNetworkConnection* connection,
         connection, callbacks, settings, max_response_headers_kb, max_response_headers_count, passing_through_proxy);
     g_return_val_if_fail(RP_IS_NETWORK_CONNECTION(connection), NULL);
     g_return_val_if_fail(settings != NULL, NULL);
-    return g_object_new(RP_TYPE_HTTP1_CLIENT_CONNECTION_IMPL,
-                        "connection", connection,
-                        "passing-through-proxy", passing_through_proxy,
-                        "codec-settings", settings,
-                        "message-type", RpMessageType_Response,
-                        "max-headers-kb", max_response_headers_kb,
-                        "max-headers-count", max_response_headers_count,
-                        NULL);
+    RpHttp1ClientConnectionImpl* self = g_object_new(RP_TYPE_HTTP1_CLIENT_CONNECTION_IMPL,
+                                                        "connection", connection,
+                                                        "codec-settings", settings,
+                                                        "message-type", RpMessageType_Response,
+                                                        "max-headers-kb", max_response_headers_kb,
+                                                        "max-headers-count", max_response_headers_count,
+                                                        NULL);
+    self->m_passing_through_proxy = passing_through_proxy;
+    return self;
 }
 
 static inline RpParser*

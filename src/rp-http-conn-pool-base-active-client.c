@@ -52,30 +52,14 @@ G_DEFINE_ABSTRACT_TYPE_WITH_CODE(RpHttpConnPoolBaseActiveClient, rp_http_conn_po
 #define PRIV(obj) \
     ((RpHttpConnPoolBaseActiveClientPrivate*) rp_http_conn_pool_base_active_client_get_instance_private(RP_HTTP_CONN_POOL_BASE_ACTIVE_CLIENT(obj)))
 
-static inline RpConnPoolImplBase*
-ensure_parent(RpHttpConnPoolBaseActiveClient* self)
-{
-    NOISY_MSG_("(%p)", self);
-    RpHttpConnPoolBaseActiveClientPrivate* me = PRIV(self);
-    if (me->m_parent)
-    {
-        NOISY_MSG_("pre-allocated parent %p", me->m_parent);
-        return me->m_parent;
-    }
-    g_object_get(G_OBJECT(self), "parent", &me->m_parent, NULL);
-    NOISY_MSG_("allocated parent %p", me->m_parent);
-    return me->m_parent;
-}
-
 static void
 on_event_i(RpNetworkConnectionCallbacks* self, RpNetworkConnectionEvent_e event)
 {
     NOISY_MSG_("(%p, %d)", self, event);
-    RpConnPoolImplBase* parent_ = ensure_parent(RP_HTTP_CONN_POOL_BASE_ACTIVE_CLIENT(self));
-    RpCodecClient* codec_client_ = PRIV(self)->m_codec_client;
-    rp_conn_pool_impl_base_on_connection_event(parent_,
+    RpHttpConnPoolBaseActiveClientPrivate* me = PRIV(self);
+    rp_conn_pool_impl_base_on_connection_event(me->m_parent,
                                                 RP_CONNECTION_POOL_ACTIVE_CLIENT(self),
-                                                rp_codec_client_connection_failure_reason(codec_client_),
+                                                rp_codec_client_connection_failure_reason(me->m_codec_client),
                                                 event);
 }
 
@@ -153,13 +137,15 @@ constructed(GObject* obj)
 
     RpHttpConnPoolBaseActiveClient* self = RP_HTTP_CONN_POOL_BASE_ACTIVE_CLIENT(obj);
     RpHttpConnPoolBaseActiveClientPrivate* me = PRIV(self);
+    me->m_parent = rp_connection_pool_active_client_parent_(RP_CONNECTION_POOL_ACTIVE_CLIENT(self));
+NOISY_MSG_("parent %p", me->m_parent);
     if (me->m_opt_data)
     {
-        initialize(self, me->m_opt_data, RP_HTTP_CONN_POOL_IMPL_BASE(ensure_parent(self)));
+        initialize(self, me->m_opt_data, RP_HTTP_CONN_POOL_IMPL_BASE(me->m_parent));
     }
     else
     {
-        RpConnPoolImplBase* parent = ensure_parent(self);
+        RpConnPoolImplBase* parent = me->m_parent;
         RpHost* host = rp_conn_pool_impl_base_host(parent);
 NOISY_MSG_("host %p", host);
         RpDispatcher* dispatcher = rp_conn_pool_impl_base_dispatcher(parent);
@@ -176,7 +162,6 @@ dispose(GObject* obj)
     RpHttpConnPoolBaseActiveClient* self = RP_HTTP_CONN_POOL_BASE_ACTIVE_CLIENT(obj);
     RpHttpConnPoolBaseActiveClientPrivate* me = PRIV(self);
     g_clear_object(&me->m_codec_client);
-    g_clear_object(&me->m_parent);
 
     G_OBJECT_CLASS(rp_http_conn_pool_base_active_client_parent_class)->dispose(obj);
 }

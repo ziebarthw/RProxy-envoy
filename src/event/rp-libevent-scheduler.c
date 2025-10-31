@@ -16,10 +16,6 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
-#ifndef OVERRIDE
-#define OVERRIDE static
-#endif
-
 #include "event/rp-schedulable-cb-impl.h"
 #include "event/rp-timer-impl.h"
 #include "event/rp-libevent-scheduler.h"
@@ -27,17 +23,8 @@
 struct _RpLibeventScheduler {
     GObject parent_instance;
 
-    evthr_t* m_thr;
+    SHARED_PTR(evthr_t) m_thr;
 };
-
-enum
-{
-    PROP_0, // Reserved.
-    PROP_THR,
-    N_PROPERTIES
-};
-
-static GParamSpec* obj_properties[N_PROPERTIES] = { NULL, };
 
 static void scheduler_iface_init(RpSchedulerInterface* iface);
 static void callback_scheduler_iface_init(RpCallbackSchedulerInterface* iface);
@@ -78,36 +65,6 @@ callback_scheduler_iface_init(RpCallbackSchedulerInterface* iface)
 }
 
 OVERRIDE void
-get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_THR:
-            g_value_set_pointer(value, RP_LIBEVENT_SCHEDULER(obj)->m_thr);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
-set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_THR:
-            RP_LIBEVENT_SCHEDULER(obj)->m_thr = g_value_get_pointer(value);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
 dispose(GObject* obj)
 {
     NOISY_MSG_("(%p)", obj);
@@ -120,16 +77,7 @@ rp_libevent_scheduler_class_init(RpLibeventSchedulerClass* klass)
     LOGD("(%p)", klass);
 
     GObjectClass* object_class = G_OBJECT_CLASS(klass);
-    object_class->get_property = get_property;
-    object_class->set_property = set_property;
     object_class->dispose = dispose;
-
-    obj_properties[PROP_THR] = g_param_spec_pointer("thr",
-                                                    "Thr",
-                                                    "Thread (evthr_t) Instance",
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-
-    g_object_class_install_properties(object_class, N_PROPERTIES, obj_properties);
 }
 
 static void
@@ -139,11 +87,13 @@ rp_libevent_scheduler_init(RpLibeventScheduler* self G_GNUC_UNUSED)
 }
 
 RpLibeventScheduler*
-rp_libevent_scheduler_new(evthr_t* thr)
+rp_libevent_scheduler_new(SHARED_PTR(evthr_t) thr)
 {
     LOGD("(%p)", thr);
     g_return_val_if_fail(thr != NULL, NULL);
-    return g_object_new(RP_TYPE_LIBEVENT_SCHEDULER, "thr", thr, NULL);
+    RpLibeventScheduler* self = g_object_new(RP_TYPE_LIBEVENT_SCHEDULER, NULL);
+    self->m_thr = thr;
+    return self;
 }
 
 evbase_t*
