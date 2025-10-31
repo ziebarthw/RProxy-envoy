@@ -9,6 +9,7 @@
 
 #include <stdbool.h>
 #include <glib-object.h>
+#include "rproxy.h"
 #include "rp-dispatcher.h"
 #include "rp-schedulable-cb.h"
 #include "rp-timer.h"
@@ -60,7 +61,7 @@ G_BEGIN_DECLS
 #define RP_TYPE_LIBEVENT_SCHEDULER rp_libevent_scheduler_get_type()
 G_DECLARE_FINAL_TYPE(RpLibeventScheduler, rp_libevent_scheduler, RP, LIBEVENT_SCHEDULER, GObject)
 
-RpLibeventScheduler* rp_libevent_scheduler_new(evthr_t* thr);
-evbase_t* rp_libevent_scheduler_base(RpLibeventScheduler* self);
+RpLibeventScheduler* rp_libevent_scheduler_new(SHARED_PTR(evthr_t) thr);
+SHARED_PTR(evbase_t) rp_libevent_scheduler_base(RpLibeventScheduler* self);
 
 G_END_DECLS

@@ -314,17 +314,13 @@ owning_list(RpConnPoolImplBasePrivate* me, RpConnectionPoolActiveClientState_e s
     switch (state)
     {
         case RpConnectionPoolActiveClientState_Connecting:
-NOISY_MSG_("connecting clients");
             return &me->m_connecting_clients;
         case RpConnectionPoolActiveClientState_ReadyForEarlyData:
-NOISY_MSG_("early data clients");
             return &me->m_early_data_clients;
         case RpConnectionPoolActiveClientState_Ready:
-NOISY_MSG_("ready clients");
             return &me->m_ready_clients;
         case RpConnectionPoolActiveClientState_Busy:
         case RpConnectionPoolActiveClientState_Draining:
-NOISY_MSG_("busy clients");
             return &me->m_busy_clients;
         case RpConnectionPoolActiveClientState_Closed:
             LOGE("RpConnectionPoolActiveClientState_Closed");
@@ -346,14 +342,6 @@ rp_conn_pool_impl_base_transition_active_client_state(RpConnPoolImplBase* self,
 NOISY_MSG_("active client state %d", rp_connection_pool_active_client_state(client));
     GList** old_list = owning_list(me, rp_connection_pool_active_client_state(client));
     GList** new_list = owning_list(me, new_state);
-if (*old_list == me->m_ready_clients)
-{
-    NOISY_MSG_("removing from ready clients");
-}
-if (*new_list == me->m_ready_clients)
-{
-    NOISY_MSG_("adding to ready clients");
-}
     rp_connection_pool_active_client_set_state(client, new_state);
 
     if (*old_list != *new_list)

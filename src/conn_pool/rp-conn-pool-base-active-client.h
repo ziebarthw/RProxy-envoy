@@ -170,5 +170,6 @@ void rp_connection_pool_active_client_set_remaining_streams(RpConnectionPoolActi
                                                             guint32 count);
 void rp_connection_pool_active_client_set_has_handshake_completed(RpConnectionPoolActiveClient* self,
                                                                     bool v);
+RpConnPoolImplBase* rp_connection_pool_active_client_parent_(RpConnectionPoolActiveClient* self);
 
 G_END_DECLS

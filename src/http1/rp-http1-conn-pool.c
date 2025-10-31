@@ -28,46 +28,7 @@ struct _RpHttp1CpActiveClient {
     RpHttpConnPoolImplBase* m_parent;
 };
 
-enum
-{
-    PROP_0, // Reserved.
-    PROP_PARENT,
-    N_PROPERTIES
-};
-
-static GParamSpec* obj_properties[N_PROPERTIES] = { NULL, };
-
 G_DEFINE_FINAL_TYPE(RpHttp1CpActiveClient, rp_http1_cp_active_client, RP_TYPE_HTTP_CONN_POOL_BASE_ACTIVE_CLIENT)
-
-OVERRIDE void
-get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_PARENT:
-            g_value_set_object(value, RP_HTTP1_CP_ACTIVE_CLIENT(obj)->m_parent);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
-set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_PARENT:
-            RP_HTTP1_CP_ACTIVE_CLIENT(obj)->m_parent = g_value_get_object(value);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
 
 OVERRIDE void
 dispose(GObject* obj)
@@ -138,19 +99,9 @@ rp_http1_cp_active_client_class_init(RpHttp1CpActiveClientClass* klass)
     LOGD("(%p)", klass);
 
     GObjectClass* object_class = G_OBJECT_CLASS(klass);
-    object_class->get_property = get_property;
-    object_class->set_property = set_property;
     object_class->dispose = dispose;
 
     http_conn_pool_base_active_client_class_init(RP_HTTP_CONN_POOL_BASE_ACTIVE_CLIENT_CLASS(klass));
-
-    obj_properties[PROP_PARENT] = g_param_spec_object("parent",
-                                                    "Parent",
-                                                    "Parent HttpConnPoolImplBase Instance",
-                                                    RP_TYPE_HTTP_CONN_POOL_IMPL_BASE,
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-
-    g_object_class_install_properties(object_class, N_PROPERTIES, obj_properties);
 }
 
 static void
@@ -173,13 +124,15 @@ rp_http1_cp_active_client_new(RpHttpConnPoolImplBase* parent, RpCreateConnection
 {
     LOGD("(%p, %p)", parent, data);
     g_return_val_if_fail(RP_IS_HTTP_CONN_POOL_IMPL_BASE(parent), NULL);
-    return g_object_new(RP_TYPE_HTTP1_CP_ACTIVE_CLIENT,
-                        "parent", parent,
-                        "lifetime-stream-limit", max_requests_per_connection(parent),
-                        "effective-concurrent-streams", 1,
-                        "concurrent-stream-limit", 1,
-                        "opt-data", data,
-                        NULL);
+    RpHttp1CpActiveClient* self = g_object_new(RP_TYPE_HTTP1_CP_ACTIVE_CLIENT,
+                                                "parent", parent,
+                                                "lifetime-stream-limit", max_requests_per_connection(parent),
+                                                "effective-concurrent-streams", 1,
+                                                "concurrent-stream-limit", 1,
+                                                "opt-data", data,
+                                                NULL);
+    self->m_parent = parent;
+    return self;
 }
 
 RpHttpConnPoolImplBase*

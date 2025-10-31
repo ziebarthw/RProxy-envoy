@@ -16,6 +16,7 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
+#include "rproxy.h"
 #include "rp-net-conn-impl.h"
 #include "rp-dispatcher.h"
 #include "rp-headers.h"
@@ -227,7 +228,6 @@ on_message_begin_base(RpHttp1ConnectionImpl* self)
                                                             response_encoder,
                                                             false);
         me->m_active_request = active_request;
-NOISY_MSG_("active request %p", active_request);
         //TODO...RETURN_IF_ERROR(doFloodProtectionChecks())
     }
     return RpStatusCode_Ok;
@@ -238,10 +238,8 @@ on_url_base(RpHttp1ConnectionImpl* self, const char* data, size_t length)
 {
     NOISY_MSG_("(%p, %p, %zu)", self, data, length);
     ActiveRequest* active_request = RP_HTTP1_SERVER_CONNECTION_IMPL(self)->m_active_request;
-NOISY_MSG_("active request %p", active_request);
     if (active_request)
     {
-NOISY_MSG_("calling g_string_append_len(%p, %p(%.*s), %zu)", active_request->m_request_url, data, (int)length, data, length);
         g_string_append_len(active_request->m_request_url, data, length);
         //TODO...RETURN_IF_ERROR(checkMaxHeaderSize());
     }
@@ -277,7 +275,6 @@ on_encode_complete(RpHttp1ConnectionImpl* self)
 {
     NOISY_MSG_("(%p)", self);
     RpHttp1ServerConnectionImpl* me = RP_HTTP1_SERVER_CONNECTION_IMPL(self);
-NOISY_MSG_("remote complete %u", me->m_active_request->m_remote_complete);
     if (me->m_active_request->m_remote_complete)
     {
         RpDispatcher* dispatcher = rp_network_connection_dispatcher(me->m_connection);
@@ -393,12 +390,6 @@ handle_path(RpHttp1ServerConnectionImpl* self, evhtp_headers_t* request_headers,
     bool is_connect = (g_ascii_strcasecmp(method, RpHeaderValues.MethodValues.Connect) == 0);
 
     ActiveRequest* active_request = self->m_active_request;
-
-NOISY_MSG_("active request %p", active_request);
-NOISY_MSG_("request url %p", active_request->m_request_url);
-NOISY_MSG_("request url str %p(%s)", active_request->m_request_url->str, active_request->m_request_url->str);
-NOISY_MSG_("is_connect %u", is_connect);
-
     if (!is_connect && active_request->m_request_url->len &&
         (active_request->m_request_url->str[0] == '/' ||
             (g_ascii_strcasecmp(method, RpHeaderValues.MethodValues.Options) == 0 &&
@@ -469,7 +460,6 @@ on_headers_complete_base(RpHttp1ConnectionImpl* self)
     if (active_request)
     {
         evhtp_headers_t* headers = me->m_headers_or_trailers;
-NOISY_MSG_("headers %p", headers);
 
         //TODO...handling_upgrade_ && connection header sanitation...
 
@@ -511,13 +501,11 @@ NOISY_MSG_("headers %p", headers);
     return RpStatusCode_Ok;
 }
 
-#include "rproxy.h"
 static void
 dump_headers(RpHttp1ServerConnectionImpl* me)
 {
     NOISY_MSG_("(%p)", me);
     evbuf_t* buf = evbuffer_new();
-NOISY_MSG_("headers %p", me->m_headers_or_trailers);
     evhtp_headers_for_each(me->m_headers_or_trailers, util_write_header_to_evbuffer, buf);
     evbuffer_add(buf, "\r\n", 2);
     LOGD("\n%.*s", (int)evbuffer_get_length(buf), evbuffer_pullup(buf, -1));

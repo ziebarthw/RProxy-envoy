@@ -33,16 +33,6 @@ struct _RpLegacyHttpParserImpl {
     bool m_paused;
 };
 
-enum
-{
-    PROP_0, // Reserved.
-    PROP_TYPE,
-    PROP_CALLBACKS,
-    N_PROPERTIES
-};
-
-static GParamSpec* obj_properties[N_PROPERTIES] = { NULL, };
-
 static void parser_iface_init(RpParserInterface* iface);
 
 G_DEFINE_FINAL_TYPE_WITH_CODE(RpLegacyHttpParserImpl, rp_legacy_http_parser_impl, G_TYPE_OBJECT,
@@ -331,42 +321,6 @@ parser_iface_init(RpParserInterface* iface)
     iface->should_keep_alive = should_keep_alive_i;
 }
 
-OVERRIDE void
-get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_TYPE:
-            g_value_set_enum(value, RP_LEGACY_HTTP_PARSER_IMPL(obj)->m_type);
-            break;
-        case PROP_CALLBACKS:
-            g_value_set_object(value, RP_LEGACY_HTTP_PARSER_IMPL(obj)->m_callbacks);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
-set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_TYPE:
-            RP_LEGACY_HTTP_PARSER_IMPL(obj)->m_type = g_value_get_enum(value);
-            break;
-        case PROP_CALLBACKS:
-            RP_LEGACY_HTTP_PARSER_IMPL(obj)->m_callbacks = g_value_get_object(value);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
 static inline struct htparser*
 create_parser(RpMessageType_e type)
 {
@@ -376,18 +330,6 @@ create_parser(RpMessageType_e type)
     htparser_init(self,
         type == RpMessageType_Request ? htp_type_request : htp_type_response);
     return self;
-}
-
-OVERRIDE void
-constructed(GObject* obj)
-{
-    NOISY_MSG_("(%p)", obj);
-
-    G_OBJECT_CLASS(rp_legacy_http_parser_impl_parent_class)->constructed(obj);
-
-    RpLegacyHttpParserImpl* self = RP_LEGACY_HTTP_PARSER_IMPL(obj);
-    self->m_parser = create_parser(self->m_type);
-    htparser_set_userdata(self->m_parser, self);
 }
 
 OVERRIDE void
@@ -409,24 +351,7 @@ rp_legacy_http_parser_impl_class_init(RpLegacyHttpParserImplClass* klass)
     LOGD("(%p)", klass);
 
     GObjectClass* object_class = G_OBJECT_CLASS(klass);
-    object_class->get_property = get_property;
-    object_class->set_property = set_property;
-    object_class->constructed = constructed;
     object_class->dispose = dispose;
-
-    obj_properties[PROP_TYPE] = g_param_spec_enum("type",
-                                                    "Type",
-                                                    "Message Type",
-                                                    RP_TYPE_MESSAGE_TYPE,
-                                                    RpMessageType_Request,
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-    obj_properties[PROP_CALLBACKS] = g_param_spec_object("callbacks",
-                                                    "Type",
-                                                    "Message Type",
-                                                    RP_TYPE_PARSER_CALLBACKS,
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-
-    g_object_class_install_properties(object_class, N_PROPERTIES, obj_properties);
 }
 
 static void
@@ -435,12 +360,22 @@ rp_legacy_http_parser_impl_init(RpLegacyHttpParserImpl* self G_GNUC_UNUSED)
     NOISY_MSG_("(%p)", self);
 }
 
+static inline RpLegacyHttpParserImpl*
+constructed(RpLegacyHttpParserImpl* self)
+{
+    NOISY_MSG_("(%p)", self);
+
+    self->m_parser = create_parser(self->m_type);
+    htparser_set_userdata(self->m_parser, self);
+    return self;
+}
+
 RpLegacyHttpParserImpl*
 rp_legacy_http_parser_impl_new(RpMessageType_e type, RpParserCallbacks* callbacks)
 {
     LOGD("(%d, %p)", type, callbacks);
-    return g_object_new(RP_TYPE_LEGACY_HTTP_PARSER_IMPL,
-                        "type", type,
-                        "callbacks", callbacks,
-                        NULL);
+    RpLegacyHttpParserImpl* self = g_object_new(RP_TYPE_LEGACY_HTTP_PARSER_IMPL, NULL);
+    self->m_type = type;
+    self->m_callbacks = callbacks;
+    return constructed(self);
 }

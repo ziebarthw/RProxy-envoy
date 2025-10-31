@@ -9,6 +9,7 @@
 
 #include <stdbool.h>
 #include <glib-object.h>
+#include "rproxy.h"
 #include "rp-dispatcher.h"
 #include "rp-time.h"
 
@@ -21,8 +22,8 @@ G_BEGIN_DECLS
 G_DECLARE_FINAL_TYPE(RpDispatcherImpl, rp_dispatcher_impl, RP, DISPATCHER_IMPL, GObject)
 
 RpDispatcherImpl* rp_dispatcher_impl_new(const char* name,
-                                            RpTimeSystem* time_system,
-                                            evthr_t* thr);
+                                            UNIQUE_PTR(RpTimeSystem) time_system,
+                                            SHARED_PTR(evthr_t) thr);
 evbase_t* rp_dispatcher_base(RpDispatcherImpl* self);
 evthr_t* rp_dispatcher_thr(RpDispatcherImpl* self);
 

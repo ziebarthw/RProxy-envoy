@@ -116,6 +116,7 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
     {
         case PROP_PARENT:
             PRIV(obj)->m_parent = g_value_get_object(value);
+NOISY_MSG_("parent %p", PRIV(obj)->m_parent);
             break;
         case PROP_LIFETIME_STREAM_LIMIT:
             PRIV(obj)->m_lifetime_stream_limit = g_value_get_uint(value);
@@ -147,6 +148,7 @@ constructed(GObject* obj)
     G_OBJECT_CLASS(rp_connection_pool_active_client_parent_class)->constructed(obj);
 
     RpConnectionPoolActiveClientPrivate* me = PRIV(obj);
+NOISY_MSG_("parent %p", me->m_parent);
     me->m_remaining_streams = translate_zero_to_unlimited(me->m_lifetime_stream_limit);
 NOISY_MSG_("remaining streams %u", me->m_remaining_streams);
     me->m_configured_stream_limit = translate_zero_to_unlimited(me->m_effective_concurrent_streams);
@@ -421,4 +423,12 @@ rp_connection_pool_active_client_set_has_handshake_completed(RpConnectionPoolAct
     LOGD("(%p, %u)", self, v);
     g_return_if_fail(RP_IS_CONNECTION_POOL_ACTIVE_CLIENT(self));
     PRIV(self)->m_has_handshake_completed = v;
+}
+
+RpConnPoolImplBase*
+rp_connection_pool_active_client_parent_(RpConnectionPoolActiveClient* self)
+{
+    LOGD("(%p)", self);
+    g_return_val_if_fail(RP_IS_CONNECTION_POOL_ACTIVE_CLIENT(self), NULL);
+    return PRIV(self)->m_parent;
 }
