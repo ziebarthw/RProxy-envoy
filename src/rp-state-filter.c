@@ -39,8 +39,6 @@
 const char* rewrite_urls_key = "rp.state.filter.rewrite-urls";
 const char* rule_key = "rp.state.filter.rule";
 const char* original_uri_key = "rp.state.filter.original-uri";
-const char* soup_request_headers_key = "rp.state.filter.soup-request-headers";
-const char* soup_response_headers_key = "rp.state.filter.soup-response-headers";
 const char* passthrough_key = "rp.state.filter.passthrough";
 const char* dynamic_host_key = "rp.state.filter.dynamic-host";
 const char* dynamic_port_key = "rp.state.filter.dynamic-port";

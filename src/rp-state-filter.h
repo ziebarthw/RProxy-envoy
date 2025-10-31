@@ -17,8 +17,6 @@ G_BEGIN_DECLS
 extern const char* rewrite_urls_key;
 extern const char* rule_key;
 extern const char* original_uri_key;
-extern const char* soup_request_headers_key;
-extern const char* soup_response_headers_key;
 extern const char* passthrough_key;
 extern const char* dynamic_host_key;
 extern const char* dynamic_port_key;
