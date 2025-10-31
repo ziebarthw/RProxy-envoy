@@ -11,6 +11,7 @@ RProxy-envoy is a reverse proxy server written with performance and scale in min
 * [Libevhtp](http://github.com/ellzey/libevhtp)
 * [OpenSSL](http://openssl.org)
 * [Libconfuse](http://www.nongnu.org/confuse/)
+* [Glib](https://docs.gtk.org/glib/index.html)
 
 ## Building with all dependencies compiled and statically linked
 1. cd build
@@ -90,18 +91,16 @@ request. The base configuration for a server is as follows:
     threads         = 4
     read-timeout    = { 0, 0 }
     write-timeout   = { 0, 0 }
-    pending-timeout = { 0, 0 }
     high-watermark  = 0
-    max-pending     = 0
     backlog         = 0
-    
+
 * __addr__
 
     The IP address in which to listen on.
 
 * __port__
 
-    The port to listen on
+    The port to listen on.
 
 * __threads__
 
@@ -120,26 +119,7 @@ request. The base configuration for a server is as follows:
 
     The timeout in { 'seconds', 'microseconds' } to wait for data to the client
     to be written. If a client is blocking on the read for this long, the
-    connection is closed. 
-
-* __pending-timeout__
-
-    When a connection is first made to RProxy, it is not immediately processed,
-    instead it is placed in a pending queue. Only when a downstream connection has
-    become available for use does the client get serviced. If a downstream does not
-    become available for this amount of time, the client connection is shut down and
-    removed from the pending queue.
-
-    This makes sure both the RProxy service and the downstream services are
-    never overloaded.
-
-* __max-pending__
-
-    If there are this many clients waiting for a backend server to be available,
-    the incoming connection will not be accepted.
-
-    This setting assures that the server cannot be overloaded with too many
-    connections.
+    connection is closed.
 
 * __high-watermark__
 
@@ -147,10 +127,14 @@ request. The base configuration for a server is as follows:
     the client. If the client is unable to keep up with the speed the backend server
     is sending, you may experience very high memory consumption. This is called a
     fast-writer/slow-reader effect.
- 
+
     If the number of bytes in the output buffer to the client goes over this
     number, RProxy will disable reading data from the backend until all data in the
     output queue to the client has been sent.
+
+* __backlog__
+
+    The maximum length of the queue of pending connections.
 
 
 ## Server::Downstream Configuration
@@ -171,7 +155,6 @@ within each downstream section.
         high-watermark = 0
         read-timeout   = { 0, 0 }
         write-timeout  = { 0, 0 }
-        retry          = { 0, 500000 }
     }
 
 * __NAME__
@@ -214,12 +197,6 @@ within each downstream section.
 
     If a write request takes over { seconds, microseconds } to happen, the
     connection is terminated.
-
-* __retry__
-
-    If one of the downstream connections has been terminated for some reason,
-    this is the time in { seconds, microseconds } RProxy will wait until it tries to
-    re-establish the connection.
 
 ## Server::SSL Configuration
 
