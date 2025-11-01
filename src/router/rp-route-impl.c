@@ -24,21 +24,11 @@
 struct _RpRouteImpl {
     GObject parent_instance;
 
-    RpRouteConfig* m_parent;
-    rule_cfg_t* m_rule_cfg;
+    SHARED_PTR(RpRouteConfig) m_parent;
+    SHARED_PTR(rule_cfg_t) m_rule_cfg;
 
-    char* m_cluster_name;
+    UNIQUE_PTR(char) m_cluster_name;
 };
-
-enum
-{
-    PROP_0, // Reserved.
-    PROP_PARENT,
-    PROP_RULE_CFG,
-    N_PROPERTIES
-};
-
-static GParamSpec* obj_properties[N_PROPERTIES] = { NULL, };
 
 static void route_iface_init(RpRouteInterface* iface);
 static void response_entry_iface_init(RpResponseEntryInterface* iface);
@@ -168,42 +158,6 @@ route_entry_iface_init(RpRouteEntryInterface* iface)
 }
 
 OVERRIDE void
-get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_PARENT:
-            g_value_set_object(value, RP_ROUTE_IMPL(obj)->m_parent);
-            break;
-        case PROP_RULE_CFG:
-            g_value_set_pointer(value, RP_ROUTE_IMPL(obj)->m_rule_cfg);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
-set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_PARENT:
-            RP_ROUTE_IMPL(obj)->m_parent = g_value_get_object(value);
-            break;
-        case PROP_RULE_CFG:
-            RP_ROUTE_IMPL(obj)->m_rule_cfg = g_value_get_pointer(value);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
 dispose(GObject* obj)
 {
     NOISY_MSG_("(%p)", obj);
@@ -220,21 +174,7 @@ rp_route_impl_class_init(RpRouteImplClass* klass)
     LOGD("(%p)", klass);
 
     GObjectClass* object_class = G_OBJECT_CLASS(klass);
-    object_class->get_property = get_property;
-    object_class->set_property = set_property;
     object_class->dispose = dispose;
-
-    obj_properties[PROP_PARENT] = g_param_spec_object("parent",
-                                                    "Parent",
-                                                    "RouteConfig Instance",
-                                                    RP_TYPE_ROUTE_CONFIG,
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-    obj_properties[PROP_RULE_CFG] = g_param_spec_pointer("rule-cfg",
-                                                    "Rule cfg",
-                                                    "rule_cfg_t Instance",
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-
-    g_object_class_install_properties(object_class, N_PROPERTIES, obj_properties);
 }
 
 static void
@@ -244,13 +184,21 @@ rp_route_impl_init(RpRouteImpl* self G_GNUC_UNUSED)
 }
 
 RpRouteImpl*
-rp_route_impl_new(RpRouteConfig* parent, rule_cfg_t* rule_cfg)
+rp_route_impl_new(SHARED_PTR(RpRouteConfig) parent, SHARED_PTR(rule_cfg_t) rule_cfg)
 {
     LOGD("(%p, %p)", parent, rule_cfg);
     g_return_val_if_fail(RP_IS_ROUTE_CONFIG(parent), NULL);
     g_return_val_if_fail(rule_cfg != NULL, NULL);
-    return g_object_new(RP_TYPE_ROUTE_IMPL,
-                        "parent", parent,
-                        "rule-cfg", rule_cfg,
-                        NULL);
+    RpRouteImpl* self = g_object_new(RP_TYPE_ROUTE_IMPL, NULL);
+    self->m_parent = parent;
+    self->m_rule_cfg = rule_cfg;
+    return self;
+}
+
+SHARED_PTR(rule_cfg_t)
+rp_route_impl_get_rule_cfg(RpRouteImpl* self)
+{
+    LOGD("(%p)", self);
+    g_return_val_if_fail(RP_IS_ROUTE_IMPL(self), NULL);
+    return self->m_rule_cfg;
 }

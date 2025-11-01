@@ -16,6 +16,7 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
+#include "router/rp-route-impl.h"
 #include "rp-http-utility.h"
 #include "rp-filter-chain-factory-callbacks-impl.h"
 #include "rp-filter-manager.h"
@@ -63,9 +64,7 @@ static inline rule_cfg_t*
 get_rule_cfg(RpStateFilter* self)
 {
     NOISY_MSG_("(%p)", self);
-    rule_cfg_t* rule_cfg;
-    g_object_get(G_OBJECT(ROUTE(self)), "rule-cfg", &rule_cfg, NULL);
-    return rule_cfg;
+    return rp_route_impl_get_rule_cfg(RP_ROUTE_IMPL(ROUTE(self)));
 }
 
 static inline rule_t*

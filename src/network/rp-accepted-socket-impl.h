@@ -9,7 +9,7 @@
 
 #include <stdbool.h>
 #include <glib-object.h>
-#include <evhtp.h>
+#include "rproxy.h"
 #include "network/rp-connection-socket-impl.h"
 #include "rp-io-handle.h"
 
@@ -22,6 +22,6 @@ G_BEGIN_DECLS
 G_DECLARE_FINAL_TYPE(RpAcceptedSocketImpl, rp_accepted_socket_impl, RP, ACCEPTED_SOCKET_IMPL, RpConnectionSocketImpl)
 
 RpAcceptedSocketImpl* rp_accepted_socket_impl_new(RpIoHandle* io_handle,
-                                                    evhtp_connection_t* conn);
+                                                    UNIQUE_PTR(evhtp_connection_t) conn);
 
 G_END_DECLS

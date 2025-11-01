@@ -25,5 +25,7 @@ G_DECLARE_FINAL_TYPE(RpRouteConfigImpl, rp_route_config_impl, RP, ROUTE_CONFIG_I
 
 RpRouteConfigImpl* rp_route_config_impl_create(RpRouteConfiguration* config,
                                                 RpServerFactoryContext* factory_context);
+void rp_route_config_impl_set_dispatcher(RpRouteConfigImpl* self,
+                                            SHARED_PTR(RpDispatcher) dispatcher);
 
 G_END_DECLS

@@ -27,26 +27,13 @@ typedef struct _RpRouteConfigImpl RpRouteConfigImpl;
 struct _RpRouteConfigImpl {
     GObject parent_instance;
 
-    RpRouteConfiguration* m_config;
-    RpServerFactoryContext* m_factory_context;
-    RpStatusCode_e* m_creation_status;
+    SHARED_PTR(RpRouteConfiguration) m_config;
+    SHARED_PTR(RpServerFactoryContext) m_factory_context;
 
-    RpDispatcher* m_dispatcher;
+    SHARED_PTR(RpDispatcher) m_dispatcher;
 
-    RpRouteCommonConfigImpl* m_shared_config;
+    UNIQUE_PTR(RpRouteCommonConfigImpl) m_shared_config;
 };
-
-enum
-{
-    PROP_0, // Reserved.
-    PROP_CONFIG,
-    PROP_FACTORY_CONTEXT,
-    PROP_CREATION_STATUS,
-    PROP_DISPATCHER,
-    N_PROPERTIES
-};
-
-static GParamSpec* obj_properties[N_PROPERTIES] = { NULL, };
 
 static void route_common_config_iface_init(RpRouteCommonConfigInterface* iface);
 static void route_config_iface_init(RpRouteConfigInterface* iface);
@@ -101,66 +88,6 @@ route_config_iface_init(RpRouteConfigInterface* iface)
 }
 
 OVERRIDE void
-get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_CONFIG:
-            g_value_set_pointer(value, RP_ROUTE_CONFIG_IMPL(obj)->m_config);
-            break;
-        case PROP_FACTORY_CONTEXT:
-            g_value_set_object(value, RP_ROUTE_CONFIG_IMPL(obj)->m_factory_context);
-            break;
-        case PROP_CREATION_STATUS:
-            g_value_set_pointer(value, RP_ROUTE_CONFIG_IMPL(obj)->m_creation_status);
-            break;
-        case PROP_DISPATCHER:
-            g_value_set_pointer(value, RP_ROUTE_CONFIG_IMPL(obj)->m_dispatcher);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
-set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_CONFIG:
-            RP_ROUTE_CONFIG_IMPL(obj)->m_config = g_value_get_pointer(value);
-            break;
-        case PROP_FACTORY_CONTEXT:
-            RP_ROUTE_CONFIG_IMPL(obj)->m_factory_context = g_value_get_object(value);
-            break;
-        case PROP_CREATION_STATUS:
-            RP_ROUTE_CONFIG_IMPL(obj)->m_creation_status = g_value_get_pointer(value);
-            break;
-        case PROP_DISPATCHER:
-            RP_ROUTE_CONFIG_IMPL(obj)->m_dispatcher = g_value_get_pointer(value);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
-constructed(GObject* obj)
-{
-    NOISY_MSG_("(%p)", obj);
-
-    G_OBJECT_CLASS(rp_route_config_impl_parent_class)->constructed(obj);
-
-    RpRouteConfigImpl* self = RP_ROUTE_CONFIG_IMPL(obj);
-    self->m_shared_config = rp_route_common_config_impl_create(self->m_config,
-                                                                self->m_factory_context);
-}
-
-OVERRIDE void
 dispose(GObject* obj)
 {
     NOISY_MSG_("(%p)", obj);
@@ -177,30 +104,7 @@ rp_route_config_impl_class_init(RpRouteConfigImplClass* klass)
     LOGD("(%p)", klass);
 
     GObjectClass* object_class = G_OBJECT_CLASS(klass);
-    object_class->get_property = get_property;
-    object_class->set_property = set_property;
-    object_class->constructed = constructed;
     object_class->dispose = dispose;
-
-    obj_properties[PROP_CONFIG] = g_param_spec_pointer("config",
-                                                    "Config",
-                                                    "RouteConfiguration",
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-    obj_properties[PROP_FACTORY_CONTEXT] = g_param_spec_object("factory-context",
-                                                    "Factory context",
-                                                    "Factory Context",
-                                                    RP_TYPE_SERVER_FACTORY_CONTEXT,
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-    obj_properties[PROP_CREATION_STATUS] = g_param_spec_pointer("creation-status",
-                                                    "Creation status",
-                                                    "Creatsion Status",
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-    obj_properties[PROP_DISPATCHER] = g_param_spec_pointer("dispatcher",
-                                                    "Dispatcher",
-                                                    "Dispatcher",
-                                                    G_PARAM_READWRITE|G_PARAM_STATIC_STRINGS);
-
-    g_object_class_install_properties(object_class, N_PROPERTIES, obj_properties);
 }
 
 static void
@@ -210,14 +114,24 @@ rp_route_config_impl_init(RpRouteConfigImpl* self G_GNUC_UNUSED)
 }
 
 static inline RpRouteConfigImpl*
+constructed(RpRouteConfigImpl* self)
+{
+    NOISY_MSG_("(%p)", self);
+
+    self->m_shared_config = rp_route_common_config_impl_create(self->m_config,
+                                                                self->m_factory_context);
+    return self;
+}
+
+static inline RpRouteConfigImpl*
 route_config_impl_new(RpRouteConfiguration* config, RpServerFactoryContext* factory_context, RpStatusCode_e* creation_status)
 {
     NOISY_MSG_("(%p, %p, %p)", config, factory_context, creation_status);
-    return g_object_new(RP_TYPE_ROUTE_CONFIG_IMPL,
-                        "config", config,
-                        "factory-context", factory_context,
-                        "creation-status", creation_status,
-                        NULL);
+    RpRouteConfigImpl* self = g_object_new(RP_TYPE_ROUTE_CONFIG_IMPL, NULL);
+    self->m_config = config;
+    self->m_factory_context = factory_context;
+    *creation_status = RpStatusCode_Ok;
+    return constructed(self);
 }
 
 RpRouteConfigImpl*
@@ -233,4 +147,13 @@ rp_route_config_impl_create(RpRouteConfiguration* config, RpServerFactoryContext
         return NULL;
     }
     return ret;
+}
+
+void
+rp_route_config_impl_set_dispatcher(RpRouteConfigImpl* self, SHARED_PTR(RpDispatcher) dispatcher)
+{
+    LOGD("(%p, %p)", self, dispatcher);
+    g_return_if_fail(RP_IS_ROUTE_CONFIG_IMPL(self));
+    g_return_if_fail(RP_IS_DISPATCHER(dispatcher));
+    self->m_dispatcher = dispatcher;
 }

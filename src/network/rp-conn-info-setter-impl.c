@@ -43,16 +43,6 @@ struct _RpConnectionInfoSetterImpl {
     bool m_local_address_restored;
 };
 
-enum
-{
-    PROP_0, // Reserved.
-    PROP_LOCAL_ADDRESS,
-    PROP_REMOTE_ADDRESS,
-    N_PROPERTIES
-};
-
-static GParamSpec* obj_properties[N_PROPERTIES] = { NULL, };
-
 static void connection_info_provider_iface_init(RpConnectionInfoProviderInterface* iface);
 static void connection_info_setter_iface_init(RpConnectionInfoSetterInterface* iface);
 
@@ -163,55 +153,6 @@ connection_info_setter_iface_init(RpConnectionInfoSetterInterface* iface)
 }
 
 OVERRIDE void
-get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_LOCAL_ADDRESS:
-            g_value_set_pointer(value, &RP_CONNECTION_INFO_SETTER_IMPL(obj)->m_local_address);
-            break;
-        case PROP_REMOTE_ADDRESS:
-            g_value_set_pointer(value, &RP_CONNECTION_INFO_SETTER_IMPL(obj)->m_remote_address);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
-set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_LOCAL_ADDRESS:
-            set_sockaddr_storage(&RP_CONNECTION_INFO_SETTER_IMPL(obj)->m_local_address, g_value_get_pointer(value));
-            break;
-        case PROP_REMOTE_ADDRESS:
-            set_sockaddr_storage(&RP_CONNECTION_INFO_SETTER_IMPL(obj)->m_remote_address, g_value_get_pointer(value));
-NOISY_MSG_("remote address %p", &RP_CONNECTION_INFO_SETTER_IMPL(obj)->m_remote_address);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
-constructed(GObject* obj)
-{
-    NOISY_MSG_("(%p)", obj);
-
-    G_OBJECT_CLASS(rp_connection_info_setter_impl_parent_class)->constructed(obj);
-
-    RpConnectionInfoSetterImpl* self = RP_CONNECTION_INFO_SETTER_IMPL(obj);
-    self->m_direct_local_address = self->m_local_address;
-    self->m_direct_remote_address = self->m_remote_address;
-}
-
-OVERRIDE void
 dispose(GObject* obj)
 {
     NOISY_MSG_("(%p)", obj);
@@ -228,21 +169,7 @@ rp_connection_info_setter_impl_class_init(RpConnectionInfoSetterImplClass* klass
     LOGD("(%p)", klass);
 
     GObjectClass* object_class = G_OBJECT_CLASS(klass);
-    object_class->get_property = get_property;
-    object_class->set_property = set_property;
-    object_class->constructed = constructed;
     object_class->dispose = dispose;
-
-    obj_properties[PROP_LOCAL_ADDRESS] = g_param_spec_pointer("local-address",
-                                                    "Local address",
-                                                    "Local Socket Address (sockaddr)",
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-    obj_properties[PROP_REMOTE_ADDRESS] = g_param_spec_pointer("remote-address",
-                                                    "Remote address",
-                                                    "Remote Socket Address (sockaddr)",
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-
-    g_object_class_install_properties(object_class, N_PROPERTIES, obj_properties);
 }
 
 static void
@@ -253,12 +180,22 @@ rp_connection_info_setter_impl_init(RpConnectionInfoSetterImpl* self)
     self->m_local_address_restored = false;
 }
 
+static inline RpConnectionInfoSetterImpl*
+constructed(RpConnectionInfoSetterImpl* self)
+{
+    NOISY_MSG_("(%p)", self);
+
+    self->m_direct_local_address = self->m_local_address;
+    self->m_direct_remote_address = self->m_remote_address;
+    return self;
+}
+
 RpConnectionInfoSetterImpl*
 rp_connection_info_setter_impl_new(struct sockaddr* local_address, struct sockaddr* remote_address)
 {
     LOGD("(%p, %p)", local_address, remote_address);
-    return g_object_new(RP_TYPE_CONNECTION_INFO_SETTER_IMPL,
-                        "local-address", local_address,
-                        "remote-address", remote_address,
-                        NULL);
+    RpConnectionInfoSetterImpl* self = g_object_new(RP_TYPE_CONNECTION_INFO_SETTER_IMPL, NULL);
+    set_sockaddr_storage(&self->m_local_address, local_address);
+    set_sockaddr_storage(&self->m_remote_address, remote_address);
+    return constructed(self);
 }
