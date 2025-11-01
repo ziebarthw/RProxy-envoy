@@ -28,15 +28,6 @@ struct _RpCodecBridge {
     bool m_seen_1xx_headers;
 };
 
-enum
-{
-    PROP_0, // Reserved.
-    PROP_FILTER,
-    N_PROPERTIES
-};
-
-static GParamSpec* obj_properties[N_PROPERTIES] = { NULL, };
-
 static void stream_decoder_iface_init(RpStreamDecoderInterface* iface);
 static void response_decoder_iface_init(RpResponseDecoderInterface* iface);
 static void stream_callbacks_iface_init(RpStreamCallbacksInterface* iface);
@@ -193,37 +184,6 @@ upstream_to_downstream_iface_init(RpUpstreamToDownstreamInterface* iface)
 }
 
 OVERRIDE void
-get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_FILTER:
-            g_value_set_object(value, RP_CODEC_BRIDGE(obj)->m_filter);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
-set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_FILTER:
-            RP_CODEC_BRIDGE(obj)->m_filter = g_value_get_object(value);
-NOISY_MSG_("filter %p", RP_CODEC_BRIDGE(obj)->m_filter);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
 dispose(GObject* obj)
 {
     NOISY_MSG_("(%p)", obj);
@@ -236,17 +196,7 @@ rp_codec_bridge_class_init(RpCodecBridgeClass* klass)
     LOGD("(%p)", klass);
 
     GObjectClass* object_class = G_OBJECT_CLASS(klass);
-    object_class->get_property = get_property;
-    object_class->set_property = set_property;
     object_class->dispose = dispose;
-
-    obj_properties[PROP_FILTER] = g_param_spec_object("filter",
-                                                    "Filter",
-                                                    "UpstreamCodecFilter Instance",
-                                                    RP_TYPE_UPSTREAM_CODEC_FILTER,
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-
-    g_object_class_install_properties(object_class, N_PROPERTIES, obj_properties);
 }
 
 static void
@@ -262,5 +212,7 @@ rp_codec_bridge_new(RpUpstreamCodeFilter* filter)
 {
     LOGD("(%p)", filter);
     g_return_val_if_fail(RP_IS_UPSTREAM_CODEC_FILTER(filter), NULL);
-    return g_object_new(RP_TYPE_CODEC_BRIDGE, "filter", filter, NULL);
+    RpCodecBridge* self = g_object_new(RP_TYPE_CODEC_BRIDGE, NULL);
+    self->m_filter = filter;
+    return self;
 }

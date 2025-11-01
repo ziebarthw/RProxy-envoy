@@ -16,6 +16,7 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
+#include "router/rp-route-config-impl.h"
 #include "stream_info/rp-stream-info-impl.h"
 #include "rp-codec.h"
 #include "rp-http-conn-manager-impl.h"
@@ -158,8 +159,7 @@ NOISY_MSG_("request headers %p", self->m_request_headers);
         RpRouteConfig* route_config = rp_route_config_provider_config_cast(route_config_provider);
         RpDispatcher* dispatcher = rp_http_connection_manager_impl_dispatcher_(connection_manager);
 
-//REVISIT...better option?
-g_object_set(G_OBJECT(route_config), "dispatcher", dispatcher, NULL);
+        rp_route_config_impl_set_dispatcher(RP_ROUTE_CONFIG_IMPL(route_config), dispatcher);
 
         route = rp_route_config_route(route_config,
                                         NULL,

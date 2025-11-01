@@ -22,17 +22,8 @@
 struct _RpTransportSocketFactoryImpl {
     GObject parent_instance;
 
-    downstream_t* m_downstream;
+    SHARED_PTR(downstream_t) m_downstream;
 };
-
-enum
-{
-    PROP_0, // Reserved.
-    PROP_DOWNSTREAM,
-    N_PROPERTIES
-};
-
-static GParamSpec* obj_properties[N_PROPERTIES] = { NULL, };
 
 static void transport_socket_factory_base_iface_init(RpTransportSocketFactoryBaseInterface* iface);
 static void upstream_transport_socket_factory_iface_init(RpUpstreamTransportSocketFactoryInterface* iface);
@@ -118,36 +109,6 @@ downstream_transport_socket_factory_iface_init(RpDownstreamTransportSocketFactor
 }
 
 OVERRIDE void
-get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_DOWNSTREAM:
-            g_value_set_pointer(value, RP_TRANSPORT_SOCKET_FACTORY_IMPL(obj)->m_downstream);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
-set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_DOWNSTREAM:
-            RP_TRANSPORT_SOCKET_FACTORY_IMPL(obj)->m_downstream = g_value_get_pointer(value);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
 dispose(GObject* obj)
 {
     NOISY_MSG_("(%p)", obj);
@@ -160,16 +121,7 @@ rp_transport_socket_factory_impl_class_init(RpTransportSocketFactoryImplClass* k
     LOGD("(%p)", klass);
 
     GObjectClass* object_class = G_OBJECT_CLASS(klass);
-    object_class->get_property = get_property;
-    object_class->set_property = set_property;
     object_class->dispose = dispose;
-
-    obj_properties[PROP_DOWNSTREAM] = g_param_spec_pointer("downstream",
-                                                    "Downstream",
-                                                    "RProxy Downstream Instance",
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-
-    g_object_class_install_properties(object_class, N_PROPERTIES, obj_properties);
 }
 
 static void
@@ -179,14 +131,10 @@ rp_transport_socket_factory_impl_init(RpTransportSocketFactoryImpl* self G_GNUC_
 }
 
 RpTransportSocketFactoryImpl*
-rp_transport_socket_factory_impl_new(downstream_t* downstream)
+rp_transport_socket_factory_impl_new(SHARED_PTR(downstream_t) downstream)
 {
     LOGD("(%p)", downstream);
-if (downstream)
-{
-    NOISY_MSG_("downstream %p, rproxy %p", downstream, downstream->rproxy);
-}
-    return g_object_new(RP_TYPE_TRANSPORT_SOCKET_FACTORY_IMPL,
-                        "downstream", downstream,
-                        NULL);
+    RpTransportSocketFactoryImpl* self = g_object_new(RP_TYPE_TRANSPORT_SOCKET_FACTORY_IMPL, NULL);
+    self->m_downstream = downstream;
+    return self;
 }
