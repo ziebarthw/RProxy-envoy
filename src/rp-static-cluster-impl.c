@@ -79,8 +79,8 @@ choose_host_i(RpThreadLocalCluster* self, RpLoadBalancerContext* context G_GNUC_
     NOISY_MSG_("(%p, %p)", self, context);
 
     RpStaticClusterImplPrivate* me = PRIV(self);
-    downstream_t* downstream = downstream_get(me->m_config.rule);
-    RpHost* host = g_hash_table_lookup(ensure_host_map(RP_STATIC_CLUSTER_IMPL(self)), downstream);
+    upstream_t* upstream = upstream_get(me->m_config.rule);
+    RpHost* host = g_hash_table_lookup(ensure_host_map(RP_STATIC_CLUSTER_IMPL(self)), upstream);
 
 #if 0
 RpNetworkConnection* connection = rp_load_balancer_context_downstream_connection(context);
@@ -226,7 +226,7 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
 }
 
 struct sockaddr_storage
-sockaddr_from_config(downstream_cfg_t* config)
+sockaddr_from_config(upstream_cfg_t* config)
 {
     struct sockaddr_storage sockaddr;
     memset(&sockaddr, 0, sizeof(sockaddr));
@@ -287,9 +287,9 @@ constructed(GObject* obj)
     lztq* lb_endpoints = me->m_config.lb_endpoints;
     for (lztq_elem* elem = lztq_first(lb_endpoints); elem; elem = lztq_next(elem))
     {
-        downstream_t* downstream = lztq_elem_data(elem);
-        downstream_cfg_t* cfg = downstream->config;
-        RpTransportSocketFactoryImpl* socket_factory = rp_transport_socket_factory_impl_new(downstream);
+        upstream_t* upstream = lztq_elem_data(elem);
+        upstream_cfg_t* cfg = upstream->config;
+        RpTransportSocketFactoryImpl* socket_factory = rp_transport_socket_factory_impl_new(upstream);
         struct sockaddr_storage sockaddr = sockaddr_from_config(cfg);
         const char* hostname = cfg->name; // REVISIT??
         RpHostImpl* host = rp_host_impl_new(cluster_info,
@@ -299,7 +299,7 @@ constructed(GObject* obj)
                                             1/*initial_weight*/,
                                             true/*disable_health_check*/);
 
-        g_hash_table_insert(host_map, downstream, host);
+        g_hash_table_insert(host_map, upstream, host);
     }
 
     me->m_parent = rp_cluster_factory_context_cluster_manager(me->m_context);
@@ -394,9 +394,9 @@ rp_static_cluster_impl_new(RpClusterCfg* config, RpClusterFactoryContext* contex
 }
 
 void
-rp_static_cluster_impl_add_downstream(RpStaticClusterImpl* self, downstream_t* downstream, RpHost* host)
+rp_static_cluster_impl_add_downstream(RpStaticClusterImpl* self, upstream_t* upstream, RpHost* host)
 {
-    LOGD("(%p, %p, %p)", self, downstream, host);
+    LOGD("(%p, %p, %p)", self, upstream, host);
     g_return_if_fail(RP_STATIC_CLUSTER_IMPL(self));
-    g_hash_table_insert(ensure_host_map(self), downstream, host);
+    g_hash_table_insert(ensure_host_map(self), upstream, host);
 }

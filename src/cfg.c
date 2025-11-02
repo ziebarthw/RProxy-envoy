@@ -78,7 +78,7 @@ static cfg_opt_t       logging_opts[] = {
     CFG_END()
 };
 
-static cfg_opt_t       downstream_opts[] = {
+static cfg_opt_t       upstream_opts[] = {
     CFG_BOOL("enabled",           cfg_true,       CFGF_NONE),
     CFG_SEC("ssl",                ssl_opts,       CFGF_NODEFAULT),
     CFG_STR("addr",               NULL,           CFGF_NODEFAULT),
@@ -115,7 +115,7 @@ static cfg_opt_t       rule_opts[] = {
     CFG_STR("uri-match",                   NULL,         CFGF_NODEFAULT),
     CFG_STR("uri-gmatch",                  NULL,         CFGF_NODEFAULT),
     CFG_STR("uri-rmatch",                  NULL,         CFGF_NODEFAULT),
-    CFG_STR_LIST("downstreams",            NULL,         CFGF_NODEFAULT),
+    CFG_STR_LIST("upstreams",              NULL,         CFGF_NODEFAULT),
     CFG_STR("lb-method",                   "rtt",        CFGF_NONE),
     CFG_STR("discovery-type",              "static",     CFGF_NONE),
     CFG_SEC("headers",                     headers_opts, CFGF_NODEFAULT),
@@ -148,13 +148,13 @@ static cfg_opt_t       server_opts[] = {
     CFG_INT("high-watermark",            0,               CFGF_NONE),
     CFG_INT("max-pending",               0,               CFGF_NONE),
     CFG_INT("backlog",                   1024,            CFGF_NONE),
-    CFG_SEC("downstream",                downstream_opts, CFGF_MULTI | CFGF_TITLE | CFGF_NO_TITLE_DUPES),
+    CFG_SEC("upstream",                  upstream_opts, CFGF_MULTI | CFGF_TITLE | CFGF_NO_TITLE_DUPES),
     CFG_SEC("vhost",                     vhost_opts,      CFGF_MULTI | CFGF_TITLE | CFGF_NO_TITLE_DUPES),
     CFG_SEC("ssl",                       ssl_opts,        CFGF_NODEFAULT|CFGF_IGNORE_UNKNOWN),
     CFG_SEC("logging",                   logging_opts,    CFGF_NODEFAULT|CFGF_IGNORE_UNKNOWN),
     CFG_BOOL("disable-server-nagle",     cfg_false,       CFGF_NONE),
     CFG_BOOL("disable-client-nagle",     cfg_false,       CFGF_NONE),
-    CFG_BOOL("disable-downstream-nagle", cfg_false,       CFGF_NONE),
+    CFG_BOOL("disable-upstream-nagle",   cfg_false,       CFGF_NONE),
     CFG_BOOL("enable-workers-listen",    cfg_false,       CFGF_NONE),
     CFG_SEC("rule",                      rule_opts,       CFGF_TITLE | CFGF_MULTI | CFGF_NO_TITLE_DUPES),
     CFG_END()
@@ -478,8 +478,8 @@ server_cfg_new(void)
     server_cfg_t* cfg = g_new0(server_cfg_t, 1);
     g_assert(cfg != NULL);
 
-    cfg->downstreams = lztq_new();
-    g_assert(cfg->downstreams != NULL);
+    cfg->upstreams = lztq_new();
+    g_assert(cfg->upstreams != NULL);
 
     cfg->vhosts = lztq_new();
     g_assert(cfg->vhosts != NULL);
@@ -508,7 +508,7 @@ server_cfg_free(void* arg)
     g_clear_pointer(&cfg->bind_addr, g_free);
     g_clear_pointer(&cfg->ssl_cfg, ssl_cfg_free);
     g_clear_pointer(&cfg->vhosts, lztq_free);
-    g_clear_pointer(&cfg->downstreams, lztq_free);
+    g_clear_pointer(&cfg->upstreams, lztq_free);
     g_free(cfg);
 }
 
@@ -520,7 +520,7 @@ rule_cfg_new(void)
     rule_cfg_t* cfg = g_new0(rule_cfg_t, 1);
     g_assert(cfg != NULL);
 
-    cfg->downstreams = lztq_new();
+    cfg->upstreams = lztq_new();
     g_assert(cfg != NULL);
 
     LOGD("cfg %p", cfg);
@@ -540,25 +540,25 @@ rule_cfg_free(void* arg)
     }
 
     g_clear_pointer(&cfg->headers, headers_cfg_free);
-    g_clear_pointer(&cfg->downstreams, lztq_free);
+    g_clear_pointer(&cfg->upstreams, lztq_free);
     g_clear_pointer(&cfg->matchstr, g_free);
     g_clear_pointer(&cfg->redirect_filter, lztq_free);
     g_free(cfg);
 }
 
-downstream_cfg_t*
-downstream_cfg_new(void)
+upstream_cfg_t*
+upstream_cfg_new(void)
 {
     LOGD("()");
-    return g_new0(downstream_cfg_t, 1);
+    return g_new0(upstream_cfg_t, 1);
 }
 
 void
-downstream_cfg_free(void* arg)
+upstream_cfg_free(void* arg)
 {
     LOGD("(%p)", arg);
 
-    downstream_cfg_t * cfg = arg;
+    upstream_cfg_t * cfg = arg;
     if (!cfg)
     {
         LOGD("cfg is null");
@@ -1146,13 +1146,13 @@ rule_cfg_parse(cfg_t* cfg)
         rcfg->has_up_write_timeout     = 1;
     }
 
-    int n_downstreams = cfg_size(cfg, "downstreams");
-    for (int i = 0; i < n_downstreams; i++)
+    int n_upstreams = cfg_size(cfg, "upstreams");
+    for (int i = 0; i < n_upstreams; i++)
     {
-        char* ds_name = cfg_getnstr(cfg, "downstreams", i);
+        char* ds_name = cfg_getnstr(cfg, "upstreams", i);
         if (!ds_name)
         {
-            LOGE("downstream must have a name");
+            LOGE("upstream must have a name");
             rule_cfg_free(rcfg);
             return NULL;
         }
@@ -1164,7 +1164,7 @@ rule_cfg_parse(cfg_t* cfg)
             return NULL;
         }
 
-        lztq_elem* elem = lztq_append(rcfg->downstreams, ds_name, strlen(ds_name), g_free);
+        lztq_elem* elem = lztq_append(rcfg->upstreams, ds_name, strlen(ds_name), g_free);
         g_assert(elem != NULL);
     }
 
@@ -1226,20 +1226,20 @@ do_ssl_section(cfg_t* cfg, evhtp_ssl_cfg_t** ssl_cfg)
 }
 
 /**
- * @brief parses a downstream {} config entry from a server { } config.
+ * @brief parses a upstream {} config entry from a server { } config.
  *
  * @param cfg
  *
  * @return
  */
-downstream_cfg_t*
-downstream_cfg_parse(cfg_t* cfg)
+upstream_cfg_t*
+upstream_cfg_parse(cfg_t* cfg)
 {
     LOGD("(%p)", cfg);
 
     g_return_val_if_fail(cfg != NULL, NULL);
 
-    downstream_cfg_t* dscfg = downstream_cfg_new();
+    upstream_cfg_t* dscfg = upstream_cfg_new();
     if (!dscfg)
     {
         LOGE("alloc failed");
@@ -1263,7 +1263,7 @@ downstream_cfg_parse(cfg_t* cfg)
     if (!do_ssl_section(cfg, &dscfg->ssl_cfg))
     {
         LOGE("ssl section failed");
-        downstream_cfg_free(dscfg);
+        upstream_cfg_free(dscfg);
         return NULL;
     }
 
@@ -1472,10 +1472,10 @@ server_cfg_parse(cfg_t* cfg)
         scfg->disable_client_nagle = true;
     }
 
-    if (cfg_getbool(cfg, "disable-downstream-nagle") == cfg_true)
+    if (cfg_getbool(cfg, "disable-upstream-nagle") == cfg_true)
     {
-        LOGD("disable downstream nagle");
-        scfg->disable_downstream_nagle = true;
+        LOGD("disable upstream nagle");
+        scfg->disable_upstream_nagle = true;
     }
 
     if (cfg_getbool(cfg, "enable-workers-listen") == cfg_true)
@@ -1496,13 +1496,13 @@ server_cfg_parse(cfg_t* cfg)
         }
     }
 
-    /* parse and insert all the configured downstreams */
-    for (int i = 0; i < cfg_size(cfg, "downstream"); i++)
+    /* parse and insert all the configured upstreams */
+    for (int i = 0; i < cfg_size(cfg, "upstream"); i++)
     {
-        downstream_cfg_t* dscfg = downstream_cfg_parse(cfg_getnsec(cfg, "downstream", i));
+        upstream_cfg_t* dscfg = upstream_cfg_parse(cfg_getnsec(cfg, "upstream", i));
         g_assert(dscfg != NULL);
 
-        lztq_elem* elem = lztq_append(scfg->downstreams, dscfg, sizeof(dscfg), downstream_cfg_free);
+        lztq_elem* elem = lztq_append(scfg->upstreams, dscfg, sizeof(dscfg), upstream_cfg_free);
         g_assert(elem != NULL);
     }
 

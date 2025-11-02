@@ -26,15 +26,6 @@ struct _RpServerFactoryContextImpl {
     RpInstance* m_server;
 };
 
-enum
-{
-    PROP_0, // Reserved.
-    PROP_SERVER,
-    N_PROPERTIES
-};
-
-static GParamSpec* obj_properties[N_PROPERTIES] = { NULL, };
-
 static void common_factory_iface_init(RpCommonFactoryContextInterface* iface);
 static void server_factory_context_iface_init(RpServerFactoryContextInterface* iface);
 static void transport_socket_factory_context_iface_init(RpTransportSocketFactoryContextInterface* iface);
@@ -96,36 +87,6 @@ server_factory_context_iface_init(RpServerFactoryContextInterface* iface)
 }
 
 OVERRIDE void
-get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_SERVER:
-            g_value_set_object(value, RP_SERVER_FACTORY_CONTEXT_IMPL(obj)->m_server);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
-set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_SERVER:
-            RP_SERVER_FACTORY_CONTEXT_IMPL(obj)->m_server = g_value_get_object(value);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
 dispose(GObject* object)
 {
     NOISY_MSG_("(%p)", object);
@@ -138,17 +99,7 @@ rp_server_factory_context_impl_class_init(RpServerFactoryContextImplClass* klass
     LOGD("(%p)", klass);
 
     GObjectClass* object_class = G_OBJECT_CLASS(klass);
-    object_class->get_property = get_property;
-    object_class->set_property = set_property;
     object_class->dispose = dispose;
-
-    obj_properties[PROP_SERVER] = g_param_spec_object("server",
-                                                    "Server",
-                                                    "Server Instance",
-                                                    RP_TYPE_INSTANCE,
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-
-    g_object_class_install_properties(object_class, N_PROPERTIES, obj_properties);
 }
 
 static void
@@ -162,7 +113,7 @@ rp_server_factory_context_impl_new(RpInstance* server)
 {
     LOGD("(%p)", server);
     g_return_val_if_fail(RP_IS_INSTANCE(server), NULL);
-    return g_object_new(RP_TYPE_SERVER_FACTORY_CONTEXT_IMPL,
-                        "server", server,
-                        NULL);
+    RpServerFactoryContextImpl* self = g_object_new(RP_TYPE_SERVER_FACTORY_CONTEXT_IMPL, NULL);
+    self->m_server = server;
+    return self;
 }

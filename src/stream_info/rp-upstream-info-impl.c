@@ -16,10 +16,6 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
-#ifndef OVERRIDE
-#define OVERRIDE static
-#endif
-
 #include "stream_info/rp-upstream-info-impl.h"
 
 struct _RpUpstreamInfoImpl {
@@ -242,7 +238,7 @@ rp_upstream_info_impl_class_init(RpUpstreamInfoImplClass* klass)
 static void
 rp_upstream_info_impl_init(RpUpstreamInfoImpl* self)
 {
-    LOGD("(%p)", self);
+    NOISY_MSG_("(%p)", self);
     self->m_upstream_timing = rp_upstream_timing_ctor();
 }
 

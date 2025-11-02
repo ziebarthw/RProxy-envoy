@@ -16,10 +16,6 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
-#ifndef OVERRIDE
-#define OVERRIDE static
-#endif
-
 #include "stream_info/rp-filter-state-impl.h"
 
 struct _RpFilterStateImpl {

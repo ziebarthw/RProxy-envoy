@@ -128,7 +128,7 @@ typedef struct rule_cfg       rule_cfg_t;
 typedef struct rule           rule_t;
 typedef struct vhost_cfg      vhost_cfg_t;
 typedef struct server_cfg     server_cfg_t;
-typedef struct downstream_cfg downstream_cfg_t;
+typedef struct upstream_cfg   upstream_cfg_t;
 typedef struct headers_cfg    headers_cfg_t;
 typedef struct x509_ext_cfg   x509_ext_cfg_t;
 typedef struct ssl_crl_cfg    ssl_crl_cfg_t;
@@ -155,11 +155,11 @@ struct rule_cfg {
     discovery_type  discovery_type;
     char          * matchstr;        /**< the uri to match on */
     headers_cfg_t * headers;         /**< headers which are added to the backend request */
-    lztq          * downstreams;     /**< list of downstream names (as supplied by downstream_cfg_t->name */
+    lztq          * upstreams;       /**< list of upstream names (as supplied by upstream_cfg_t->name */
     logger_cfg_t  * req_log;         /**< request logging config */
     logger_cfg_t  * err_log;         /**< error logging config */
-    bool            passthrough;     /**< if set to true, a pipe between the upstream and downstream is established */
-    bool            allow_redirect;  /**< if true, the downstream can send a redirect to connect to a different downstream */
+    bool            passthrough;     /**< if set to true, a pipe between the upstream and upstream is established */
+    bool            allow_redirect;  /**< if true, the upstream can send a redirect to connect to a different upstream */
     lztq          * redirect_filter; /**< a list of hostnames that redirects are can connect to */
     int             has_up_read_timeout;
     int             has_up_write_timeout;
@@ -183,7 +183,7 @@ struct ssl_crl_cfg {
 };
 
 /**
- * @brief which headers to add to the downstream request if avail.
+ * @brief which headers to add to the upstream request if avail.
  */
 struct headers_cfg {
     bool   x_forwarded_for;
@@ -199,19 +199,19 @@ struct headers_cfg {
 };
 
 /**
- * @brief configuration for a single downstream.
+ * @brief configuration for a single upstream.
  */
-struct downstream_cfg {
+struct upstream_cfg {
     evhtp_ssl_cfg_t * ssl_cfg;      /**< if enabled, the ssl configuration */
     bool     enabled;               /**< true if server is enabled */
-    char   * name;                  /**< the name of this downstream. the name is used as an identifier for rules */
-    char   * host;                  /**< the hostname of the downstream */
-    uint16_t port;                  /**< the port of the downstream */
+    char   * name;                  /**< the name of this upstream. the name is used as an identifier for rules */
+    char   * host;                  /**< the hostname of the upstream */
+    uint16_t port;                  /**< the port of the upstream */
     int      n_connections;         /**< number of connections to keep established */
     size_t   high_watermark;        /**< if the number of bytes pending on the output side
                                      * of the socket reaches this number, the proxy stops
                                      * reading from the upstream until all data has been written. */
-    struct timeval retry_ival;      /**< retry timer if the downstream connection goes down */
+    struct timeval retry_ival;      /**< retry timer if the upstream connection goes down */
     struct timeval read_timeout;
     struct timeval write_timeout;
 };
@@ -223,7 +223,7 @@ struct vhost_cfg {
     lztq            * rules;            /**< list of rule_t's */
     char            * server_name;
     lztq            * aliases;          /**< other hostnames this vhost is associated with */
-    lztq            * strip_hdrs;       /**< headers to strip out from downstream responses */
+    lztq            * strip_hdrs;       /**< headers to strip out from upstream responses */
     lztq            * rewrite_urls;     /**< urls to rewrite (incoming and outgoing?) */
     logger_cfg_t    * req_log;          /**< request logging configuration */
     logger_cfg_t    * err_log;          /**< error logging configuration */
@@ -246,11 +246,11 @@ struct server_cfg {
 
     struct timeval read_timeout;        /**< time to wait for reading before client is dropped */
     struct timeval write_timeout;       /**< time to wait for writing before client is dropped */
-    struct timeval pending_timeout;     /**< time to wait for a downstream to become available for a connection */
+    struct timeval pending_timeout;     /**< time to wait for a upstream to become available for a connection */
 
     rproxy_cfg_t    * rproxy_cfg;       /**< parent rproxy configuration */
     evhtp_ssl_cfg_t * ssl_cfg;          /**< if enabled, the ssl configuration */
-    lztq            * downstreams;      /**< list of downstream_cfg_t's */
+    lztq            * upstreams;      /**< list of upstream_cfg_t's */
     lztq            * vhosts;           /**< list of vhost_cfg_t's */
     logger_cfg_t    * req_log_cfg;
     logger_cfg_t    * err_log_cfg;
@@ -264,7 +264,7 @@ struct server_cfg {
 
     bool disable_server_nagle : 1;      /**< disable nagle for listening sockets */
     bool disable_client_nagle : 1;      /**< disable nagle for upstream sockets */
-    bool disable_downstream_nagle : 1;  /**< disable nagle for downstream sockets */
+    bool disable_upstream_nagle : 1;    /**< disable nagle for upstream sockets */
     bool enable_workers_listen : 1;     /**< enable worker thread listening */
 };
 
@@ -285,7 +285,7 @@ server_cfg_get_worker_num(server_cfg_t* self)
  *        may impact the performance of the service.
  */
 struct rproxy_rusage {
-    unsigned int total_num_connections; /**< the total of all downstream connections */
+    unsigned int total_num_connections; /**< the total of all upstream connections */
     unsigned int total_num_threads;     /**< the total threads which will spawn */
     unsigned int total_max_pending;     /**< the total of configured max-pending connections */
 };
@@ -333,8 +333,8 @@ enum logger_argtype {
 };
 
 typedef struct rproxy            rproxy_t;
-typedef struct downstream        downstream_t;
-typedef struct downstream_c      downstream_c_t;
+typedef struct upstream          upstream_t;
+typedef struct upstream_c        upstream_c_t;
 typedef struct vhost             vhost_t;
 #ifdef WITH_LOGGER
 typedef struct logger_arg        logger_arg_t;
@@ -391,10 +391,10 @@ struct vhost {
 };
 
 /**
- * @brief a structure representing a downstream connection.
+ * @brief a structure representing a upstream connection.
  */
-struct downstream_c {
-    downstream_t    * parent;          /**< the parent downstream structure */
+struct upstream_c {
+    upstream_t    * parent;            /**< the parent upstream structure */
     evhtp_ssl_t     * ssl;
 #ifdef WITH_RETRY_TIMER
     event_t         * retry_timer;     /**< the timer event for reconnecting if down */
@@ -402,14 +402,14 @@ struct downstream_c {
     double            rtt;             /**< the last RTT for a request made to the connection */
     uint16_t          sport;           /**< the source port of the connected socket */
 
-    TAILQ_ENTRY(downstream_c) next;
+    TAILQ_ENTRY(upstream_c) next;
 };
 
 /**
- * @brief a container active/idle downstream connections
+ * @brief a container active/idle upstream connections
  */
-struct downstream {
-    downstream_cfg_t * config;         /**< this downstreams configuration */
+struct upstream {
+    upstream_cfg_t   * config;         /**< this upstreams configuration */
     evbase_t         * evbase;
     rproxy_t         * rproxy;
     evhtp_ssl_ctx_t  * ssl_ctx;
@@ -417,16 +417,16 @@ struct downstream {
 
     double             m_rtt;          /**< the last RTT for a request made to the host */
 
-    TAILQ_HEAD(, downstream_c) active; /**< list of active connections */
-    TAILQ_HEAD(, downstream_c) idle;   /**< list of idle and ready connections */
+    TAILQ_HEAD(, upstream_c) active; /**< list of active connections */
+    TAILQ_HEAD(, upstream_c) idle;   /**< list of idle and ready connections */
 };
 
 struct rule {
     rproxy_t   * rproxy;
     rule_cfg_t * config;
     vhost_t    * parent_vhost;         /**< the vhost this rule is under */
-    lztq       * downstreams;          /**< list of downstream_t's configured for this rule */
-    lztq_elem  * last_downstream_used; /**< the last downstream used to service a request. Used for round-robin loadbalancing */
+    lztq       * upstreams;            /**< list of upstream_t's configured for this rule */
+    lztq_elem  * last_upstream_used;   /**< the last upstream used to service a request. Used for round-robin loadbalancing */
 #ifdef WITH_LOGGER
     logger_t   * req_log;              /**< rule specific request log */
     logger_t   * err_log;              /**< rule specific error log */
@@ -446,7 +446,7 @@ struct rproxy {
     logger_t          * error_log;                /* server specific error logging */
 #endif//WITH_LOGGER
     lztq              * rules;
-    lztq              * downstreams;              /**< list of all downstream_t's */
+    lztq              * upstreams;                /**< list of all upstream_t's */
     int                 n_pending;                /**< number of pending requests */
     int                 n_processing;             /**< number of in-flight requests */
     uint16_t worker_num;
@@ -467,21 +467,21 @@ struct rproxy {
 ************************************************/
 rproxy_cfg_t * rproxy_cfg_parse(const char * filename);
 void rproxy_cfg_free(rproxy_cfg_t * cfg);
-downstream_cfg_t* downstream_cfg_parse(cfg_t* cfg);
+upstream_cfg_t* upstream_cfg_parse(cfg_t* cfg);
 server_cfg_t* server_cfg_parse(cfg_t* cfg);
 
 /***********************************************
-* Downstream handling functions
+* upstream handling functions
 ***********************************************/
-downstream_t   * downstream_new(rproxy_t *, downstream_cfg_t *);
-void             downstream_free(void *);
+upstream_t     * upstream_new(rproxy_t *, upstream_cfg_t *);
+void             upstream_free(void *);
 
-downstream_c_t * downstream_conn_new(evbase_t *, downstream_t *);
-downstream_t   * downstream_get(rule_t *);
-void             downstream_conn_free(downstream_c_t *);
-int              downstream_conn_init(evbase_t *, downstream_t *);
+upstream_c_t   * upstream_conn_new(evbase_t *, upstream_t *);
+upstream_t     * upstream_get(rule_t *);
+void             upstream_conn_free(upstream_c_t *);
+int              upstream_conn_init(evbase_t *, upstream_t *);
 
-downstream_t   * downstream_find_by_name(lztq *, const char *);
+upstream_t     * upstream_find_by_name(lztq *, const char *);
 
 /********************************************
 * SSL verification callback functions

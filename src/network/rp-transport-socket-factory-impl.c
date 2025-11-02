@@ -22,7 +22,7 @@
 struct _RpTransportSocketFactoryImpl {
     GObject parent_instance;
 
-    SHARED_PTR(downstream_t) m_downstream;
+    SHARED_PTR(upstream_t) m_upstream;
 };
 
 static void transport_socket_factory_base_iface_init(RpTransportSocketFactoryBaseInterface* iface);
@@ -39,7 +39,7 @@ static bool
 implements_secure_transport_i(RpTransportSocketFactoryBase* self)
 {
     NOISY_MSG_("(%p)", self);
-    return RP_TRANSPORT_SOCKET_FACTORY_IMPL(self)->m_downstream->ssl_ctx != NULL;
+    return RP_TRANSPORT_SOCKET_FACTORY_IMPL(self)->m_upstream->ssl_ctx != NULL;
 }
 
 static inline void
@@ -55,20 +55,20 @@ create_transport_socket_i(RpUpstreamTransportSocketFactory* self, RpHostDescript
     NOISY_MSG_("(%p, %p)", self, host);
 
     RpTransportSocketFactoryImpl* me = RP_TRANSPORT_SOCKET_FACTORY_IMPL(self);
-    downstream_t* downstream = me->m_downstream;
+    upstream_t* upstream = me->m_upstream;
 
-rproxy_t* rproxy = downstream->rproxy;
-NOISY_MSG_("downstream %p, rproxy %p", downstream, rproxy);
+rproxy_t* rproxy = upstream->rproxy;
+NOISY_MSG_("upstream %p, rproxy %p", upstream, rproxy);
 
 evbase_t* evbase = evthr_get_base(rproxy->thr);
-NOISY_MSG_("evbase %p, %p, thr %p", evbase, downstream->evbase, rproxy->thr);
+NOISY_MSG_("evbase %p, %p, thr %p", evbase, upstream->evbase, rproxy->thr);
 
     SSL* ssl;
     evbev_t* bev;
-    if (downstream->ssl_ctx)
+    if (upstream->ssl_ctx)
     {
-        ssl = SSL_new(downstream->ssl_ctx);
-        char* sni = downstream->config->ssl_cfg->sni;
+        ssl = SSL_new(upstream->ssl_ctx);
+        char* sni = upstream->config->ssl_cfg->sni;
         if (sni && sni[0])
         {
             LOGD("setting sni \"%s\"", sni);
@@ -131,10 +131,10 @@ rp_transport_socket_factory_impl_init(RpTransportSocketFactoryImpl* self G_GNUC_
 }
 
 RpTransportSocketFactoryImpl*
-rp_transport_socket_factory_impl_new(SHARED_PTR(downstream_t) downstream)
+rp_transport_socket_factory_impl_new(SHARED_PTR(upstream_t) upstream)
 {
-    LOGD("(%p)", downstream);
+    LOGD("(%p)", upstream);
     RpTransportSocketFactoryImpl* self = g_object_new(RP_TYPE_TRANSPORT_SOCKET_FACTORY_IMPL, NULL);
-    self->m_downstream = downstream;
+    self->m_upstream = upstream;
     return self;
 }
