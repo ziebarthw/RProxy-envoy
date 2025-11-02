@@ -87,8 +87,8 @@ add_dynamic_cluster(RpDynamicForwardProxy* self, RpDfpCluster* cluster, const ch
 
     if (rp_cluster_manager_add_or_update_cluster(self->m_config->m_cluster_manager, &sub_cluster, ""))
     {
-        downstream_t* downstream = lztq_elem_data(lztq_first(sub_cluster.lb_endpoints));
-        downstream_cfg_t* dscfg = downstream->config;
+        upstream_t* upstream = lztq_elem_data(lztq_first(sub_cluster.lb_endpoints));
+        upstream_cfg_t* dscfg = upstream->config;
         g_autofree gchar* cluster_name = create_cluster_name(dscfg->name, dscfg->port);
         RpDfpCluster* new_cluster = rp_dfp_cluster_store_load(rp_dfp_cluster_store_get_instance(self->m_config->m_cluster_manager), cluster_name);
         rp_dfp_cluster_impl_set_disable_sub_cluster(RP_DFP_CLUSTER_IMPL(new_cluster), true);

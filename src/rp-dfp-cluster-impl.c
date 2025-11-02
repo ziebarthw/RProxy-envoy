@@ -52,7 +52,7 @@ null_host_selection_response(void)
 static server_cfg_t*
 create_server(RpDfpCluster* self, const char* host_name, int port)
 {
-    static cfg_opt_t downstream_opts[] = {
+    static cfg_opt_t upstream_opts[] = {
         CFG_BOOL("enabled",           cfg_true,       CFGF_NONE),
         CFG_INT("port",               0,              CFGF_NODEFAULT),
         CFG_INT("connections",        1,              CFGF_NONE),
@@ -63,17 +63,17 @@ create_server(RpDfpCluster* self, const char* host_name, int port)
         CFG_END()
     };
     static cfg_opt_t rule_opts[] = {
-        CFG_STR("uri-match",            NULL,         CFGF_NODEFAULT),
-        CFG_STR_LIST("downstreams",     NULL,         CFGF_NODEFAULT),
-        CFG_STR("lb-method",            "rtt",        CFGF_NONE),
-        CFG_STR("discovery-type",       "strict_dns", CFGF_NONE),
-        CFG_BOOL("passthrough",         cfg_false,    CFGF_NONE),
-        CFG_BOOL("allow-redirect",      cfg_false,    CFGF_NONE),
+        CFG_STR("uri-match",       NULL,         CFGF_NODEFAULT),
+        CFG_STR_LIST("upstreams",  NULL,         CFGF_NODEFAULT),
+        CFG_STR("lb-method",       "rtt",        CFGF_NONE),
+        CFG_STR("discovery-type",  "strict_dns", CFGF_NONE),
+        CFG_BOOL("passthrough",    cfg_false,    CFGF_NONE),
+        CFG_BOOL("allow-redirect", cfg_false,    CFGF_NONE),
         CFG_END()
     };
     static cfg_opt_t server_opts[] = {
-        CFG_SEC("downstream", downstream_opts, CFGF_MULTI|CFGF_TITLE|CFGF_NO_TITLE_DUPES),
-        CFG_SEC("rule",       rule_opts,       CFGF_TITLE|CFGF_MULTI|CFGF_NO_TITLE_DUPES),
+        CFG_SEC("upstream", upstream_opts, CFGF_MULTI|CFGF_TITLE|CFGF_NO_TITLE_DUPES),
+        CFG_SEC("rule",     rule_opts,     CFGF_TITLE|CFGF_MULTI|CFGF_NO_TITLE_DUPES),
         CFG_END()
     };
     static cfg_opt_t rproxy_opts[] = {
@@ -81,7 +81,7 @@ create_server(RpDfpCluster* self, const char* host_name, int port)
         CFG_END()
     };
     static char cfg_fmt[] = "server dynamic_server {\n"
-                            "   downstream %s {\n"
+                            "   upstream %s {\n"
                             "       port           = %d\n"
                             "       connections    = 1\n"
                             "       high-watermark = 0\n"
@@ -93,7 +93,7 @@ create_server(RpDfpCluster* self, const char* host_name, int port)
                             "       uri-gmatch = \"*\"\n"
                             "       passthrough = true\n"
                             "       discovery-type = strict_dns\n"
-                            "       downstreams = { %s }\n"
+                            "       upstreams = { %s }\n"
                             "   }\n"
                             "}\n";
     NOISY_MSG_("(%p, %p(%s), %d)", self, host_name, host_name, port);
@@ -106,7 +106,7 @@ create_server(RpDfpCluster* self, const char* host_name, int port)
     cfg_parse_buf(cfg, buf);
 
     server_cfg_t* scfg = server_cfg_parse(cfg_getnsec(cfg, "server", 0));
-    downstream_cfg_t* ds_cfg = lztq_elem_data(lztq_first(scfg->downstreams));
+    upstream_cfg_t* ds_cfg = lztq_elem_data(lztq_first(scfg->upstreams));
     rule_cfg_t* rule_cfg = scfg->default_rule_cfg;
 
     cfg_free(cfg);
@@ -114,17 +114,17 @@ create_server(RpDfpCluster* self, const char* host_name, int port)
     RpDispatcher* dispatcher = me->m_config.dispatcher;
     evthr_t* thr = rp_dispatcher_thr(RP_DISPATCHER_IMPL(dispatcher));
     rproxy_t* rproxy = evthr_get_aux(thr);
-    downstream_t* downstream = downstream_new(rproxy, ds_cfg);
+    upstream_t* upstream = upstream_new(rproxy, ds_cfg);
 
-    lztq_append(rproxy->downstreams, downstream, sizeof(downstream), downstream_free);
+    lztq_append(rproxy->upstreams, upstream, sizeof(upstream), upstream_free);
 
     rule_t* rule = g_new0(rule_t, 1);
     rule->rproxy = rproxy;
     rule->config = rule_cfg;
-    rule->downstreams = lztq_new();
-    g_assert(rule->downstreams != NULL);
+    rule->upstreams = lztq_new();
+    g_assert(rule->upstreams != NULL);
 
-    lztq_append(rule->downstreams, downstream, sizeof(downstream), NULL);
+    lztq_append(rule->upstreams, upstream, sizeof(upstream), NULL);
     lztq_append(rproxy->rules, rule, sizeof(rule), NULL);
 
     scfg->default_rule = rule;
@@ -253,8 +253,8 @@ create_sub_cluster_config_i(RpDfpCluster* self, const char* cluster_name, const 
 
     config.lb_endpoints = lztq_new();
     server_cfg_t* scfg = create_server(self, host_name, port);
-    downstream_t* downstream = lztq_elem_data(lztq_first(scfg->default_rule->downstreams));
-    lztq_append(config.lb_endpoints, downstream, sizeof(downstream), NULL);
+    upstream_t* upstream = lztq_elem_data(lztq_first(scfg->default_rule->upstreams));
+    lztq_append(config.lb_endpoints, upstream, sizeof(upstream), NULL);
     config.rule = scfg->default_rule;
 
     return config;

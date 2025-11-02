@@ -86,8 +86,8 @@ RpPerHostGenericConnPoolFactory* default_conn_pool_factory = NULL;
 RpDefaultClientConnectionFactory* default_client_connection_factory = NULL;
 
 /**
- * @brief allocates a new downstream_t, and appends it to the
- *        rproxy->downstreams list. This is callback for the
+ * @brief allocates a new upstream_t, and appends it to the
+ *        rproxy->upstreams list. This is callback for the
  *        lztq_for_each function from rproxy_thread_init().
  *
  * @param elem
@@ -96,28 +96,28 @@ RpDefaultClientConnectionFactory* default_client_connection_factory = NULL;
  * @return
  */
 static int
-add_downstream(lztq_elem* elem, void* arg)
+add_upstream(lztq_elem* elem, void* arg)
 {
     LOGD("(%p, %p)", elem, arg);
 
     rproxy_t* rproxy = arg;
     g_assert(rproxy != NULL);
 
-    downstream_cfg_t* ds_cfg = lztq_elem_data(elem);
+    upstream_cfg_t* ds_cfg = lztq_elem_data(elem);
     g_assert(ds_cfg != NULL);
 
-    downstream_t* downstream = downstream_new(rproxy, ds_cfg);
-    g_assert(downstream != NULL);
+    upstream_t* upstream = upstream_new(rproxy, ds_cfg);
+    g_assert(upstream != NULL);
 
-    lztq_elem* nelem = lztq_append(rproxy->downstreams, downstream,
-                                    sizeof(downstream), downstream_free);
+    lztq_elem* nelem = lztq_append(rproxy->upstreams, upstream,
+                                    sizeof(upstream), upstream_free);
     g_assert(nelem != NULL);
 
     return 0;
 }
 
 static int
-map_rule_to_downstreams(rule_t* rule, rule_cfg_t* rule_cfg, rproxy_t* rproxy)
+map_rule_to_upstreams(rule_t* rule, rule_cfg_t* rule_cfg, rproxy_t* rproxy)
 {
     LOGD("(%p, %p, %p)", rule, rule_cfg, rproxy);
 
@@ -126,26 +126,26 @@ map_rule_to_downstreams(rule_t* rule, rule_cfg_t* rule_cfg, rproxy_t* rproxy)
     rule->rproxy       = rproxy;
     rule->config       = rule_cfg;
 
-    rule->downstreams = lztq_new();
-    g_assert(rule->downstreams != NULL);
+    rule->upstreams = lztq_new();
+    g_assert(rule->upstreams != NULL);
 
-    /* for each string in the rule_cfg's downstreams section, find the matching
-     * downstream_t and append it.
+    /* for each string in the rule_cfg's upstreams section, find the matching
+     * upstream_t and append it.
      */
-    for (lztq_elem* elem = lztq_first(rule_cfg->downstreams); elem; elem = lztq_next(elem))
+    for (lztq_elem* elem = lztq_first(rule_cfg->upstreams); elem; elem = lztq_next(elem))
     {
         const char* ds_name = lztq_elem_data(elem);
         g_assert(ds_name != NULL);
 
-        downstream_t* ds;
-        if (!(ds = downstream_find_by_name(rproxy->downstreams, ds_name)))
+        upstream_t* ds;
+        if (!(ds = upstream_find_by_name(rproxy->upstreams, ds_name)))
         {
-            /* could not find a downstream_t which has this name! */
-            LOGE("Could not find downstream named '%s!", ds_name);
+            /* could not find a upstream_t which has this name! */
+            LOGE("Could not find upstream named '%s!", ds_name);
             exit(EXIT_FAILURE);
         }
 
-        lztq_elem* nelem = lztq_append(rule->downstreams, ds, sizeof(ds), NULL);
+        lztq_elem* nelem = lztq_append(rule->upstreams, ds, sizeof(ds), NULL);
         g_assert(nelem != NULL);
     }
 
@@ -157,11 +157,11 @@ map_rule_to_downstreams(rule_t* rule, rule_cfg_t* rule_cfg, rproxy_t* rproxy)
     lztq_append(rproxy->rules, rule, sizeof(rule), NULL);
 
     return 0;
-} /* map_rule_to_downstreams */
+} /* map_rule_to_upstreams */
 
 /**
- * @brief match up names in the list of downstream_cfg_t's in rule_cfg->downstreams
- *        to the downstream_t's in the rproxy->downstreams list. If found,
+ * @brief match up names in the list of upstream_cfg_t's in rule_cfg->upstreams
+ *        to the upstream_t's in the rproxy->upstreams list. If found,
  *        create a rule_t and appends it to the rproxy->rules list.
  *
  * @param elem a lztq elem with the type of vhost_cfg_t *
@@ -170,7 +170,7 @@ map_rule_to_downstreams(rule_t* rule, rule_cfg_t* rule_cfg, rproxy_t* rproxy)
  * @return
  */
 static int
-map_vhost_rules_to_downstreams(lztq_elem* elem, void* arg)
+map_vhost_rules_to_upstreams(lztq_elem* elem, void* arg)
 {
     LOGD("(%p, %p)", elem, arg);
 
@@ -190,7 +190,7 @@ map_vhost_rules_to_downstreams(lztq_elem* elem, void* arg)
     rule_t* rule = g_new0(rule_t, 1);
     g_assert(rule != NULL);
 
-    map_rule_to_downstreams(rule, rule_cfg, rproxy);
+    map_rule_to_upstreams(rule, rule_cfg, rproxy);
     rule->parent_vhost = vhost;
 
     /*
@@ -239,16 +239,16 @@ map_vhost_rules_to_downstreams(lztq_elem* elem, void* arg)
 #endif//WITH_LOGGER
 
     return 0;
-} /* map_vhost_rules_to_downstreams */
+} /* map_vhost_rules_to_upstreams */
 
 static int
-map_default_rule_to_downstreams(rule_t* rule, rule_cfg_t* rule_cfg, rproxy_t* rproxy)
+map_default_rule_to_upstreams(rule_t* rule, rule_cfg_t* rule_cfg, rproxy_t* rproxy)
 {
     LOGD("(%p, %p, %p)", rule, rule_cfg, rproxy);
 
     LOGD("rule_cfg %p(%s)", rule_cfg, rule_cfg->name);
 
-    map_rule_to_downstreams(rule, rule_cfg, rproxy);
+    map_rule_to_upstreams(rule, rule_cfg, rproxy);
 
     /*
      * if a rule specific logging is found then all is good to go. otherwise
@@ -284,10 +284,10 @@ map_default_rule_to_downstreams(rule_t* rule, rule_cfg_t* rule_cfg, rproxy_t* rp
 #endif//WITH_LOGGER
 
     return 0;
-} /* map_default_rule_to_downstreams */
+} /* map_default_rule_to_upstreams */
 
 /**
- * @brief Before accepting an upstream connection, evhtp will call this function
+ * @brief Before accepting an downstream connection, evhtp will call this function
  *        which will check whether we have hit our max-pending limits, and if so,
  *        inform evhtp to not accept().
  *
@@ -297,7 +297,7 @@ map_default_rule_to_downstreams(rule_t* rule, rule_cfg_t* rule_cfg, rproxy_t* rp
  * @return
  */
 evhtp_res
-upstream_pre_accept(evhtp_connection_t* up_conn, void* arg)
+downstream_pre_accept(evhtp_connection_t* up_conn, void* arg)
 {
     LOGD("(%p, %p)", up_conn, arg);
 
@@ -343,7 +343,7 @@ create_transport_socket(evhtp_connection_t* conn)
 }
 
 static evhtp_res
-upstream_post_accept(evhtp_connection_t* up_conn, void* arg)
+downstream_post_accept(evhtp_connection_t* up_conn, void* arg)
 {
     LOGD("(%p, %p)", up_conn, arg);
 
@@ -382,7 +382,7 @@ upstream_post_accept(evhtp_connection_t* up_conn, void* arg)
 }
 
 static evhtp_res
-upstream_dump_request(evhtp_request_t * r, const char * host, void * arg)
+downstream_dump_request(evhtp_request_t * r, const char * host, void * arg)
 {
     LOGD("(%p, %p(%s), %p)", r, host, host, arg);
     evhtp_send_reply(r, EVHTP_RES_NOTFOUND);
@@ -502,7 +502,7 @@ create_cluster_manager(rproxy_t* rproxy)
             .lb_policy = translate_lb_policy(rule->config),
             .dns_lookup_family = RpDnsLookupFamily_AUTO,
             .connection_pool_per_downstream_connection = false,
-            .lb_endpoints = rule->downstreams,
+            .lb_endpoints = rule->upstreams,
             .factory = cluster_factory,
             .dispatcher = rproxy->m_dispatcher,
             .rule = rule
@@ -516,7 +516,7 @@ create_cluster_manager(rproxy_t* rproxy)
 
 /**
  * @brief the evthr init callback. Setup rproxy event base and initialize
- *         downstream connections.
+ *         upstream connections.
  *
  * @param htp
  * @param thr
@@ -558,8 +558,8 @@ rproxy_thread_init(evhtp_t* htp, evthr_t* thr, void* arg)
                                     LZLOG_OPT_WNAME | LZLOG_OPT_WPID | LZLOG_OPT_WDATE);
 #endif//WITH_LOGGER
 
-    rproxy->downstreams = lztq_new();
-    g_assert(rproxy->downstreams != NULL);
+    rproxy->upstreams = lztq_new();
+    g_assert(rproxy->upstreams != NULL);
 
     rproxy->rules = lztq_new();
     g_assert(rproxy->rules != NULL);
@@ -600,14 +600,14 @@ rproxy_thread_init(evhtp_t* htp, evthr_t* thr, void* arg)
      * immediately if the max-pending request queue is over the configured
      * limit.
      */
-    evhtp_set_pre_accept_cb(htp, upstream_pre_accept, rproxy);
+    evhtp_set_pre_accept_cb(htp, downstream_pre_accept, rproxy);
     /* Create a post-accept callback which will configure and allocate a newly-
      * accepted connection for processing.
      */
-    evhtp_set_post_accept_cb(htp, upstream_post_accept, rproxy);
+    evhtp_set_post_accept_cb(htp, downstream_post_accept, rproxy);
 
-    /* create a downstream_t instance for each configured downstream */
-    int res = lztq_for_each(server_cfg->downstreams, add_downstream, rproxy);
+    /* create a upstream_t instance for each configured upstream */
+    int res = lztq_for_each(server_cfg->upstreams, add_upstream, rproxy);
     g_assert(res == 0);
 
     /* set aux data argument to this threads specific rproxy_t structure */
@@ -626,8 +626,8 @@ rproxy_thread_init(evhtp_t* htp, evthr_t* thr, void* arg)
      * matching, and the rule_cfg is passed as the argument to
      * upstream_request_start_hook).
      *
-     * Each rule_t has a downstreams list containing pointers to
-     * (already allocated) downstream_t structures.
+     * Each rule_t has a upstreams list containing pointers to
+     * (already allocated) upstream_t structures.
      */
     lztq_elem* vhost_cfg_elem = lztq_first(server_cfg->vhosts);
     while (vhost_cfg_elem)
@@ -649,7 +649,7 @@ rproxy_thread_init(evhtp_t* htp, evthr_t* thr, void* arg)
         vhost->config  = vhost_cfg;
         vhost->rproxy  = rproxy;
 
-        res = lztq_for_each(vhost_cfg->rule_cfgs, map_vhost_rules_to_downstreams, vhost);
+        res = lztq_for_each(vhost_cfg->rule_cfgs, map_vhost_rules_to_upstreams, vhost);
         g_assert(res == 0);
 
         vhost_cfg_elem = lztq_next(vhost_cfg_elem);
@@ -659,7 +659,7 @@ rproxy_thread_init(evhtp_t* htp, evthr_t* thr, void* arg)
     {
         server_cfg->default_rule = g_new0(rule_t, 1);
         g_assert(server_cfg->default_rule != NULL);
-        map_default_rule_to_downstreams(server_cfg->default_rule, server_cfg->default_rule_cfg, rproxy);
+        map_default_rule_to_upstreams(server_cfg->default_rule, server_cfg->default_rule_cfg, rproxy);
         evhtp_set_gencb(htp, NULL, server_cfg->default_rule_cfg);
     }
 
@@ -836,7 +836,7 @@ add_vhost(lztq_elem* elem, void* arg)
     evhtp_t* htp = arg;
     evhtp_t* htp_vhost = evhtp_new(htp->evbase, NULL);
 
-    /* disable 100-continue responses, we let the downstreams deal with this.
+    /* disable 100-continue responses, we let the upstreams deal with this.
      */
     evhtp_disable_flag(htp_vhost, EVHTP_FLAG_ENABLE_100_CONT);
 
@@ -869,7 +869,7 @@ add_vhost(lztq_elem* elem, void* arg)
         }
 
         evhtp_callback_set_hook(cb, evhtp_hook_on_hostname,
-                                    (evhtp_hook)upstream_dump_request,
+                                    (evhtp_hook)downstream_dump_request,
                                     htp_vhost);
     }
 
@@ -919,7 +919,7 @@ create_htp(evbase_t* evbase, server_cfg_t* server_cfg)
     }
 
     /* we want to make sure 100-continue is not sent by evhtp, but the
-     * downstreams themselves.
+     * upstreams themselves.
      */
     evhtp_disable_flag(htp, EVHTP_FLAG_ENABLE_100_CONT);
 
@@ -1079,7 +1079,7 @@ rproxy_report_rusage(rproxy_rusage_t * rusage)
     }
 
     printf("Configured resource usage information\n");
-    printf("  Number of downstream connections : %u\n", rusage->total_num_connections);
+    printf("  Number of upstream connections : %u\n", rusage->total_num_connections);
     printf("  Number of threads                : %u\n", rusage->total_num_threads);
     printf("  Number of pending connections    : %u\n\n", rusage->total_max_pending);
 

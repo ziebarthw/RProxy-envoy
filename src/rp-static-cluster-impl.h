@@ -28,8 +28,8 @@ struct _RpStaticClusterImplClass {
 RpStaticClusterImpl* rp_static_cluster_impl_new(RpClusterCfg* config,
                                                 RpClusterFactoryContext* context,
                                                 RpStatusCode_e* creation_status);
-void rp_static_cluster_impl_add_downstream(RpStaticClusterImpl* self,
-                                            downstream_t* downstream,
+void rp_static_cluster_impl_add_upstream(RpStaticClusterImpl* self,
+                                            upstream_t* upstream,
                                             RpHost* host);
 
 G_END_DECLS

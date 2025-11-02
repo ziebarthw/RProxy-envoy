@@ -30,7 +30,7 @@
 #endif
 #include "macrologger.h"
 
-#if (defined(downstream_NOISY) || defined(ALL_NOISY)) && !defined(NO_downstream_NOISY)
+#if (defined(upstream_NOISY) || defined(ALL_NOISY)) && !defined(NO_upstream_NOISY)
 #   define NOISY_MSG_ LOGD
 #else
 #   define NOISY_MSG_(x, ...)
@@ -42,31 +42,31 @@
 #include "utils/header_value_parser.h"
 
 /**
- * @brief search through a list of downstream_t's and attempt to find one that
+ * @brief search through a list of upstream_t's and attempt to find one that
  *        has a name that matches the string.
  *
- * @param downstreams
+ * @param upstreams
  * @param name
  *
  * @return
  */
-downstream_t*
-downstream_find_by_name(lztq* downstreams, const char* name)
+upstream_t*
+upstream_find_by_name(lztq* upstreams, const char* name)
 {
-    LOGD("(%p, %p(%s))", downstreams, name, name);
+    LOGD("(%p, %p(%s))", upstreams, name, name);
 
-    g_return_val_if_fail(downstreams != NULL, NULL);
+    g_return_val_if_fail(upstreams != NULL, NULL);
     g_return_val_if_fail(name != NULL, NULL);
 
-    for (lztq_elem* elem = lztq_first(downstreams); elem; elem = lztq_next(elem))
+    for (lztq_elem* elem = lztq_first(upstreams); elem; elem = lztq_next(elem))
     {
-        downstream_t* downstream = lztq_elem_data(elem);
-        g_assert(downstream != NULL);
+        upstream_t* upstream = lztq_elem_data(elem);
+        g_assert(upstream != NULL);
 
-        if (!strcmp(downstream->config->name, name))
+        if (!strcmp(upstream->config->name, name))
         {
-            LOGD("found %p", downstream);
-            return downstream;
+            LOGD("found %p", upstream);
+            return upstream;
         }
     }
 
@@ -75,41 +75,41 @@ downstream_find_by_name(lztq* downstreams, const char* name)
 }
 
 /**
- * @brief attempts to find an idle downstream connection with the most idle connections.
+ * @brief attempts to find an idle upstream connection with the most idle connections.
  *
  * @param rule
  *
- * @return a downstream connection, otherwise NULL if no downstreams are avail.
+ * @return a upstream connection, otherwise NULL if no upstreams are avail.
  */
-downstream_t*
-downstream_get_most_idle(rule_t* rule)
+upstream_t*
+upstream_get_most_idle(rule_t* rule)
 {
     LOGD("(%p)", rule);
 
     g_assert(rule != NULL);
-    g_assert(rule->downstreams != NULL);
+    g_assert(rule->upstreams != NULL);
 
-    downstream_t* most_idle = NULL;
-    for (lztq_elem* elem = lztq_first(rule->downstreams); elem; elem = lztq_next(elem))
+    upstream_t* most_idle = NULL;
+    for (lztq_elem* elem = lztq_first(rule->upstreams); elem; elem = lztq_next(elem))
     {
-        downstream_t* downstream = lztq_elem_data(elem);
-        g_assert(downstream != NULL);
+        upstream_t* upstream = lztq_elem_data(elem);
+        g_assert(upstream != NULL);
 
         if (!most_idle)
         {
-            most_idle = downstream;
+            most_idle = upstream;
             continue;
         }
 
         /* check to see if the number of idle connections in the current
-         * downstream is higher than the saved downstream.
+         * upstream is higher than the saved upstream.
          */
-        if (downstream->num_idle > most_idle->num_idle)
+        if (upstream->num_idle > most_idle->num_idle)
         {
-            /* this downstream has more idle connections, swap it over to
+            /* this upstream has more idle connections, swap it over to
              * most_idle to use it.
              */
-            most_idle = downstream;
+            most_idle = upstream;
         }
     }
 
@@ -117,36 +117,36 @@ downstream_get_most_idle(rule_t* rule)
 }
 
 /**
- * @brief Attempts to find an idle downstream connection with the lowest RTT.
+ * @brief Attempts to find an idle upstream connection with the lowest RTT.
  *
  * @param rule
  *
- * @return a downstream connection on success, NULL if no downstreams are
+ * @return a upstream connection on success, NULL if no upstreams are
  *         available.
  */
-downstream_t*
-downstream_get_lowest_rtt(rule_t* rule)
+upstream_t*
+upstream_get_lowest_rtt(rule_t* rule)
 {
     LOGD("(%p)", rule);
 
     g_assert(rule != NULL);
-    g_assert(rule->downstreams != NULL);
+    g_assert(rule->upstreams != NULL);
 
-    downstream_t* save = NULL;
-    for (lztq_elem* elem = lztq_first(rule->downstreams); elem; elem = lztq_next(elem))
+    upstream_t* save = NULL;
+    for (lztq_elem* elem = lztq_first(rule->upstreams); elem; elem = lztq_next(elem))
     {
-        downstream_t* downstream = lztq_elem_data(elem);
-        g_assert(downstream != NULL);
+        upstream_t* upstream = lztq_elem_data(elem);
+        g_assert(upstream != NULL);
 
         if (!save)
         {
-            save = downstream;
+            save = upstream;
             continue;
         }
 
-        if (downstream->m_rtt < save->m_rtt)
+        if (upstream->m_rtt < save->m_rtt)
         {
-            save = downstream;
+            save = upstream;
         }
     }
 
@@ -154,91 +154,91 @@ downstream_get_lowest_rtt(rule_t* rule)
 }
 
 /**
- * @brief Attempts to find the first idle downstream connection available.
+ * @brief Attempts to find the first idle upstream connection available.
  *
  * @param rule
  *
- * @return downstream connection, otherwise NULL if none are available.
+ * @return upstream connection, otherwise NULL if none are available.
  */
-downstream_t*
-downstream_get_none(rule_t* rule)
+upstream_t*
+upstream_get_none(rule_t* rule)
 {
     LOGD("(%p)", rule);
 
     g_assert(rule != NULL);
-    g_assert(rule->downstreams != NULL);
+    g_assert(rule->upstreams != NULL);
 
-    for (lztq_elem* elem = lztq_first(rule->downstreams); elem; elem = lztq_next(elem))
+    for (lztq_elem* elem = lztq_first(rule->upstreams); elem; elem = lztq_next(elem))
     {
-        downstream_t* downstream = lztq_elem_data(elem);
-        g_assert(downstream != NULL);
+        upstream_t* upstream = lztq_elem_data(elem);
+        g_assert(upstream != NULL);
 
-        if (downstream->num_idle == 0)
+        if (upstream->num_idle == 0)
         {
             LOGD("continuing");
             continue;
         }
 
-        return downstream;
+        return upstream;
     }
 
-    return (downstream_t*)lztq_first(rule->downstreams);
+    return (upstream_t*)lztq_first(rule->upstreams);
 }
 
 /**
- * @brief Attempts to find an idle connection using round-robin on configured downstreams.
- *        It should be noted that if only 1 downstream is configured, this will
+ * @brief Attempts to find an idle connection using round-robin on configured upstreams.
+ *        It should be noted that if only 1 upstream is configured, this will
  *        fallback to using the RTT load-balancing method.
  *
  * @param rule
  *
- * @return a downstream connection, NULL if none are avail.
+ * @return a upstream connection, NULL if none are avail.
  */
-downstream_t*
-downstream_get_rr(rule_t* rule)
+upstream_t*
+upstream_get_rr(rule_t* rule)
 {
     LOGD("(%p)", rule);
 
     g_assert(rule != NULL);
-    g_assert(rule->downstreams != NULL);
+    g_assert(rule->upstreams != NULL);
 
-    if (lztq_size(rule->downstreams) < 2)
+    if (lztq_size(rule->upstreams) < 2)
     {
         LOGD("getting lowest rtt");
-        return (downstream_t*)lztq_elem_data(lztq_first(rule->downstreams));
+        return (upstream_t*)lztq_elem_data(lztq_first(rule->upstreams));
     }
 
-    lztq_elem* last_used_elem = rule->last_downstream_used;
+    lztq_elem* last_used_elem = rule->last_upstream_used;
     LOGD("last_used_elem %p", last_used_elem);
 
-    lztq_elem* downstream_elem;
+    lztq_elem* upstream_elem;
     if (!last_used_elem)
     {
-        downstream_elem = lztq_first(rule->downstreams);
-        last_used_elem  = lztq_last(rule->downstreams);
+        upstream_elem = lztq_first(rule->upstreams);
+        last_used_elem  = lztq_last(rule->upstreams);
     }
     else
     {
-        downstream_elem = lztq_next(last_used_elem);
+        upstream_elem = lztq_next(last_used_elem);
     }
 
-    if (!downstream_elem)
+    if (!upstream_elem)
     {
         LOGD("end of list");
         /* we're at the end of the list, circle back to the first */
-        downstream_elem = lztq_first(rule->downstreams);
+        upstream_elem = lztq_first(rule->upstreams);
     }
 
-    downstream_t* downstream = lztq_elem_data(downstream_elem);
-    g_assert(downstream != NULL);
+    upstream_t* upstream = lztq_elem_data(upstream_elem);
+    g_assert(upstream != NULL);
 
-    rule->last_downstream_used = downstream_elem;
+    rule->last_upstream_used = upstream_elem;
 
-    return downstream;
-}         /* downstream_get_rr */
+    return upstream;
+}         /* upstream_get_rr */
 
-downstream_t*
-downstream_get(rule_t* rule)
+upstream_t*
+upstream_get(rule_t* rule)
 {
     LOGD("(%p)", rule);
 
@@ -251,16 +251,16 @@ downstream_get(rule_t* rule)
     {
         case lb_method_rtt:
             LOGD("rtt");
-            return downstream_get_lowest_rtt(rule);
+            return upstream_get_lowest_rtt(rule);
         case lb_method_most_idle:
             LOGD("most idle");
-            return downstream_get_most_idle(rule);
+            return upstream_get_most_idle(rule);
         case lb_method_rr:
             LOGD("round robbin");
-            return downstream_get_rr(rule);
+            return upstream_get_rr(rule);
         case lb_method_none:
             LOGD("none");
-            return downstream_get_none(rule);
+            return upstream_get_none(rule);
         case lb_method_rand:
         default:
             LOGE("unknown lb method %d", rcfg->lb_method);
@@ -271,7 +271,7 @@ downstream_get(rule_t* rule)
 }
 
 static int
-downstream_ssl_init(downstream_t* self, evhtp_ssl_cfg_t* cfg)
+upstream_ssl_init(upstream_t* self, evhtp_ssl_cfg_t* cfg)
 {
     static int session_id_context = 1;
 
@@ -489,15 +489,15 @@ downstream_ssl_init(downstream_t* self, evhtp_ssl_cfg_t* cfg)
 #endif//0
 
     return 0;
-}         /* downstream_ssl_init */
+}         /* upstream_ssl_init */
 
 /**
- * @brief frees a downstream connection resource
+ * @brief frees a upstream connection resource
  *
  * @param connection
  */
 void
-downstream_conn_free(downstream_c_t* self)
+upstream_conn_free(upstream_c_t* self)
 {
     LOGD("(%p)", self);
 
@@ -516,30 +516,30 @@ downstream_conn_free(downstream_c_t* self)
 }
 
 /**
- * @brief creates a new downstream connection using downstream_t information
+ * @brief creates a new upstream connection using upstream_t information
  *
- * Initializes a downstream connection along with creating a retry event timer.
+ * Initializes a upstream connection along with creating a retry event timer.
  *
  * @param evbase
- * @param downstream the parent downstream_t instance
+ * @param upstream the parent upstream_t instance
  *
- * @return downstream_c_t
+ * @return upstream_c_t
  */
-downstream_c_t*
-downstream_conn_new(evbase_t* evbase, downstream_t* downstream)
+upstream_c_t*
+upstream_conn_new(evbase_t* evbase, upstream_t* upstream)
 {
-    LOGD("(%p, %p)", evbase, downstream);
+    LOGD("(%p, %p)", evbase, upstream);
 
     g_return_val_if_fail(evbase != NULL, NULL);
 
-    downstream_c_t* self = g_new0(downstream_c_t, 1);
+    upstream_c_t* self = g_new0(upstream_c_t, 1);
     g_assert(self);
 
-    self->parent       = downstream;
+    self->parent       = upstream;
     self->rtt          = DBL_MAX;
 
 #ifdef WITH_RETRY_TIMER
-    self->retry_timer  = evtimer_new(evbase, downstream_conn_retry, self);
+    self->retry_timer  = evtimer_new(evbase, upstream_conn_retry, self);
 #endif//0
 
     LOGD("self %p, %zu bytes", self, sizeof(*self));
@@ -547,71 +547,71 @@ downstream_conn_new(evbase_t* evbase, downstream_t* downstream)
 }
 
 /**
- * @brief frees all downstream connections and the parent
+ * @brief frees all upstream connections and the parent
  *
- * @param downstream
+ * @param upstream
  */
 void
-downstream_free(void* arg)
+upstream_free(void* arg)
 {
     LOGD("(%p)", arg);
 
-    downstream_t* self = arg;
+    upstream_t* self = arg;
     if (!self)
     {
         LOGD("self is null");
         return;
     }
 
-    downstream_c_t* conn;
-    downstream_c_t* save;
+    upstream_c_t* conn;
+    upstream_c_t* save;
 
     /* free all of the active/idle/down connections */
     for (conn = TAILQ_FIRST(&self->active); conn; conn = save)
     {
         save = TAILQ_NEXT(conn, next);
 
-        downstream_conn_free(conn);
+        upstream_conn_free(conn);
     }
 
     for (conn = TAILQ_FIRST(&self->idle); conn; conn = save)
     {
         save = TAILQ_NEXT(conn, next);
 
-        downstream_conn_free(conn);
+        upstream_conn_free(conn);
     }
 
     g_free(self);
 }
 
 /**
- * @brief allocates a downstream_t parent and initializes the downstream
+ * @brief allocates a upstream_t parent and initializes the upstream
  *        connection queues.
  *
  * @param rproxy
  * @param cfg
  *
- * @return downstream_t on success, NULL on error
+ * @return upstream_t on success, NULL on error
  */
-downstream_t*
-downstream_new(rproxy_t* rproxy, downstream_cfg_t* cfg)
+upstream_t*
+upstream_new(rproxy_t* rproxy, upstream_cfg_t* cfg)
 {
     LOGD("(%p, %p(%s))", rproxy, cfg, cfg->name);
 
     g_return_val_if_fail(rproxy != NULL, NULL);
     g_return_val_if_fail(cfg != NULL, NULL);
 
-    downstream_t* self = g_new0(downstream_t, 1);
+    upstream_t* self = g_new0(upstream_t, 1);
     if (!self)
     {
         LOGE("alloc failed");
         return NULL;
     }
 
-    if (cfg->ssl_cfg && downstream_ssl_init(self, cfg->ssl_cfg) != 0)
+    if (cfg->ssl_cfg && upstream_ssl_init(self, cfg->ssl_cfg) != 0)
     {
         LOGE("alloc failed");
-        downstream_free(self);
+        upstream_free(self);
         return NULL;
     }
 
