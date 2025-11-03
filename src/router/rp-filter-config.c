@@ -22,7 +22,6 @@
 struct _RpRouterFilterConfig {
     GObjectClass parent_instance;
 
-    RpRouterCfg* m_config;
     RpCommonFactoryContext* m_factory_context;
 
     bool m_suppress_envoy_headers;
@@ -73,13 +72,11 @@ rp_router_filter_config_init(RpRouterFilterConfig* self G_GNUC_UNUSED)
 }
 
 static inline RpRouterFilterConfig*
-constructed(RpRouterFilterConfig* self)
+constructed(RpRouterFilterConfig* self, RpRouterCfg* config)
 {
-    NOISY_MSG_("(%p)", self);
+    NOISY_MSG_("(%p, %p)", self, config);
 
-    RpRouterCfg* config = self->m_config;
     self->m_suppress_envoy_headers = config->suppress_rproxy_headers;
-    self->m_config = NULL;
     return self;
 }
 
@@ -90,7 +87,7 @@ rp_router_filter_config_new(RpRouterCfg* proto_config, RpFactoryContext* factory
     g_return_val_if_fail(proto_config != NULL, NULL);
     g_return_val_if_fail(RP_IS_FACTORY_CONTEXT(factory_context), NULL);
     RpRouterFilterConfig* self = g_object_new(RP_TYPE_ROUTER_FILTER_CONFIG, NULL);
-    self->m_config = proto_config;
-    self->m_factory_context = RP_COMMON_FACTORY_CONTEXT(factory_context);
-    return constructed(self);
+    self->m_factory_context = RP_COMMON_FACTORY_CONTEXT(
+                                rp_generic_factory_context_server_factory_context(RP_GENERIC_FACTORY_CONTEXT(factory_context)));
+    return constructed(self, proto_config);
 }

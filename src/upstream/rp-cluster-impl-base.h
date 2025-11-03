@@ -9,6 +9,7 @@
 
 #include <stdbool.h>
 #include <glib-object.h>
+#include "rp-cluster-configuration.h"
 
 G_BEGIN_DECLS
 
@@ -25,5 +26,6 @@ struct _RpClusterImplBaseClass {
 };
 
 void rp_cluster_impl_base_on_pre_init_complete(RpClusterImplBase* self);
+const RpClusterCfg* rp_cluster_impl_base_config_(RpClusterImplBase* self);
 
 G_END_DECLS

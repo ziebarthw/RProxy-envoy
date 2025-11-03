@@ -28,7 +28,6 @@ struct _RpStaticClusterImplPrivate {
 
     RpClusterFactoryContext* m_context;
 
-    RpClusterCfg m_config;
     RpClusterManager* m_parent;
     RpConnectionPoolInstance* m_pool;
 
@@ -41,7 +40,6 @@ struct _RpStaticClusterImplPrivate {
 enum
 {
     PROP_0, // Reserved.
-    /*PROP_CONFIG,*/
     PROP_CONTEXT,
     N_PROPERTIES
 };
@@ -78,8 +76,8 @@ choose_host_i(RpThreadLocalCluster* self, RpLoadBalancerContext* context G_GNUC_
 {
     NOISY_MSG_("(%p, %p)", self, context);
 
-    RpStaticClusterImplPrivate* me = PRIV(self);
-    upstream_t* upstream = upstream_get(me->m_config.rule);
+    const RpClusterCfg* config = rp_cluster_impl_base_config_(RP_CLUSTER_IMPL_BASE(self));
+    upstream_t* upstream = upstream_get(config->rule);
     RpHost* host = g_hash_table_lookup(ensure_host_map(RP_STATIC_CLUSTER_IMPL(self)), upstream);
 
 #if 0
@@ -107,9 +105,10 @@ http_conn_pool_impl(RpStaticClusterImpl* self, RpHost* host, RpResourcePriority_
     NOISY_MSG_("(%p, %p, %d, %d, %p)", self, host, priority, downstream_protocol, context);
     RpStaticClusterImplPrivate* me = PRIV(self);
 //TODO...upstream_protocols = host->cluster().upstreamHttpProtocol(downstream_protocol);
-evhtp_proto upstream_protocols[] = {normalize_protocol(downstream_protocol), EVHTP_PROTO_INVALID};
+    evhtp_proto upstream_protocols[] = {normalize_protocol(downstream_protocol), EVHTP_PROTO_INVALID};
+    const RpClusterCfg* config = rp_cluster_impl_base_config_(RP_CLUSTER_IMPL_BASE(self));
     return rp_cluster_manager_factory_allocate_conn_pool(RP_CLUSTER_MANAGER_FACTORY(me->m_parent),
-                                                                                    me->m_config.dispatcher,
+                                                                                    config->dispatcher,
                                                                                     host,
                                                                                     priority,
                                                                                     upstream_protocols);
@@ -126,7 +125,8 @@ static RpTcpConnPoolInstancePtr
 tcp_conn_pool_impl(RpStaticClusterImpl* self, RpHost* host, RpResourcePriority_e priority, RpLoadBalancerContext* context)
 {
     NOISY_MSG_("(%p, %p, %d, %p)", self, host, priority, context);
-    return prod_cluster_manager_factory_allocate_tcp_conn_pool(PRIV(self)->m_config.dispatcher,
+    const RpClusterCfg* config = rp_cluster_impl_base_config_(RP_CLUSTER_IMPL_BASE(self));
+    return prod_cluster_manager_factory_allocate_tcp_conn_pool(config->dispatcher,
                                                                 host,
                                                                 priority);
 }
@@ -191,11 +191,6 @@ get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
     NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
     switch (prop_id)
     {
-#if 0
-        case PROP_CONFIG:
-            g_value_set_pointer(value, &PRIV(obj)->m_config);
-            break;
-#endif//0
         case PROP_CONTEXT:
             g_value_set_object(value, PRIV(obj)->m_context);
             break;
@@ -211,11 +206,6 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
     NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
     switch (prop_id)
     {
-#if 0
-        case PROP_CONFIG:
-            PRIV(obj)->m_config = *((RpClusterCfg*)g_value_get_pointer(value));
-            break;
-#endif//0
         case PROP_CONTEXT:
             PRIV(obj)->m_context = g_value_get_object(value);
             break;
@@ -226,21 +216,21 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
 }
 
 struct sockaddr_storage
-sockaddr_from_config(upstream_cfg_t* config)
+sockaddr_from_cfg(upstream_cfg_t* cfg)
 {
     struct sockaddr_storage sockaddr;
     memset(&sockaddr, 0, sizeof(sockaddr));
     sockaddr.ss_family = AF_UNSPEC;
-    if (config->host)
+    if (cfg->host)
     {
-        g_autoptr(GInetAddress) address = g_inet_address_new_from_string(config->host);
+        g_autoptr(GInetAddress) address = g_inet_address_new_from_string(cfg->host);
         switch (g_inet_address_get_family(address))
         {
             case G_SOCKET_FAMILY_IPV4:
             {
                 struct sockaddr_in* sin = (struct sockaddr_in*)&sockaddr;
                 sin->sin_family = AF_INET;
-                sin->sin_port = htons(config->port);
+                sin->sin_port = htons(cfg->port);
                 memcpy(&sin->sin_addr, g_inet_address_to_bytes(address), g_inet_address_get_native_size(address));
                 break;
             }
@@ -248,7 +238,7 @@ sockaddr_from_config(upstream_cfg_t* config)
             {
                 struct sockaddr_in6* sin6 = (struct sockaddr_in6*)&sockaddr;
                 sin6->sin6_family = AF_INET6;
-                sin6->sin6_port = htons(config->port);
+                sin6->sin6_port = htons(cfg->port);
                 memcpy(&sin6->sin6_addr, g_inet_address_to_bytes(address), g_inet_address_get_native_size(address));
                 break;
             }
@@ -257,14 +247,6 @@ sockaddr_from_config(upstream_cfg_t* config)
         }
     }
     return sockaddr;
-}
-
-static inline RpClusterCfg
-init_config(RpStaticClusterImpl* self)
-{
-    RpClusterCfg* config;
-    g_object_get(G_OBJECT(self), "config", &config, NULL);
-    return *config;
 }
 
 OVERRIDE void
@@ -281,16 +263,14 @@ constructed(GObject* obj)
     RpLocalInfo* local_info = rp_common_factory_context_local_info(RP_COMMON_FACTORY_CONTEXT(server_context));
 #endif//0
     RpClusterInfo* cluster_info = rp_cluster_info(RP_CLUSTER(self));
-
-    me->m_config = init_config(self);
-
-    lztq* lb_endpoints = me->m_config.lb_endpoints;
+    const RpClusterCfg* config = rp_cluster_impl_base_config_(RP_CLUSTER_IMPL_BASE(obj));
+    lztq* lb_endpoints = config->lb_endpoints;
     for (lztq_elem* elem = lztq_first(lb_endpoints); elem; elem = lztq_next(elem))
     {
         upstream_t* upstream = lztq_elem_data(elem);
         upstream_cfg_t* cfg = upstream->config;
         RpTransportSocketFactoryImpl* socket_factory = rp_transport_socket_factory_impl_new(upstream);
-        struct sockaddr_storage sockaddr = sockaddr_from_config(cfg);
+        struct sockaddr_storage sockaddr = sockaddr_from_cfg(cfg);
         const char* hostname = cfg->name; // REVISIT??
         RpHostImpl* host = rp_host_impl_new(cluster_info,
                                             RP_UPSTREAM_TRANSPORT_SOCKET_FACTORY(socket_factory),
@@ -360,12 +340,6 @@ rp_static_cluster_impl_class_init(RpStaticClusterImplClass* klass)
 
     cluster_impl_base_class_init(RP_CLUSTER_IMPL_BASE_CLASS(klass));
 
-#if 0
-    obj_properties[PROP_CONFIG] = g_param_spec_pointer("config",
-                                                    "Config",
-                                                    "ClusterConfig Instance",
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-#endif//0
     obj_properties[PROP_CONTEXT] = g_param_spec_object("context",
                                                     "Context",
                                                     "ClusterFactoryContext Instance",

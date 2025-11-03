@@ -37,4 +37,6 @@ struct _RpHostDescriptionImplBaseClass {
 
 };
 
+struct sockaddr* rp_host_description_impl_base_dest_address_(RpHostDescriptionImplBase* self);
+
 G_END_DECLS

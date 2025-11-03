@@ -27,14 +27,6 @@ struct _RpCodecClientProd {
 
 G_DEFINE_FINAL_TYPE(RpCodecClientProd, rp_codec_client_prod, RP_TYPE_CODEC_CLIENT)
 
-static inline RpCodecType_e
-get_codec_type(RpCodecClientProd* self)
-{
-    RpCodecType_e type;
-    g_object_get(G_OBJECT(self), "type", &type, NULL);
-    return type;
-}
-
 OVERRIDE void
 dispose(GObject* obj)
 {
@@ -64,7 +56,7 @@ constructed(RpCodecClientProd* self, RpNetworkClientConnection* connection, bool
 
     RpHttpClientConnection* codec = NULL;
 
-    switch (get_codec_type(self))
+    switch (rp_codec_client_type_(RP_CODEC_CLIENT(self)))
     {
         case RpCodecType_HTTP1:
             codec = RP_HTTP_CLIENT_CONNECTION(
@@ -84,9 +76,7 @@ constructed(RpCodecClientProd* self, RpNetworkClientConnection* connection, bool
             break;
     }
 
-    LOGD("codec %p", codec);
-
-    g_object_set(G_OBJECT(self), "codec", codec, NULL);
+    rp_codec_client_set_codec_(RP_CODEC_CLIENT(self), codec);
 
     if (should_connect)
     {
