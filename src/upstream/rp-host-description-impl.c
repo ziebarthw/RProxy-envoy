@@ -16,10 +16,6 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
-#ifndef OVERRIDE
-#define OVERRIDE static
-#endif
-
 #include <stdio.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -107,14 +103,6 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
     }
 }
 
-static inline struct sockaddr*
-ensure_dest_address(RpHostDescriptionImpl* self)
-{
-    struct sockaddr* dest_address = NULL;
-    g_object_get(G_OBJECT(self), "dest-address", &dest_address, NULL);
-    return dest_address;
-}
-
 OVERRIDE void
 constructed(GObject* obj)
 {
@@ -124,7 +112,7 @@ constructed(GObject* obj)
 
     RpHostDescriptionImpl* self = RP_HOST_DESCRIPTION_IMPL(obj);
     RpHostDescriptionImplPrivate* me = PRIV(self);
-    struct sockaddr* dest_address = ensure_dest_address(self);
+    struct sockaddr* dest_address = rp_host_description_impl_base_dest_address_(RP_HOST_DESCRIPTION_IMPL_BASE(obj));
     if (dest_address->sa_family == AF_INET)
     {
         *((struct sockaddr_in*)&me->m_sockaddr_storage) = *((struct sockaddr_in*)dest_address);

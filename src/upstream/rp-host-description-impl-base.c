@@ -189,3 +189,11 @@ rp_host_description_impl_base_init(RpHostDescriptionImplBase* self G_GNUC_UNUSED
 {
     NOISY_MSG_("(%p)", self);
 }
+
+struct sockaddr*
+rp_host_description_impl_base_dest_address_(RpHostDescriptionImplBase* self)
+{
+    LOGD("(%p)", self);
+    g_return_val_if_fail(RP_IS_HOST_DESCRIPTION_IMPL_BASE(self), NULL);
+    return PRIV(self)->m_dest_address;
+}

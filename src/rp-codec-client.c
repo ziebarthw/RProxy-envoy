@@ -60,7 +60,6 @@ enum
     PROP_0, // Reserved.
     PROP_TYPE,
     PROP_CONNECTION,
-    PROP_CODEC,
     PROP_HOST,
     PROP_DISPATCHER,
     N_PROPERTIES
@@ -228,9 +227,6 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
         case PROP_CONNECTION:
             PRIV(obj)->m_connection = g_value_get_object(value);
             break;
-        case PROP_CODEC:
-            PRIV(obj)->m_codec = g_value_get_object(value);
-            break;
         case PROP_HOST:
             PRIV(obj)->m_host = g_value_get_object(value);
             break;
@@ -292,11 +288,6 @@ rp_codec_client_class_init(RpCodecClientClass* klass)
                                                     "Network ClientConnection Instance",
                                                     RP_TYPE_NETWORK_CLIENT_CONNECTION,
                                                     G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-    obj_properties[PROP_CODEC] = g_param_spec_object("codec",
-                                                    "Codec",
-                                                    "Codec Implementation Instance",
-                                                    RP_TYPE_HTTP_CLIENT_CONNECTION,
-                                                    G_PARAM_WRITABLE|G_PARAM_STATIC_STRINGS);
     obj_properties[PROP_HOST] = g_param_spec_object("host",
                                                     "Host",
                                                     "HostDescription Instance",
@@ -318,14 +309,6 @@ rp_codec_client_init(RpCodecClient* self)
     RpCodecClientPrivate* me = PRIV(self);
     me->m_active_requests = NULL;
     me->m_remote_closed = false;
-}
-
-void
-rp_codec_client_set_codec(RpCodecClient* self, RpHttpClientConnection* codec)
-{
-    LOGD("(%p, %p)", self, codec);
-    g_return_if_fail(RP_IS_CODEC_CLIENT(self));
-    PRIV(self)->m_codec = codec;
 }
 
 void
@@ -360,8 +343,6 @@ rp_codec_client_new_stream(RpCodecClient* self, RpResponseDecoder* response_deco
     g_return_val_if_fail(RP_IS_CODEC_CLIENT(self), NULL);
     g_return_val_if_fail(RP_IS_RESPONSE_DECODER(response_decoder), NULL);
 
-NOISY_MSG_("response decoder %p", response_decoder);
-
     RpCodecClientPrivate* me = PRIV(self);
     RpCodecClientActiveRequest* request = rp_codec_client_active_request_new(self, response_decoder);
     RpRequestEncoder* encoder = rp_http_client_connection_new_stream(me->m_codec, RP_RESPONSE_DECODER(request));
@@ -372,8 +353,6 @@ NOISY_MSG_("response decoder %p", response_decoder);
                                         rp_network_connection_stream_info(RP_NETWORK_CONNECTION(me->m_connection)));
     rp_upstream_info_set_upstream_num_streams(upstream_info,
         rp_upstream_info_upstream_num_streams(upstream_info) + 1);
-
-NOISY_MSG_("request encoder %p", me->m_active_requests->data);
 
     //TODO...disableIdleTimer()
     return me->m_active_requests->data;
@@ -576,4 +555,20 @@ rp_codec_client_set_requested_server_name(RpCodecClient* self, const char* reque
     g_return_if_fail(RP_IS_CODEC_CLIENT(self));
     RpConnectionInfoSetter* info = rp_network_connection_connection_info_setter(NETWORK_CONNECTION(PRIV(self)));
     rp_connection_info_setter_set_requested_server_name(info, requested_server_name);
+}
+
+RpCodecType_e
+rp_codec_client_type_(RpCodecClient* self)
+{
+    LOGD("(%p)", self);
+    g_return_val_if_fail(RP_IS_CODEC_CLIENT(self), RpCodecType_HTTP1);
+    return PRIV(self)->m_type;
+}
+
+void
+rp_codec_client_set_codec_(RpCodecClient* self, RpHttpClientConnection* codec)
+{
+    LOGD("(%p, %p(%s))", self, codec, G_OBJECT_TYPE_NAME(codec));
+    g_return_if_fail(RP_IS_CODEC_CLIENT(self));
+    PRIV(self)->m_codec = codec;
 }

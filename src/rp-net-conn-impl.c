@@ -16,10 +16,6 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
-#ifndef OVERRIDE
-#define OVERRIDE static
-#endif
-
 #include "rp-stream-info.h"
 #include "rp-net-filter.h"
 #include "rp-net-filter-mgr-impl.h"

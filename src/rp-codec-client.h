@@ -66,7 +66,6 @@ struct _RpCodecClientClass {
 
 };
 
-void rp_codec_client_set_codec(RpCodecClient* self, RpHttpClientConnection* codec);
 void rp_codec_client_set_codec_connection_callbacks(RpCodecClient* self,
                                             RpHttpConnectionCallbacks* callbacks);
 void rp_codec_client_go_away(RpCodecClient* self);
@@ -90,5 +89,8 @@ void rp_codec_client_connect(RpCodecClient* self);
 RpStreamInfo* rp_codec_client_stream_info(RpCodecClient* self);
 void rp_codec_client_set_requested_server_name(RpCodecClient* self,
                                                 const char* requested_server_name);
+RpCodecType_e rp_codec_client_type_(RpCodecClient* self);
+void rp_codec_client_set_codec_(RpCodecClient* self,
+                                RpHttpClientConnection* codec);
 
 G_END_DECLS

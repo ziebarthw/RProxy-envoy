@@ -178,3 +178,11 @@ rp_cluster_impl_base_on_pre_init_complete(RpClusterImplBase* self)
 
 //TODO...init_manager_.initialize(init_watcher_);
 }
+
+const RpClusterCfg*
+rp_cluster_impl_base_config_(RpClusterImplBase* self)
+{
+    LOGD("(%p)", self);
+    g_return_val_if_fail(RP_IS_CLUSTER_IMPL_BASE(self), NULL);
+    return &PRIV(self)->m_config;
+}
