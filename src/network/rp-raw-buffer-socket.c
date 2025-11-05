@@ -16,10 +16,6 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
-#ifndef OVERRIDE
-#define OVERRIDE static
-#endif
-
 #include "rp-headers.h"
 #include "rp-stream-info.h"
 #include "network/rp-io-bev-socket-handle-impl.h"

@@ -26,53 +26,7 @@ struct _ArRequestEncoderWrapper {
     void* m_arg;
 };
 
-enum
-{
-    PROP_0, // Reserved.
-    PROP_PARENT,
-    PROP_ARG,
-    N_PROPERTIES
-};
-
-static GParamSpec* obj_properties[N_PROPERTIES] = { NULL, };
-
 G_DEFINE_FINAL_TYPE(ArRequestEncoderWrapper, ar_request_encoder_wrapper, RP_TYPE_REQUEST_ENCODER_WRAPPER)
-
-OVERRIDE void
-get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_PARENT:
-            g_value_set_object(value, AR_REQUEST_ENCODER_WRAPPER(obj)->m_parent);
-            break;
-        case PROP_ARG:
-            g_value_set_pointer(value, AR_REQUEST_ENCODER_WRAPPER(obj)->m_arg);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
-set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_PARENT:
-            AR_REQUEST_ENCODER_WRAPPER(obj)->m_parent = g_value_get_object(value);
-            break;
-        case PROP_ARG:
-            AR_REQUEST_ENCODER_WRAPPER(obj)->m_arg = g_value_get_pointer(value);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
 
 OVERRIDE void
 dispose(GObject* obj)
@@ -95,24 +49,10 @@ ar_request_encoder_wrapper_class_init(ArRequestEncoderWrapperClass* klass)
     LOGD("(%p)", klass);
 
     GObjectClass* object_class = G_OBJECT_CLASS(klass);
-    object_class->get_property = get_property;
-    object_class->set_property = set_property;
     object_class->dispose = dispose;
 
     RpRequestEncoderWrapperClass* wrapper_class = RP_REQUEST_ENCODER_WRAPPER_CLASS(klass);
     wrapper_class->on_encode_complete = on_encode_complete;
-
-    obj_properties[PROP_PARENT] = g_param_spec_object("parent",
-                                                    "Parent",
-                                                    "Parent CodecClient Instance",
-                                                    RP_TYPE_CODEC_CLIENT,
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-    obj_properties[PROP_ARG] = g_param_spec_pointer("arg",
-                                                    "Arg",
-                                                    "Argument",
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-
-    g_object_class_install_properties(object_class, N_PROPERTIES, obj_properties);
 }
 
 static void
@@ -122,15 +62,16 @@ ar_request_encoder_wrapper_init(ArRequestEncoderWrapper* self G_GNUC_UNUSED)
 }
 
 ArRequestEncoderWrapper*
-ar_request_encoder_wrapper_new(RpRequestEncoder* inner, RpCodecClient* parent, void* arg)
+ar_request_encoder_wrapper_new(RpRequestEncoder* inner, RpCodecClient* parent, gpointer arg)
 {
     LOGD("(%p, %p, %p)", inner, parent, arg);
     g_return_val_if_fail(RP_IS_REQUEST_ENCODER(inner), NULL);
     g_return_val_if_fail(RP_IS_CODEC_CLIENT(parent), NULL);
     g_return_val_if_fail(RP_IS_CODEC_CLIENT_ACTIVE_REQUEST(arg), NULL);
-    return g_object_new(AR_TYPE_REQUEST_ENCODER_WRAPPER,
-                        "arg", arg,
-                        "inner", inner,
-                        "parent", parent,
-                        NULL);
+    ArRequestEncoderWrapper* self = g_object_new(AR_TYPE_REQUEST_ENCODER_WRAPPER,
+                                                    "inner", inner,
+                                                    NULL);
+    self->m_parent = parent;
+    self->m_arg = arg;
+    return self;
 }

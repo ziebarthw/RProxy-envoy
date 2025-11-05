@@ -19,6 +19,6 @@ G_DECLARE_FINAL_TYPE(ArRequestEncoderWrapper, ar_request_encoder_wrapper, AR, RE
 
 ArRequestEncoderWrapper* ar_request_encoder_wrapper_new(RpRequestEncoder* inner,
                                                         RpCodecClient* parent,
-                                                        void* arg);
+                                                        gpointer arg);
 
 G_END_DECLS

@@ -17,6 +17,7 @@
 #endif
 
 #include "rp-headers.h"
+#include "rp-http-utility.h"
 #include "rp-stream-encoder-impl.h"
 
 typedef struct _RpStreamEncoderImplPrivate RpStreamEncoderImplPrivate;
@@ -183,9 +184,8 @@ static void
 flush_output(RpStreamEncoderImplPrivate* me, bool end_encode)
 {
     NOISY_MSG_("(%p, %u)", me, end_encode);
-    guint64 encoded_bytes = rp_http1_connection_impl_flush_output(me->m_connection, end_encode);
+    guint64 encoded_bytes G_GNUC_UNUSED = rp_http1_connection_impl_flush_output(me->m_connection, end_encode);
     //TODO...bytes_meter_->addWriteBytesSent(encoded_bytes);
-    (void)encoded_bytes;
 }
 
 static void
@@ -233,6 +233,7 @@ encode_data_i(RpStreamEncoder* self, evbuf_t* data, bool end_stream)
 
     if (end_stream)
     {
+NOISY_MSG_("calling end_encode(%p)", me);
         end_encode(me);
     }
     else
@@ -429,7 +430,7 @@ rp_stream_encoder_impl_encode_headers_base(RpStreamEncoderImpl* self, evhtp_head
                 evbuffer_add(output, RpHeaderValues.TransferCodingValues.Chunked, strlen(RpHeaderValues.TransferCodingValues.Chunked));
                 evbuffer_add(output, "\r\n", 2);
             }
-            me->m_chunk_encoding = /*!Utility::isUpgrade(headers) &&*/
+            me->m_chunk_encoding = !http_utility_is_upgrade(headers) &&
                                     !me->m_is_response_to_head_request &&
                                     !me->m_is_response_to_connect_request;
         }
@@ -439,6 +440,7 @@ rp_stream_encoder_impl_encode_headers_base(RpStreamEncoderImpl* self, evhtp_head
 
     if (end_stream)
     {
+NOISY_MSG_("calling end_encode(%p)", me);
         end_encode(me);
     }
     else
@@ -456,6 +458,7 @@ rp_stream_encoder_impl_encode_trailers_base(RpStreamEncoderImpl* self, evhtp_hea
     RpStreamEncoderImplPrivate* me = PRIV(self);
     if (!rp_http1_connection_impl_enable_trailers(me->m_connection))
     {
+NOISY_MSG_("calling end_encode(%p)", me);
         end_encode(me);
         return;
     }

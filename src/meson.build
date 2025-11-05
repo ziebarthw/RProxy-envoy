@@ -226,6 +226,7 @@ install_headers(
         'gpassthroughconverter.h',
         'ar-response-decoder-wrapper.h',
         'ar-request-encoder-wrapper.h',
+        'macrologger.h',
         'rp-active-stream-decoder-filter.h',
         'rp-active-stream-encoder-filter.h',
         'rp-active-stream-filter-base.h',
