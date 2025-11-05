@@ -16,10 +16,6 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
-#ifndef OVERRIDE
-#define OVERRIDE static
-#endif
-
 #include "rp-dispatcher.h"
 #include "rp-http-utility.h"
 #include "event/rp-schedulable-cb-impl.h"
@@ -472,7 +468,7 @@ was_connected_i(RpIoHandle* self)
 static int
 write_i(RpIoHandle* self, evbuf_t* buffer)
 {
-    NOISY_MSG_("(%p(fd %d), %p(%zu))", self, SOCKFD(self), buffer, buffer ? evbuffer_get_length(buffer) : 0);
+    NOISY_MSG_("(%p(fd %d), %p(%zu))", self, SOCKFD(self), buffer, evbuf_length(buffer));
     if (!buffer)
     {
         LOGI("buffer is null on fd %d", SOCKFD(self));

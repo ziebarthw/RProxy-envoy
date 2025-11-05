@@ -68,9 +68,6 @@ static RpStream*
 get_stream_i(RpStreamEncoder* self)
 {
     NOISY_MSG_("(%p)", self);
-NOISY_MSG_("RP_STREAM_ENCODER(%p)", PRIV(self)->m_inner);
-NOISY_MSG_("RP_STREAM_ENCODER(%p)", RP_STREAM_ENCODER(PRIV(self)->m_inner));
-NOISY_MSG_("RP_STREAM_ENCODER(%p)", PRIV(self)->m_inner);
     return rp_stream_encoder_get_stream(RP_STREAM_ENCODER(PRIV(self)->m_inner));
 }
 

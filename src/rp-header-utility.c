@@ -99,10 +99,103 @@ rp_header_utility_should_close_connection(evhtp_proto protocol, evhtp_headers_t*
     return false;
 }
 
+static inline bool
+is_get_method(const char* method, gsize len)
+{
+    NOISY_MSG_("(%p(%s), %zu)", method, method, len);
+    if (len != 3) return false;
+    return g_ascii_tolower(method[0]) == 'g' &&
+            g_ascii_tolower(method[1]) == 'e' &&
+            g_ascii_tolower(method[2]) == 't';
+}
+
+static inline bool
+is_head_method(const char* method, gsize len)
+{
+    NOISY_MSG_("(%p(%s), %zu)", method, method, len);
+    if (len != 4) return false;
+    return g_ascii_tolower(method[0]) == 'h' &&
+            g_ascii_tolower(method[1]) == 'e' &&
+            g_ascii_tolower(method[2]) == 'a' &&
+            g_ascii_tolower(method[3]) == 'd';
+}
+
+static inline bool
+is_connect_method(const char* method, gsize len)
+{
+    NOISY_MSG_("(%p(%s), %zu)", method, method, len);
+    if (len != 7) return false;
+    return g_ascii_tolower(method[0]) == 'c' &&
+            g_ascii_tolower(method[1]) == 'o' &&
+            g_ascii_tolower(method[2]) == 'n' &&
+            g_ascii_tolower(method[3]) == 'n' &&
+            g_ascii_tolower(method[4]) == 'e' &&
+            g_ascii_tolower(method[5]) == 'c' &&
+            g_ascii_tolower(method[6]) == 't';
+}
+
+static inline bool
+is_delete_method(const char* method, gsize len)
+{
+    NOISY_MSG_("(%p(%s), %zu)", method, method, len);
+    if (len != 6) return false;
+    return g_ascii_tolower(method[0]) == 'd' &&
+            g_ascii_tolower(method[1]) == 'e' &&
+            g_ascii_tolower(method[2]) == 'l' &&
+            g_ascii_tolower(method[3]) == 'e' &&
+            g_ascii_tolower(method[4]) == 't' &&
+            g_ascii_tolower(method[5]) == 'e';
+}
+
+static inline bool
+is_trace_method(const char* method, gsize len)
+{
+    NOISY_MSG_("(%p(%s), %zu)", method, method, len);
+    if (len != 5) return false;
+    return g_ascii_tolower(method[0]) == 't' &&
+            g_ascii_tolower(method[1]) == 'r' &&
+            g_ascii_tolower(method[2]) == 'a' &&
+            g_ascii_tolower(method[3]) == 'c' &&
+            g_ascii_tolower(method[4]) == 'e';
+}
+
+static inline const char*
+method_value(evhtp_headers_t* headers)
+{
+    NOISY_MSG_("(%p)", headers);
+    const char* method = evhtp_header_find(headers, RpHeaderValues.Method);
+    if (method)
+    {
+        gsize len = strlen(method);
+        if (is_get_method(method, len))
+        {
+            method = RpHeaderValues.MethodValues.Get;
+        }
+        else if (is_head_method(method, len))
+        {
+            method = RpHeaderValues.MethodValues.Head;
+        }
+        else if (is_connect_method(method, len))
+        {
+            method = RpHeaderValues.MethodValues.Connect;
+        }
+        else if (is_delete_method(method, len))
+        {
+            method = RpHeaderValues.MethodValues.Delete;
+        }
+        else if (is_trace_method(method, len))
+        {
+            method = RpHeaderValues.MethodValues.Trace;
+        }
+    }
+    return method;
+}
+
 bool
 rp_header_utility_request_should_have_no_body(evhtp_headers_t* headers)
 {
-    const char* method = evhtp_header_find(headers, RpHeaderValues.Method);
+    LOGD("(%p)", headers);
+    const char* method = method_value(headers);
     return (method &&
             (method == RpHeaderValues.MethodValues.Get ||
             method == RpHeaderValues.MethodValues.Head ||

@@ -10,15 +10,16 @@
 #endif
 #include "macrologger.h"
 
-#include "rp-headers.h"
-#include "rp-header-utility.h"
-#include "rp-request-encoder-impl.h"
-
 #if (defined(rp_request_encoder_impl_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_request_encoder_impl_NOISY)
 #   define NOISY_MSG_ LOGD
 #else
 #   define NOISY_MSG_(x, ...)
 #endif
+
+#include "rp-headers.h"
+#include "rp-header-utility.h"
+#include "rp-http-utility.h"
+#include "rp-request-encoder-impl.h"
 
 struct _RpRequestEncoderImpl {
     RpStreamEncoderImpl parent_instance;
@@ -56,6 +57,12 @@ encode_headers_i(RpRequestEncoder* self, evhtp_headers_t* request_headers, bool 
         rp_network_connection_enable_half_close(rp_http1_connection_impl_connection(me->m_connection), true);
         rp_stream_encoder_impl_set_connection_request(RP_STREAM_ENCODER_IMPL(self), true);
     }
+    if (http_utility_is_upgrade(request_headers))
+    {
+        me->m_upgrade_request = true;
+        rp_http1_stream_encoder_options_disable_chunk_encoding(RP_HTTP1_STREAM_ENCODER_OPTIONS(self));
+    }
+
     //TODO:...
 
     evbuf_t* output = rp_http1_connection_impl_buffer(me->m_connection);
@@ -64,6 +71,7 @@ encode_headers_i(RpRequestEncoder* self, evhtp_headers_t* request_headers, bool 
     is_connect ? evbuffer_add(output, host, strlen(host)) : evbuffer_add(output, path, strlen(path));
     evbuffer_add(output, " HTTP/1.1\r\n", 11);
 
+NOISY_MSG_("calling rp_stream_encoder_impl_encode_headers_base(%p, %p, 0, %u, 1)", self, request_headers, end_stream);
     rp_stream_encoder_impl_encode_headers_base(RP_STREAM_ENCODER_IMPL(self),
                                                 request_headers,
                                                 0,

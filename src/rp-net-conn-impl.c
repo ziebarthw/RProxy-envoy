@@ -219,7 +219,7 @@ static void
 write_internal(RpNetworkConnectionImpl* self, evbuf_t* data, bool end_stream, bool through_filter_chain)
 {
     NOISY_MSG_("(%p(fd %d), %p(%zu), %u, %u)",
-        self, SOCKFD(self), data, data ? evbuffer_get_length(data) : 0, end_stream, through_filter_chain);
+        self, SOCKFD(self), data, evbuf_length(data), end_stream, through_filter_chain);
 
     RpNetworkConnectionImplPrivate* me = PRIV(self);
 
@@ -244,7 +244,7 @@ write_internal(RpNetworkConnectionImpl* self, evbuf_t* data, bool end_stream, bo
     }
 
     me->m_write_end_stream = end_stream;
-    if ((data && evbuffer_get_length(data) > 0) || end_stream)
+    if ((evbuf_length(data) > 0) || end_stream)
     {
         NOISY_MSG_("writing %zu bytes, end_stream %u", evbuffer_get_length(data), end_stream);
         evbuffer_add_buffer(me->m_write_buffer, data);
@@ -252,7 +252,7 @@ write_internal(RpNetworkConnectionImpl* self, evbuf_t* data, bool end_stream, bo
         if (!me->m_connecting)
         {
             NOISY_MSG_("enabling write");
-//#define WITH_ACTIVATE_FILE_EVENTS
+#define WITH_ACTIVATE_FILE_EVENTS
 #ifdef WITH_ACTIVATE_FILE_EVENTS
             rp_io_handle_activate_file_events(
                 rp_socket_io_handle(RP_SOCKET(me->m_socket)), RpFileReadyType_Write);
@@ -266,8 +266,7 @@ write_internal(RpNetworkConnectionImpl* self, evbuf_t* data, bool end_stream, bo
 static void
 raw_write_i(RpFilterManagerConnection* self, evbuf_t* data, bool end_stream)
 {
-    NOISY_MSG_("(%p, %p(%zu), %u)",
-        self, data, data ? evbuffer_get_length(data) : 0, end_stream);
+    NOISY_MSG_("(%p, %p(%zu), %u)", self, data, evbuf_length(data), end_stream);
     write_internal(RP_NETWORK_CONNECTION_IMPL(self), data, end_stream, false);
 }
 
@@ -312,7 +311,7 @@ static void
 write_i(RpNetworkConnection* self, evbuf_t* data, bool end_stream)
 {
     NOISY_MSG_("(%p(fd %d), %p(%zu), %u)",
-        self, SOCKFD(self), data, data ? evbuffer_get_length(data) : 0, end_stream);
+        self, SOCKFD(self), data, evbuf_length(data), end_stream);
     write_internal(RP_NETWORK_CONNECTION_IMPL(self), data, end_stream, true);
 }
 
@@ -520,7 +519,7 @@ NOISY_MSG_("read disable count %u", me->m_read_disable_count);
         }
 
         if (filter_chain_wants_data(me) &&
-            (evbuffer_get_length(me->m_read_buffer) > 0 || me->m_tranport_wants_read))
+            (evbuf_length(me->m_read_buffer) > 0 || me->m_tranport_wants_read))
         {
             NOISY_MSG_("activating read");
             me->m_dispatch_buffered_data = true;
@@ -662,7 +661,7 @@ flush_write_buffer_i(RpNetworkTransportSocketCallbacks* self)
 {
     NOISY_MSG_("(%p)", self);
     if (rp_network_connection_state(RP_NETWORK_CONNECTION(self)) == RpNetworkConnectionState_Open &&
-        evbuffer_get_length(PRIV(self)->m_write_buffer) > 0)
+        evbuf_length(PRIV(self)->m_write_buffer) > 0)
     {
         on_write_ready(RP_NETWORK_CONNECTION_IMPL(self));
     }
