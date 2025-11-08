@@ -77,12 +77,41 @@ writecb(evbev_t* bev G_GNUC_UNUSED, void* arg G_GNUC_UNUSED)
 NOISY_MSG_("%zu bytes in output buffer for fd %d", evbuffer_get_length(bufferevent_get_output(bev)), bufferevent_getfd(bev));
 }
 
+static inline void
+do_bufferevent_error(evbev_t* bev)
+{
+    NOISY_MSG_("(%p)", bev);
+
+    int dns_err = bufferevent_socket_get_dns_error(bev);
+    if (dns_err)
+    {
+        LOGE("DNS error %d(%s)", dns_err, evutil_gai_strerror(dns_err));
+        return;
+    }
+
+    int errcode = EVUTIL_SOCKET_ERROR();
+    if (errcode)
+    {
+        const char* errmsg = evutil_socket_error_to_string(errcode);
+        LOGE("Socket error %d(%s)", errcode, errmsg);
+    }
+
+    int fd = bufferevent_getfd(bev);
+    if (fd != -1)
+    {
+        int so_error = 0;
+        socklen_t len = sizeof(so_error);
+        if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &so_error, &len) == 0 && so_error != 0)
+        {
+            LOGE("Socket option error %d(%s)", so_error, evutil_socket_error_to_string(so_error));
+        }
+    }
+}
+
 static void
 eventcb(evbev_t* bev, short events, void* arg)
 {
-    int err = errno; // Capture the errno before any other processing.
-
-    NOISY_MSG_("(%p(fd %d), %d, %p)", bev, bufferevent_getfd(bev), events, arg);
+    NOISY_MSG_("(%p(fd %d), %x, %p)", bev, bufferevent_getfd(bev), events, arg);
 
     int sockfd = bufferevent_getfd(bev); // Grab sockfd in case bev is destroyed before end of func.
     RpIoBevSocketHandleImpl* self = RP_IO_BEV_SOCKET_HANDLE_IMPL(arg);
@@ -91,7 +120,7 @@ eventcb(evbev_t* bev, short events, void* arg)
     {
         if (events & BEV_EVENT_ERROR)
         {
-            LOGE("error %d(%s) on fd %d", err, g_strerror(err), sockfd);
+            do_bufferevent_error(bev);
         }
         else
         {
@@ -431,7 +460,7 @@ peer_address_i(RpIoHandle* self)
 static void
 reset_file_events_i(RpIoHandle* self)
 {
-    NOISY_MSG_("(%p)", self);
+    NOISY_MSG_("(%p(fd %d))", self, SOCKFD(self));
     RP_IO_BEV_SOCKET_HANDLE_IMPL(self)->m_initialized = false;
 }
 

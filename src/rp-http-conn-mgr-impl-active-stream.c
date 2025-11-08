@@ -607,7 +607,6 @@ NOISY_MSG_("path value %p(%s), headers %p", path_value, path_value, me->m_reques
 
     rp_route_cache_refresh_cached_route(RP_ROUTE_CACHE(self));
 
-NOISY_MSG_("calling rp_downstream_filter_manager_create_downstream_filter_chain(%p)", filter_manager);
     rp_stream_info_set_request_headers(stream_info, me->m_request_headers);
     struct RpCreateChainResult create_chain_result =
         rp_downstream_filter_manager_create_downstream_filter_chain(filter_manager);
@@ -738,6 +737,48 @@ downstream_callbacks_i(RpFilterManagerCallbacks* self)
 }
 
 static void
+mutate_response_headers(evhtp_headers_t* response_headers, evhtp_headers_t* request_headers, RpConnectionManagerConfig* config, RpStreamInfo* stream_info, bool clear_hop_by_hop)
+{
+    NOISY_MSG_("(%p, %p, %p, %p, %u)",
+        response_headers, request_headers, config, stream_info, clear_hop_by_hop);
+
+    if (request_headers && http_utility_is_upgrade(request_headers) && http_utility_is_upgrade(response_headers))
+    {
+        bool no_body = (!evhtp_header_find(response_headers, RpHeaderValues.TransferEncoding) &&
+                            !evhtp_header_find(response_headers, RpHeaderValues.ContentLength));
+
+        //TODO:bool is_1xx ...
+    }
+    else
+    {
+        if (clear_hop_by_hop)
+        {
+            evhtp_header_rm_and_free(response_headers,
+                evhtp_headers_find_header(response_headers, RpHeaderValues.Connection));
+            evhtp_header_rm_and_free(response_headers,
+                evhtp_headers_find_header(response_headers, RpHeaderValues.Upgrade));
+        }
+    }
+    if (clear_hop_by_hop)
+    {
+        evhtp_header_rm_and_free(response_headers,
+            evhtp_headers_find_header(response_headers, RpHeaderValues.TransferEncoding));
+        evhtp_header_rm_and_free(response_headers,
+            evhtp_headers_find_header(response_headers, RpHeaderValues.KeepAlive));
+        evhtp_header_rm_and_free(response_headers,
+            evhtp_headers_find_header(response_headers, RpHeaderValues.ProxyConnection));
+    }
+
+    //TODO...
+}
+
+static void
+encode_1xx_headers(RpFilterManagerCallbacks* self, evhtp_headers_t* response_headers)
+{
+    NOISY_MSG_("(%p, %p)", self, response_headers);
+}
+
+static void
 encode_headers_i(RpFilterManagerCallbacks* self, evhtp_headers_t* response_headers, bool end_stream)
 {
     NOISY_MSG_("(%p, %p, %u)", self, response_headers, end_stream);
@@ -747,7 +788,10 @@ encode_headers_i(RpFilterManagerCallbacks* self, evhtp_headers_t* response_heade
     RpHttpConnMgrImplActiveStream* me = RP_HTTP_CONN_MGR_IMPL_ACTIVE_STREAM(self);
     RpHttpConnectionManagerImpl* connection_manager = me->m_connection_manager;
     RpStreamInfo* stream_info = rp_filter_manager_stream_info(RP_FILTER_MANAGER(me->m_filter_manager));
+    RpConnectionManagerConfig* config = rp_http_connection_manager_impl_connection_manager_config_(connection_manager);
     struct state_s* state = &me->m_state;
+
+    mutate_response_headers(response_headers, me->m_request_headers, config, stream_info, true);
 
     if (rp_http_connection_manager_impl_get_protocol(connection_manager) == EVHTP_PROTO_10)
     {
@@ -937,6 +981,7 @@ filter_manager_callbacks_iface_init(RpFilterManagerCallbacksInterface* iface)
     iface->reset_stream = reset_stream_i;
     iface->on_local_reply = on_local_reply_i;
     iface->downstream_callbacks = downstream_callbacks_i;
+    iface->encode_1xx_headers = encode_1xx_headers;
     iface->encode_headers = encode_headers_i;
     iface->encode_data = encode_data_i;
     iface->encode_trailers = encode_trailers_i;

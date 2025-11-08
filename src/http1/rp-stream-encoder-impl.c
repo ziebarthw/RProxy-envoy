@@ -233,7 +233,6 @@ encode_data_i(RpStreamEncoder* self, evbuf_t* data, bool end_stream)
 
     if (end_stream)
     {
-NOISY_MSG_("calling end_encode(%p)", me);
         end_encode(me);
     }
     else
@@ -302,17 +301,17 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
 }
 
 OVERRIDE void
-dispose(GObject* object)
+dispose(GObject* obj)
 {
-    NOISY_MSG_("(%p)", object);
+    NOISY_MSG_("(%p)", obj);
 
-    RpStreamEncoderImplPrivate* me = PRIV(object);
+    RpStreamEncoderImplPrivate* me = PRIV(obj);
     while (me->m_read_disabled_calls != 0)
     {
-        read_disable_i(RP_STREAM(object), false);
+        read_disable_i(RP_STREAM(obj), false);
     }
 
-    G_OBJECT_CLASS(rp_stream_encoder_impl_parent_class)->dispose(object);
+    G_OBJECT_CLASS(rp_stream_encoder_impl_parent_class)->dispose(obj);
 }
 
 static void
@@ -440,7 +439,6 @@ rp_stream_encoder_impl_encode_headers_base(RpStreamEncoderImpl* self, evhtp_head
 
     if (end_stream)
     {
-NOISY_MSG_("calling end_encode(%p)", me);
         end_encode(me);
     }
     else
@@ -458,7 +456,6 @@ rp_stream_encoder_impl_encode_trailers_base(RpStreamEncoderImpl* self, evhtp_hea
     RpStreamEncoderImplPrivate* me = PRIV(self);
     if (!rp_http1_connection_impl_enable_trailers(me->m_connection))
     {
-NOISY_MSG_("calling end_encode(%p)", me);
         end_encode(me);
         return;
     }

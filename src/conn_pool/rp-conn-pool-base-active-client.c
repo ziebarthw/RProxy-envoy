@@ -16,10 +16,6 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
-#ifndef OVERRIDE
-#define OVERRIDE static
-#endif
-
 #include "rp-conn-pool-base-active-client.h"
 
 typedef struct _RpConnectionPoolActiveClientPrivate RpConnectionPoolActiveClientPrivate;
@@ -116,7 +112,6 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
     {
         case PROP_PARENT:
             PRIV(obj)->m_parent = g_value_get_object(value);
-NOISY_MSG_("parent %p", PRIV(obj)->m_parent);
             break;
         case PROP_LIFETIME_STREAM_LIMIT:
             PRIV(obj)->m_lifetime_stream_limit = g_value_get_uint(value);
@@ -136,7 +131,7 @@ NOISY_MSG_("parent %p", PRIV(obj)->m_parent);
 static inline guint32
 translate_zero_to_unlimited(guint32 limit)
 {
-NOISY_MSG_("(%u)", limit);
+    NOISY_MSG_("(%u)", limit);
     return limit != 0 ? limit : G_MAXUINT32;
 }
 
@@ -148,9 +143,7 @@ constructed(GObject* obj)
     G_OBJECT_CLASS(rp_connection_pool_active_client_parent_class)->constructed(obj);
 
     RpConnectionPoolActiveClientPrivate* me = PRIV(obj);
-NOISY_MSG_("parent %p", me->m_parent);
     me->m_remaining_streams = translate_zero_to_unlimited(me->m_lifetime_stream_limit);
-NOISY_MSG_("remaining streams %u", me->m_remaining_streams);
     me->m_configured_stream_limit = translate_zero_to_unlimited(me->m_effective_concurrent_streams);
     me->m_concurrent_stream_limit = translate_zero_to_unlimited(me->m_concurrent_stream_limit);
 
@@ -161,6 +154,10 @@ OVERRIDE void
 dispose(GObject* obj)
 {
     NOISY_MSG_("(%p)", obj);
+
+    RpConnectionPoolActiveClient* self = RP_CONNECTION_POOL_ACTIVE_CLIENT(obj);
+    rp_connection_pool_active_client_release_resources_base(self);
+
     G_OBJECT_CLASS(rp_connection_pool_active_client_parent_class)->dispose(obj);
 }
 
@@ -193,7 +190,6 @@ OVERRIDE bool
 ready_for_stream(RpConnectionPoolActiveClient* self)
 {
     NOISY_MSG_("(%p)", self);
-NOISY_MSG_("%u, %d", PRIV(self)->m_state == RpConnectionPoolActiveClientState_Ready, PRIV(self)->m_state);
     return PRIV(self)->m_state == RpConnectionPoolActiveClientState_Ready;
 }
 

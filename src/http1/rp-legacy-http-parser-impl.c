@@ -17,11 +17,8 @@
 #endif
 
 #include "evhtp/parser.h"
+#include "rproxy.h"
 #include "rp-legacy-http-parser-impl.h"
-
-#ifndef OVERRIDE
-#define OVERRIDE static
-#endif
 
 struct _RpLegacyHttpParserImpl {
     GObject parent_instance;
@@ -178,8 +175,24 @@ on_new_chunk(htparser* self)
 {
     NOISY_MSG_("(%p)", self);
     RpLegacyHttpParserImpl* me = htparser_get_userdata(self);
-    bool is_final_chunk = (htparser_get_content_length(self) == 0);
-    rp_parser_callbacks_on_chunk_header(me->m_callbacks, is_final_chunk);
+    rp_parser_callbacks_on_chunk_header(me->m_callbacks, false);
+    return 0;
+}
+
+static int
+on_chunk_complete(htparser* self)
+{
+    NOISY_MSG_("(%p)", self);
+    NOISY_MSG_("%zu bytes", htparser_get_content_length(self));
+    return 0;
+}
+
+static int
+on_chunks_complete(htparser* self)
+{
+    NOISY_MSG_("(%p)", self);
+    RpLegacyHttpParserImpl* me = htparser_get_userdata(self);
+    rp_parser_callbacks_on_chunk_header(me->m_callbacks, true);
     return 0;
 }
 
@@ -218,8 +231,8 @@ execute_i(RpParser* self, const char* data, int length)
         .hostname = NULL,
         .on_hdrs_complete = on_hdrs_complete,
         .on_new_chunk = on_new_chunk,
-        .on_chunk_complete = NULL,
-        .on_chunks_complete = NULL,
+        .on_chunk_complete = on_chunk_complete,
+        .on_chunks_complete = on_chunks_complete,
         .body = body_cb,
         .on_msg_complete = on_msg_complete
     };

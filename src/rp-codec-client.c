@@ -146,7 +146,6 @@ NOISY_MSG_("%u active requests", g_slist_length(me->m_active_requests));
             RpStream* active_request = me->m_active_requests->data;
             RpStream* stream = rp_stream_encoder_get_stream(RP_STREAM_ENCODER(active_request));
             rp_stream_reset_handler_reset_stream(RP_STREAM_RESET_HANDLER(stream), reason);
-//            me->m_active_requests = g_slist_remove(me->m_active_requests, active_request);
         }
     }
 }

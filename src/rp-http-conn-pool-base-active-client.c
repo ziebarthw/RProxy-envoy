@@ -29,7 +29,7 @@ struct _RpHttpConnPoolBaseActiveClientPrivate {
 
     RpCreateConnectionDataPtr m_opt_data;
 
-    RpCodecClient* m_codec_client;
+    UNIQUE_PTR(RpCodecClient) m_codec_client;
     RpConnPoolImplBase* m_parent;
 };
 
@@ -121,7 +121,6 @@ initialize(RpHttpConnPoolBaseActiveClient* self, RpCreateConnectionDataPtr data,
 {
     NOISY_MSG_("(%p, %p, %p)", self, data, parent);
     RpHttpConnPoolBaseActiveClientPrivate* me = PRIV(self);
-NOISY_MSG_("connection %p, host %p", data->m_connection, data->m_host_description);
     rp_connection_pool_active_client_set_real_host_description(RP_CONNECTION_POOL_ACTIVE_CLIENT(self), data->m_host_description);
     me->m_codec_client = rp_http_conn_pool_impl_base_create_codec_client(parent, data);
     rp_codec_client_add_connection_callbacks(me->m_codec_client, RP_NETWORK_CONNECTION_CALLBACKS(self));
@@ -138,7 +137,6 @@ constructed(GObject* obj)
     RpHttpConnPoolBaseActiveClient* self = RP_HTTP_CONN_POOL_BASE_ACTIVE_CLIENT(obj);
     RpHttpConnPoolBaseActiveClientPrivate* me = PRIV(self);
     me->m_parent = rp_connection_pool_active_client_parent_(RP_CONNECTION_POOL_ACTIVE_CLIENT(self));
-NOISY_MSG_("parent %p", me->m_parent);
     if (me->m_opt_data)
     {
         initialize(self, me->m_opt_data, RP_HTTP_CONN_POOL_IMPL_BASE(me->m_parent));
@@ -147,7 +145,6 @@ NOISY_MSG_("parent %p", me->m_parent);
     {
         RpConnPoolImplBase* parent = me->m_parent;
         RpHost* host = rp_conn_pool_impl_base_host(parent);
-NOISY_MSG_("host %p", host);
         RpDispatcher* dispatcher = rp_conn_pool_impl_base_dispatcher(parent);
         RpCreateConnectionData data = rp_host_create_connection(host, dispatcher);
         initialize(self, &data, RP_HTTP_CONN_POOL_IMPL_BASE(parent));
