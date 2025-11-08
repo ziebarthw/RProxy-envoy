@@ -18,13 +18,14 @@
 
 #include "rp-codec-client-prod.h"
 #include "rp-fixed-http-conn-pool-impl.h"
+#include "http1/rp-active-client-stream-wrapper.h"
 #include "http1/rp-stream-wrapper.h"
 #include "http1/rp-http1-conn-pool.h"
 
 struct _RpHttp1CpActiveClient {
     RpHttpConnPoolBaseActiveClient parent_instance;
 
-    RpHttp1StreamWrapper* m_stream_wrapper;
+    UNIQUE_PTR(RpActiveClientStreamWrapper) m_stream_wrapper;
     RpHttpConnPoolImplBase* m_parent;
 };
 
@@ -34,6 +35,10 @@ OVERRIDE void
 dispose(GObject* obj)
 {
     NOISY_MSG_("(%p)", obj);
+
+    RpHttp1CpActiveClient* self = RP_HTTP1_CP_ACTIVE_CLIENT(obj);
+    g_clear_object(&self->m_stream_wrapper);
+
     G_OBJECT_CLASS(rp_http1_cp_active_client_parent_class)->dispose(obj);
 }
 
@@ -43,7 +48,7 @@ closing_with_incomplete_stream(RpConnectionPoolActiveClient* self)
     NOISY_MSG_("(%p)", self);
     RpHttp1CpActiveClient* me = RP_HTTP1_CP_ACTIVE_CLIENT(self);
     return me->m_stream_wrapper &&
-            !rp_http1_stream_wrapper_decode_complete_(me->m_stream_wrapper);
+            !rp_active_client_stream_wrapper_decode_complete_(me->m_stream_wrapper);
 }
 
 OVERRIDE guint32
@@ -61,8 +66,7 @@ release_resources(RpConnectionPoolActiveClient* self)
     if (me->m_stream_wrapper)
     {
         rp_dispatcher_deferred_delete(
-            rp_conn_pool_impl_base_dispatcher(RP_CONN_POOL_IMPL_BASE(me->m_parent)), G_OBJECT(me->m_stream_wrapper));
-        me->m_stream_wrapper = NULL;
+            rp_conn_pool_impl_base_dispatcher(RP_CONN_POOL_IMPL_BASE(me->m_parent)), G_OBJECT(g_steal_pointer(&me->m_stream_wrapper)));
     }
     RP_CONNECTION_POOL_ACTIVE_CLIENT_CLASS(rp_http1_cp_active_client_parent_class)->release_resources(self);
 }
@@ -81,7 +85,8 @@ new_stream_encoder(RpHttpConnPoolBaseActiveClient* self, RpResponseDecoder* resp
 {
     NOISY_MSG_("(%p, %p)", self, response_decoder);
     RpHttp1CpActiveClient* me = RP_HTTP1_CP_ACTIVE_CLIENT(self);
-    me->m_stream_wrapper = rp_http1_stream_wrapper_new(response_decoder, me);
+    g_assert(!me->m_stream_wrapper);
+    me->m_stream_wrapper = rp_active_client_stream_wrapper_new(response_decoder, me);
     return RP_REQUEST_ENCODER(me->m_stream_wrapper);
 }
 
@@ -168,7 +173,6 @@ codec_fn(RpCreateConnectionDataPtr data, RpHttpConnPoolImplBase* pool)
                                                         data->m_host_description,
                                                         dispatcher,
                                                         /*true*/false);
-NOISY_MSG_("codec %p", codec);
     return RP_CODEC_CLIENT(codec);
 }
 
@@ -177,7 +181,6 @@ http1_allocate_conn_pool(RpDispatcher* dispatcher, RpHost* host, RpResourcePrior
 {
     LOGD("(%p, %p, %d)", dispatcher, host, priority);
     evhtp_proto protocols[] = {EVHTP_PROTO_11, EVHTP_PROTO_INVALID};
-NOISY_MSG_("protocols %p, protocols[0] %d", protocols, protocols[0]);
     RpFixedHttpConnPoolImpl* pool = rp_fixed_http_conn_pool_impl_new(host,
                                                                         priority,
                                                                         dispatcher,

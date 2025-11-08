@@ -47,10 +47,8 @@ struct _RpConnectionPoolActiveClientClass {
 static inline void
 rp_connection_pool_active_client_release_resources(RpConnectionPoolActiveClient* self)
 {
-    if (RP_IS_CONNECTION_POOL_ACTIVE_CLIENT(self))
-    {
+    if (RP_IS_CONNECTION_POOL_ACTIVE_CLIENT(self)) \
         RP_CONNECTION_POOL_ACTIVE_CLIENT_GET_CLASS(self)->release_resources(self);
-    }
 }
 static inline guint32
 rp_connection_pool_active_client_effective_concurrent_stream_limit(RpConnectionPoolActiveClient* self)
@@ -76,18 +74,14 @@ rp_connection_pool_active_client_current_unused_capacity(RpConnectionPoolActiveC
 static inline void
 rp_connection_pool_active_client_initialize_read_filters(RpConnectionPoolActiveClient* self)
 {
-    if (RP_IS_CONNECTION_POOL_ACTIVE_CLIENT(self))
-    {
+    if (RP_IS_CONNECTION_POOL_ACTIVE_CLIENT(self)) \
         RP_CONNECTION_POOL_ACTIVE_CLIENT_GET_CLASS(self)->initialize_read_filters(self);
-    }
 }
 static inline void
 rp_connection_pool_active_client_close(RpConnectionPoolActiveClient* self)
 {
-    if (RP_IS_CONNECTION_POOL_ACTIVE_CLIENT(self))
-    {
+    if (RP_IS_CONNECTION_POOL_ACTIVE_CLIENT(self)) \
         RP_CONNECTION_POOL_ACTIVE_CLIENT_GET_CLASS(self)->close(self);
-    }
 }
 static inline guint64
 rp_connection_pool_active_client_id(RpConnectionPoolActiveClient* self)

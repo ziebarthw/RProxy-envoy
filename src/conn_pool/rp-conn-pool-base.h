@@ -168,6 +168,7 @@ void rp_conn_pool_impl_base_add_idle_callback_impl(RpConnPoolImplBase* self,
 bool rp_conn_pool_impl_base_is_idle_impl(RpConnPoolImplBase* self);
 void rp_conn_pool_impl_base_drain_connections_impl(RpConnPoolImplBase* self,
                                                     RpDrainBehavior_e drain_behavior);
+void rp_conn_pool_impl_base_destruct_all_connections(RpConnPoolImplBase* self);
 RpCancellable* rp_conn_pool_impl_base_new_stream_impl(RpConnPoolImplBase* self,
                                                         RpConnectionPoolAttachContextPtr context,
                                                         bool can_send_early_data);

@@ -209,10 +209,10 @@ g_assert(!me->m_pending_response_done);
     return RpStatusCode_Ok;
 }
 
-static void
-on_body_i(RpHttp1ConnectionImpl* self, evbuf_t* data)
+OVERRIDE void
+on_body(RpHttp1ConnectionImpl* self, evbuf_t* data)
 {
-    NOISY_MSG_("(%p, %p(%zu))", self, data, data ? evbuffer_get_length(data) : 0);
+    NOISY_MSG_("(%p, %p(%zu))", self, data, evbuf_length(data));
     RpHttp1ClientConnectionImpl* me = RP_HTTP1_CLIENT_CONNECTION_IMPL(self);
     if (me->m_pending_response)
     {
@@ -220,8 +220,8 @@ on_body_i(RpHttp1ConnectionImpl* self, evbuf_t* data)
     }
 }
 
-static RpCallbackResult_e
-on_message_complete_base_i(RpHttp1ConnectionImpl* self)
+OVERRIDE RpCallbackResult_e
+on_message_complete_base(RpHttp1ConnectionImpl* self)
 {
     NOISY_MSG_("(%p)", self);
     RpHttp1ClientConnectionImpl* me = RP_HTTP1_CLIENT_CONNECTION_IMPL(self);
@@ -286,8 +286,8 @@ http1_connection_impl_class_init(RpHttp1ConnectionImplClass* klass)
     klass->headers_or_trailers = headers_or_trailers;
     klass->request_or_response_headers = request_or_response_headers;
     klass->on_headers_complete_base = on_headers_complete_base;
-    klass->on_body = on_body_i;
-    klass->on_message_complete_base = on_message_complete_base_i;
+    klass->on_body = on_body;
+    klass->on_message_complete_base = on_message_complete_base;
     klass->on_reset_stream = on_reset_stream;
 }
 

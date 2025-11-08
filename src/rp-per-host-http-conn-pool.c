@@ -30,18 +30,23 @@ struct _RpPerHostHttpConnPool {
 G_DEFINE_FINAL_TYPE(RpPerHostHttpConnPool, rp_per_host_http_conn_pool, RP_TYPE_HTTP_CONN_POOL)
 
 static void
-on_pool_ready_i(RpHttpConnPoolCallbacks* self, RpRequestEncoder* callbacks_encoder, RpHostDescription* host, RpStreamInfo* info, evhtp_proto protocol)
+on_pool_ready_i(RpHttpConnPoolCallbacks* self, RpRequestEncoder* request_encoder, RpHostDescription* host, RpStreamInfo* info, evhtp_proto protocol)
 {
-    NOISY_MSG_("(%p, %p, %p, %p, %d)", self, callbacks_encoder, host, info, protocol);
+    NOISY_MSG_("(%p, %p, %p, %p, %d)", self, request_encoder, host, info, protocol);
 g_clear_object(rp_http_conn_pool_conn_pool_stream_handle_(RP_HTTP_CONN_POOL(self)));
 //*rp_http_conn_pool_conn_pool_stream_handle_(RP_HTTP_CONN_POOL(self)) = NULL;
     RpGenericConnectionPoolCallbacks* callbacks_ = rp_http_conn_pool_callbacks_(RP_HTTP_CONN_POOL(self));
-    RpUpstreamToDownstream* upstream_request = rp_generic_connection_pool_callbacks_upstream_to_downstream(callbacks_);
-    RpPerHostHttpUpstream* upstream = rp_per_host_http_upstream_new(upstream_request, callbacks_encoder, host);
+    RpUpstreamToDownstream* downstream_request = rp_generic_connection_pool_callbacks_upstream_to_downstream(callbacks_);
+    UNIQUE_PTR(RpPerHostHttpUpstream) upstream = rp_per_host_http_upstream_new(downstream_request, request_encoder, host);
 
     RpConnectionInfoProvider* provider = rp_stream_connection_info_provider(
-        rp_stream_encoder_get_stream(RP_STREAM_ENCODER(callbacks_encoder)));
-    rp_generic_connection_pool_callbacks_on_pool_ready(callbacks_, RP_GENERIC_UPSTREAM(upstream), host, provider, info, protocol);
+        rp_stream_encoder_get_stream(RP_STREAM_ENCODER(request_encoder)));
+    rp_generic_connection_pool_callbacks_on_pool_ready(callbacks_,
+                                                        RP_GENERIC_UPSTREAM(g_steal_pointer(&upstream)),
+                                                        host,
+                                                        provider,
+                                                        info,
+                                                        protocol);
 }
 
 static void

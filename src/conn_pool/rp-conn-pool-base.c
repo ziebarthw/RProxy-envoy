@@ -18,10 +18,6 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
-#ifndef OVERRIDE
-#define OVERRIDE static
-#endif
-
 #include "tcp/rp-active-tcp-client.h"
 #include "rp-router.h"
 #include "rp-upstream.h"
@@ -50,7 +46,7 @@ const char* m_requested_server_name;
 
     GSList/*<Instance::IdleCb>*/* m_idle_callbacks;
 
-    RpSchedulableCallback* m_upstream_ready_cb;
+    UNIQUE_PTR(RpSchedulableCallback) m_upstream_ready_cb;
 
     gint64 m_connecting_and_connected_stream_capacity;
 
@@ -216,9 +212,7 @@ attach_stream_to_client(RpConnPoolImplBase* self, RpConnectionPoolActiveClient* 
     NOISY_MSG_("creating stream");
 
     gint64 capacity = rp_connection_pool_active_client_current_unused_capacity(client);
-NOISY_MSG_("capacity %ld", capacity);
     guint32 remaining_streams = rp_connection_pool_active_client_decr_remaining_streams(client);
-NOISY_MSG_("remaining streams %u", remaining_streams);
     if (remaining_streams == 0)
     {
         LOGD("maximum streams per connection; start draining");
@@ -227,13 +221,13 @@ NOISY_MSG_("remaining streams %u", remaining_streams);
     }
     else if (capacity == 1)
     {
-NOISY_MSG_("setting to busy");
+        NOISY_MSG_("setting to busy");
         rp_conn_pool_impl_base_transition_active_client_state(self, client, RpConnectionPoolActiveClientState_Busy);
     }
 
     if (rp_conn_pool_impl_base_track_stream_capacity(self))
     {
-NOISY_MSG_("calling rp_conn_pool_impl_base_decr_connecting_and_connected_stream_capacity()");
+        NOISY_MSG_("calling rp_conn_pool_impl_base_decr_connecting_and_connected_stream_capacity()");
         rp_conn_pool_impl_base_decr_connecting_and_connected_stream_capacity(self, 1, client);
     }
     //TODO...state_.incrActiveStreams(1);
@@ -241,7 +235,7 @@ NOISY_MSG_("calling rp_conn_pool_impl_base_decr_connecting_and_connected_stream_
     //TODO...
     rp_resource_limit_inc(get_requests(me));
 
-NOISY_MSG_("calling rp_conn_pool_impl_base_on_pool_ready(%p, %p, %p)", self, client, context);
+    NOISY_MSG_("calling rp_conn_pool_impl_base_on_pool_ready(%p, %p, %p)", self, client, context);
     rp_conn_pool_impl_base_on_pool_ready(self, client, context);
 }
 
@@ -339,7 +333,6 @@ rp_conn_pool_impl_base_transition_active_client_state(RpConnPoolImplBase* self,
     LOGD("(%p, %p, %d)", self, client, new_state);
     g_return_if_fail(RP_IS_CONN_POOL_IMPL_BASE(self));
     RpConnPoolImplBasePrivate* me = PRIV(self);
-NOISY_MSG_("active client state %d", rp_connection_pool_active_client_state(client));
     GList** old_list = owning_list(me, rp_connection_pool_active_client_state(client));
     GList** new_list = owning_list(me, new_state);
     rp_connection_pool_active_client_set_state(client, new_state);
@@ -376,14 +369,12 @@ should_create_new_connection(RpConnPoolImplBase* self, float global_preconnect_r
     {
         bool result = should_connect(g_list_length(me->m_pending_streams), me->m_num_active_streams,
             me->m_connecting_and_connected_stream_capacity, global_preconnect_ratio, true);
-NOISY_MSG_("result %u", result);
         return result;
     }
     else
     {
         bool result = should_connect(g_list_length(me->m_pending_streams), me->m_num_active_streams,
             me->m_connecting_and_connected_stream_capacity, rp_conn_pool_impl_base_per_upstream_preconnect_ratio(self), false);
-NOISY_MSG_("result %u", result);
         return result;
     }
 }
@@ -392,7 +383,6 @@ static RpConnectionResult_e
 try_create_new_connection(RpConnPoolImplBase* self, float global_preconnect_ratio)
 {
     NOISY_MSG_("(%p, %.2f)", self, global_preconnect_ratio);
-NOISY_MSG_("%u busy clients", g_list_length(PRIV(self)->m_busy_clients));
     if (!should_create_new_connection(self, global_preconnect_ratio))
     {
         NOISY_MSG_("returning");
@@ -403,11 +393,10 @@ NOISY_MSG_("%u busy clients", g_list_length(PRIV(self)->m_busy_clients));
     RpConnPoolImplBasePrivate* me = PRIV(self);
     RpHostDescription* host_desc = RP_HOST_DESCRIPTION(me->m_host);
     bool can_create_connection = rp_host_description_can_create_connection(host_desc, me->m_priority);
-NOISY_MSG_("can_create_connection %u", can_create_connection);
 
     if (!can_create_connection)
     {
-NOISY_MSG_("can't create new connection");
+        NOISY_MSG_("can't create new connection");
         //TODO...host_->cluster().trafficStats()...
     }
     if (can_create_connection ||
@@ -431,10 +420,9 @@ NOISY_MSG_("can't create new connection");
         rp_connection_pool_active_client_connect(client);
 
         gint64 current_unused_capacity = rp_connection_pool_active_client_current_unused_capacity(client);
-NOISY_MSG_("current unused capacity %zd", current_unused_capacity);
+        NOISY_MSG_("current unused capacity %zd", current_unused_capacity);
         rp_conn_pool_impl_base_incr_connecting_and_connected_stream_capacity(self, current_unused_capacity, client);
         GList** listp = owning_list(me, rp_connection_pool_active_client_state(client));
-NOISY_MSG_("list == connecting clients %u", *listp == me->m_connecting_clients);
         *listp = g_list_prepend(*listp, client);
         //TODO...assertCapacityCountsAreCorrect();
         return can_create_connection ? RpConnectionResult_CreatedNewConnection :
@@ -471,22 +459,16 @@ rp_conn_pool_impl_base_on_upstream_ready(RpConnPoolImplBase* self)
     NOISY_MSG_("(%p)", self);
     g_return_if_fail(RP_IS_CONN_POOL_IMPL_BASE(self));
     RpConnPoolImplBasePrivate* me = PRIV(self);
-NOISY_MSG_("pending streams %p, ready clients %p", me->m_pending_streams, me->m_ready_clients);
-NOISY_MSG_("%u ready clients", me->m_ready_clients ? g_list_length(me->m_ready_clients) : 0);
     while (me->m_pending_streams && me->m_ready_clients)
     {
         RpConnectionPoolActiveClient* client = RP_CONNECTION_POOL_ACTIVE_CLIENT(me->m_ready_clients->data);
-NOISY_MSG_("client %p", client);
         GList* pending = g_list_last(me->m_pending_streams);
-NOISY_MSG_("pending %p", pending);
         RpPendingStream* stream = RP_PENDING_STREAM(pending->data);
-NOISY_MSG_("stream %p", stream);
         RpConnectionPoolAttachContextPtr context = rp_pending_stream_context(stream);
         rp_conn_pool_impl_base_attach_stream_to_client(self, client, context);
         //TODO...state_.decrPendingStreams(1);
         me->m_pending_streams = g_list_delete_link(me->m_pending_streams, pending);
     }
-NOISY_MSG_("pending streams %p", me->m_pending_streams);
     if (me->m_pending_streams)
     {
         rp_conn_pool_impl_base_try_create_new_connections(self);
@@ -594,7 +576,6 @@ close_idle_connection_for_draining_pool(RpConnPoolImplBase* self)
     for (GList* entry = me->m_ready_clients; entry; entry = entry->next)
     {
         RpConnectionPoolActiveClient* client = RP_CONNECTION_POOL_ACTIVE_CLIENT(entry->data);
-NOISY_MSG_("client %p", client);
         if (rp_connection_pool_active_client_num_active_streams(client) == 0)
         {
             to_close = g_list_prepend(to_close, client);
@@ -650,7 +631,7 @@ check_for_idle_and_notify(RpConnPoolImplBase* self)
         RpConnPoolImplBasePrivate* me = PRIV(self);
         for (GSList* entry = me->m_idle_callbacks; entry; entry = entry->next)
         {
-NOISY_MSG_("invoking idle cb %p(%p)", entry->data, self);
+            NOISY_MSG_("invoking idle cb %p(%p)", entry->data, self);
             ((idle_cb)entry->data)(RP_CONNECTION_POOL_INSTANCE(self));
         }
         g_slist_free(g_steal_pointer(&me->m_idle_callbacks));
@@ -789,6 +770,32 @@ rp_conn_pool_impl_base_drain_connections_impl(RpConnPoolImplBase* self, RpDrainB
         }
         rp_conn_pool_impl_base_transition_active_client_state(self, busy_client, RpConnectionPoolActiveClientState_Draining);
     }
+}
+
+static void
+destroy_connections(GList** list)
+{
+    NOISY_MSG_("(%p(%p))", list, *list);
+
+    while (*list)
+    {
+        RpConnectionPoolActiveClient* active_client = (*list)->data;
+        rp_connection_pool_active_client_close(active_client);
+    }
+}
+
+void
+rp_conn_pool_impl_base_destruct_all_connections(RpConnPoolImplBase* self)
+{
+    LOGD("(%p)", self);
+    g_return_if_fail(RP_IS_CONN_POOL_IMPL_BASE(self));
+    RpConnPoolImplBasePrivate* me = PRIV(self);
+    destroy_connections(&me->m_ready_clients);
+    destroy_connections(&me->m_busy_clients);
+    destroy_connections(&me->m_connecting_clients);
+    destroy_connections(&me->m_early_data_clients);
+
+    rp_dispatcher_clear_deferred_delete_list(me->m_dispatcher);
 }
 
 RpCancellable*
@@ -1014,7 +1021,7 @@ g_assert(*list != NULL);
             if (state == RpConnectionPoolActiveClientState_Connecting ||
                 state == RpConnectionPoolActiveClientState_ReadyForEarlyData)
             {
-NOISY_MSG_("current unused capacity %ld", current_unused_capacity);
+                NOISY_MSG_("current unused capacity %ld", current_unused_capacity);
                 rp_conn_pool_impl_base_transition_active_client_state(self,
                                                                         client,
                                                                         (current_unused_capacity > 0 ?

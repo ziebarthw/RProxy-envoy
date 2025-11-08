@@ -35,6 +35,8 @@
 #define CALLBACKS(s) RP_STREAM_FILTER_CALLBACKS(STREAM_DECODER_FILTER_CALLBACKS(s))
 #define FILTER_MANAGER_CALLBACKS(s) RP_FILTER_MANAGER_CALLBACKS(RP_UPSTREAM_REQUEST(s)->m_filter_manager_callbacks)
 #define FILTER_MANAGER(s) RP_FILTER_MANAGER(RP_UPSTREAM_REQUEST(s)->m_filter_manager)
+#define UPSTREAM_INFO(s) rp_stream_info_upstream_info(STREAM_INFO(s))
+#define UPSTREAM_TIMING(s) rp_upstream_info_upstream_timing(UPSTREAM_INFO(s))
 
 struct _RpUpstreamRequest {
     GObject parent_instance;
@@ -42,7 +44,7 @@ struct _RpUpstreamRequest {
     RpRouterFilterInterface* m_parent;
     RpGenericConnPool* m_conn_pool;
 
-    RpGenericUpstream* m_upstream;
+    UNIQUE_PTR(RpGenericUpstream) m_upstream;
     RpHostDescription* m_upstream_host;
     RpStreamInfoImpl* m_stream_info;
     evhtp_headers_t* m_upstrea_headers;
@@ -199,7 +201,7 @@ clear_request_encoder(RpUpstreamRequest* me)
     {
         //TODO...
     }
-//?????    rp_generic_upstream_reset_stream(me->m_upstream);
+    g_clear_object(&me->m_upstream);
 }
 
 static RpNetworkConnection*
@@ -270,12 +272,12 @@ on_pool_failure_i(RpGenericConnectionPoolCallbacks* self, RpPoolFailureReason_e 
 }
 
 static void
-on_pool_ready_i(RpGenericConnectionPoolCallbacks* self, RpGenericUpstream* upstream, RpHostDescription* host,
+on_pool_ready_i(RpGenericConnectionPoolCallbacks* self, UNIQUE_PTR(RpGenericUpstream) upstream, RpHostDescription* host,
                 RpConnectionInfoProvider* address_provider, RpStreamInfo* info, evhtp_proto protocol)
 {
     NOISY_MSG_("(%p, %p, %p, %p, %p, %d)", self, upstream, host, address_provider, info, protocol);
     RpUpstreamRequest* me = RP_UPSTREAM_REQUEST(self);
-    me->m_upstream = upstream;
+    me->m_upstream = g_steal_pointer(&upstream);
     me->m_had_upstream = true;
 
     if (protocol != EVHTP_PROTO_INVALID)
@@ -292,7 +294,10 @@ on_pool_ready_i(RpGenericConnectionPoolCallbacks* self, RpGenericUpstream* upstr
     RpUpstreamInfo* upstream_info = rp_stream_info_upstream_info(STREAM_INFO(self));
     if (rp_stream_info_upstream_info(info))
     {
-        //TODO...timings...
+        RpUpstreamTiming* upstream_timing = rp_upstream_info_upstream_timing(rp_stream_info_upstream_info(info));
+        UPSTREAM_TIMING(self)->m_upstream_connect_start = upstream_timing->m_upstream_connect_start;
+        UPSTREAM_TIMING(self)->m_upstream_connect_complete = upstream_timing->m_upstream_connect_complete;
+        UPSTREAM_TIMING(self)->m_upstream_handshake_complete = upstream_timing->m_upstream_handshake_complete;
         rp_upstream_info_set_upstream_num_streams(upstream_info,
             rp_upstream_info_upstream_num_streams(rp_stream_info_upstream_info(info)));
     }
@@ -346,7 +351,6 @@ static RpUpstreamToDownstream*
 upstream_to_downstream_i(RpGenericConnectionPoolCallbacks* self)
 {
     NOISY_MSG_("(%p)", self);
-NOISY_MSG_("upstream_interface %p", RP_UPSTREAM_REQUEST(self)->m_upstream_interface);
     return RP_UPSTREAM_REQUEST(self)->m_upstream_interface;
 }
 
@@ -422,12 +426,8 @@ constructed(GObject* obj)
 
     RpUpstreamRequest* self = RP_UPSTREAM_REQUEST(obj);
     RpHostDescription* upstream_host = rp_generic_conn_pool_host(RP_GENERIC_CONN_POOL(self->m_conn_pool));
-NOISY_MSG_("host %p", upstream_host);
-RpStreamInfo* downstream_stream_info = rp_stream_filter_callbacks_stream_info(CALLBACKS(self));
-NOISY_MSG_("stream info %p (downstream)", downstream_stream_info);
-NOISY_MSG_("calling rp_stream_info_impl_new()");
+    RpStreamInfo* downstream_stream_info = rp_stream_filter_callbacks_stream_info(CALLBACKS(self));
     self->m_stream_info = rp_stream_info_impl_new(EVHTP_PROTO_INVALID, /*NULL*/rp_stream_info_downstream_address_provider(downstream_stream_info), RpFilterStateLifeSpan_FilterChain, NULL);
-NOISY_MSG_("stream info %p", self->m_stream_info);
 
     rp_stream_info_set_upstream_info(STREAM_INFO(self),
         RP_UPSTREAM_INFO(rp_upstream_info_impl_new()));
@@ -517,6 +517,7 @@ dispose(GObject* obj)
     RpUpstreamRequest* self = RP_UPSTREAM_REQUEST(obj);
     rp_filter_manager_destroy_filters(RP_FILTER_MANAGER(self->m_filter_manager));
     g_clear_object(&self->m_filter_manager);
+    g_clear_object(&self->m_upstream);
 
     G_OBJECT_CLASS(rp_upstream_request_parent_class)->dispose(obj);
 }
@@ -531,7 +532,12 @@ rp_upstream_request_reset_stream(RpUpstreamRequest* self)
         LOGD("cancelled pool request");
     }
 
-    //TODO...
+    if (rp_upstream_timing_last_upstream_tx_byte_sent(UPSTREAM_TIMING(self)) &&
+        rp_upstream_timing_last_upstream_rx_byte_received(UPSTREAM_TIMING(self)))
+    {
+        NOISY_MSG_("returning");
+        return;
+    }
 
     if (me->m_upstream)
     {
@@ -555,13 +561,12 @@ rp_upstream_request_accept_headers_from_router(RpUpstreamRequest* self, bool end
     rp_filter_manager_request_headers_initialized(me->m_filter_manager);
     RpStreamInfo* stream_info = rp_filter_manager_stream_info(me->m_filter_manager);
     evhtp_headers_t* headers = rp_router_filter_interface_downstream_headers(me->m_parent);
-const char* method_value = evhtp_header_find(headers, RpHeaderValues.Method);
-NOISY_MSG_("method value %p(%s)", method_value, method_value);
-if (g_ascii_strcasecmp(method_value, RpHeaderValues.MethodValues.Connect) == 0)
-{
-    NOISY_MSG_("CONNECT");
-    me->m_paused_for_connect = true;
-}
+    const char* method_value = evhtp_header_find(headers, RpHeaderValues.Method);
+    if (g_ascii_strcasecmp(method_value, RpHeaderValues.MethodValues.Connect) == 0)
+    {
+        NOISY_MSG_("CONNECT");
+        me->m_paused_for_connect = true;
+    }
     rp_stream_info_set_request_headers(stream_info, headers);
     rp_filter_manager_decode_headers(me->m_filter_manager, headers, end_stream);
 }

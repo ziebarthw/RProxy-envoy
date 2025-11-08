@@ -113,21 +113,25 @@ on_reset_stream_i(RpStreamCallbacks* self, RpStreamResetReason_e reason, const c
 {
     NOISY_MSG_("(%p, %d, %p(%s))",
         self, reason, transport_failure_reason, transport_failure_reason);
-    rp_stream_callbacks_on_reset_stream(STREAM_CALLBACKS(self), reason, transport_failure_reason);
+    RpHttpUpstreamPrivate* me = PRIV(self);
+    rp_stream_callbacks_on_reset_stream(RP_STREAM_CALLBACKS(me->m_upstream_request), reason, transport_failure_reason);
+
 }
 
 static void
 on_above_write_buffer_high_watermark_i(RpStreamCallbacks* self)
 {
     NOISY_MSG_("(%p)", self);
-    rp_stream_callbacks_on_above_write_buffer_high_watermark(STREAM_CALLBACKS(self));
+    RpHttpUpstreamPrivate* me = PRIV(self);
+    rp_stream_callbacks_on_above_write_buffer_high_watermark(STREAM_CALLBACKS(me->m_upstream_request));
 }
 
 static void
 on_below_write_buffer_low_watermark_i(RpStreamCallbacks* self)
 {
     NOISY_MSG_("(%p)", self);
-    rp_stream_callbacks_on_below_write_buffer_low_watermark(STREAM_CALLBACKS(self));
+    RpHttpUpstreamPrivate* me = PRIV(self);
+    rp_stream_callbacks_on_below_write_buffer_low_watermark(STREAM_CALLBACKS(me->m_upstream_request));
 }
 
 static void

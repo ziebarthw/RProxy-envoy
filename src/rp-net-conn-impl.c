@@ -252,7 +252,7 @@ write_internal(RpNetworkConnectionImpl* self, evbuf_t* data, bool end_stream, bo
         if (!me->m_connecting)
         {
             NOISY_MSG_("enabling write");
-#define WITH_ACTIVATE_FILE_EVENTS
+//#define WITH_ACTIVATE_FILE_EVENTS
 #ifdef WITH_ACTIVATE_FILE_EVENTS
             rp_io_handle_activate_file_events(
                 rp_socket_io_handle(RP_SOCKET(me->m_socket)), RpFileReadyType_Write);

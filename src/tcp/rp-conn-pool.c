@@ -73,6 +73,9 @@ OVERRIDE void
 dispose(GObject* obj)
 {
     NOISY_MSG_("(%p)", obj);
+
+    rp_conn_pool_impl_base_destruct_all_connections(RP_CONN_POOL_IMPL_BASE(obj));
+
     G_OBJECT_CLASS(rp_tcp_conn_pool_impl_parent_class)->dispose(obj);
 }
 

@@ -97,12 +97,10 @@ new_stream_i(RpHttpConnectionPoolInstance* self, RpResponseDecoder* response_dec
                 RpHttpConnPoolCallbacks* callbacks, RpHttpConnPoolInstStreamOptionsPtr options)
 {
     NOISY_MSG_("(%p, %p, %p, %p)", self, response_decoder, callbacks, options);
-NOISY_MSG_("response decoder %p", response_decoder);
     struct _RpHttpAttachContext context = rp_http_attach_context_ctor(response_decoder, callbacks);
     RpCancellable* cancellable = rp_conn_pool_impl_base_new_stream_impl(RP_CONN_POOL_IMPL_BASE(self),
                                                                         (RpConnectionPoolAttachContextPtr)&context,
                                                                         options->m_can_send_early_data);
-NOISY_MSG_("cancellable %p", cancellable);
     return cancellable;
 }
 
@@ -155,10 +153,13 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
 }
 
 OVERRIDE void
-dispose(GObject* object)
+dispose(GObject* obj)
 {
-    NOISY_MSG_("(%p)", object);
-    G_OBJECT_CLASS(rp_http_conn_pool_impl_base_parent_class)->dispose(object);
+    NOISY_MSG_("(%p)", obj);
+
+    rp_conn_pool_impl_base_destruct_all_connections(RP_CONN_POOL_IMPL_BASE(obj));
+
+    G_OBJECT_CLASS(rp_http_conn_pool_impl_base_parent_class)->dispose(obj);
 }
 
 OVERRIDE void
@@ -179,7 +180,6 @@ on_pool_ready(RpConnPoolImplBase* self, RpConnectionPoolActiveClientPtr client, 
     RpHttpConnPoolBaseActiveClient* http_client = RP_HTTP_CONN_POOL_BASE_ACTIVE_CLIENT(client);
     RpHttpAttachContextPtr http_context = (RpHttpAttachContextPtr)context;
     RpResponseDecoder* response_decoder = http_context->m_decoder;
-NOISY_MSG_("response decoder %p", response_decoder);
     RpHttpConnPoolCallbacks* callbacks = http_context->m_callbacks;
     RpRequestEncoder* new_encoder = rp_http_conn_pool_base_active_client_new_stream_encoder(http_client, response_decoder);
     RpCodecClient* codec_client = rp_http_conn_pool_base_active_client_codec_client_(RP_HTTP_CONN_POOL_BASE_ACTIVE_CLIENT(client));
@@ -188,7 +188,6 @@ NOISY_MSG_("response decoder %p", response_decoder);
                                                 rp_connection_pool_active_client_get_real_host_description(client),
                                                 rp_codec_client_stream_info(codec_client),
                                                 rp_codec_client_protocol(codec_client));
-NOISY_MSG_("done");
 }
 
 OVERRIDE RpCancellable*
@@ -196,15 +195,9 @@ new_pending_stream(RpConnPoolImplBase* self, RpConnectionPoolAttachContextPtr co
 {
     NOISY_MSG_("(%p, %p, %u)", self, context, can_send_early_data);
     RpResponseDecoder* decoder = ((RpHttpAttachContextPtr)context)->m_decoder;
-NOISY_MSG_("response decoder %p", decoder);
-RpNetworkConnection* connection = rp_upstream_to_downstream_connection(RP_UPSTREAM_TO_DOWNSTREAM(decoder));
-NOISY_MSG_("connection %p", connection);
-NOISY_MSG_("requested server name \"%s\"", rp_connection_info_provider_requested_server_name(rp_network_connection_connection_info_provider(connection)));
     RpHttpConnPoolCallbacks* callbacks = ((RpHttpAttachContextPtr)context)->m_callbacks;
-NOISY_MSG_("callbacks %p", callbacks);
     RpHttpPendingStream* pending_stream = rp_http_pending_stream_new(self, decoder, callbacks, can_send_early_data);
-NOISY_MSG_("pending stream %p", pending_stream);
-    return rp_conn_pool_impl_base_add_pending_stream(self, RP_PENDING_STREAM(pending_stream));
+    return rp_conn_pool_impl_base_add_pending_stream(self, RP_PENDING_STREAM(g_steal_pointer(&pending_stream)));
 }
 
 static inline void
