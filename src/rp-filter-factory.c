@@ -18,7 +18,7 @@ G_DEFINE_INTERFACE(RpFilterChainManager, rp_filter_chain_manager, G_TYPE_OBJECT)
 static void
 apply_filter_factory_cb_(RpFilterChainManager* self G_GNUC_UNUSED, const struct RpFilterContext* context G_GNUC_UNUSED, RpFilterFactoryCb* factory G_GNUC_UNUSED)
 {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
+    g_debug("not implemented at line %d", __LINE__);
 }
 
 static void
@@ -42,7 +42,7 @@ G_DEFINE_INTERFACE(RpFilterChainFactory, rp_filter_chain_factory, G_TYPE_OBJECT)
 static bool
 create_filter_chain_(RpFilterChainFactory* self G_GNUC_UNUSED, RpFilterChainManager* manager G_GNUC_UNUSED)
 {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
+    g_debug("not implemented at line %d", __LINE__);
     return false;
 }
 

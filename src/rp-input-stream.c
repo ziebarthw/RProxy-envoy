@@ -7,6 +7,12 @@
 #endif
 #include "macrologger.h"
 
+#if (defined(rp_input_stream_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_input_stream_NOISY)
+#   define NOISY_MSG_ LOGD
+#else
+#   define NOISY_MSG_(x, ...)
+#endif
+
 #include "rproxy.h"
 #include "rp-input-stream.h"
 
@@ -36,9 +42,7 @@ G_DEFINE_TYPE(RpInputStream, rp_input_stream, G_TYPE_INPUT_STREAM)
 static inline int
 read_internal(RpInputStream* self, void* buffer, gsize count)
 {
-    g_debug(LOC_FMT"(%p, %p, %zu)", LOC_ARG, self, buffer, count);
-
-g_debug(LOC_FMT" - m_len %zu", LOC_ARG, self->m_len);
+    NOISY_MSG_("(%p, %p, %zu)", self, buffer, count);
 
     gsize nbytes = self->m_len > count ? count : self->m_len;
     memcpy(buffer, self->m_data, nbytes);
@@ -51,8 +55,8 @@ g_debug(LOC_FMT" - m_len %zu", LOC_ARG, self->m_len);
 static void
 read_async_i(GInputStream* stream, void* buffer, gsize count, int io_priority, GCancellable* cancellable, GAsyncReadyCallback callback, gpointer user_data)
 {
-    g_debug(LOC_FMT"(%p, %p, %zd, %d, %p, %p, %p)",
-        LOC_ARG, stream, buffer, count, io_priority, cancellable, callback, user_data);
+    NOISY_MSG_("(%p, %p, %zd, %d, %p, %p, %p)",
+        stream, buffer, count, io_priority, cancellable, callback, user_data);
 
     int bytes_read = read_internal(RP_INPUT_STREAM(stream), buffer, count);
     GTask* task = g_task_new(stream, cancellable, callback, user_data);
@@ -71,7 +75,7 @@ read_fn_i(GInputStream* stream, void* buffer, gsize count, GCancellable* cancell
 static gssize
 read_finish_i(GInputStream* stream, GAsyncResult* result, GError** error)
 {
-    g_debug(LOC_FMT"(%p, %p, %p)", LOC_ARG, stream, result, error);
+    NOISY_MSG_("(%p, %p, %p)", stream, result, error);
     g_return_val_if_fail(g_task_is_valid(result, stream), -1);
     return g_task_propagate_int(G_TASK(result), error);
 }
@@ -79,7 +83,7 @@ read_finish_i(GInputStream* stream, GAsyncResult* result, GError** error)
 static void
 get_property_i(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
 {
-    LOGD("(%p, %u, %p, %p)", obj, prop_id, value, pspec);
+    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
     switch (prop_id)
     {
         case PROP_DATA:
@@ -97,7 +101,7 @@ get_property_i(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
 static void
 set_property_i(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec)
 {
-    LOGD("(%p, %u, %p, %p)", obj, prop_id, value, pspec);
+    NOISY_MSG_("(%p, %u, %p, %p)", obj, prop_id, value, pspec, pspec->name);
     switch (prop_id)
     {
         case PROP_DATA:
@@ -113,10 +117,10 @@ set_property_i(GObject* obj, guint prop_id, const GValue* value, GParamSpec* psp
 }
 
 static void
-dispose_i(GObject* object)
+dispose_i(GObject* obj)
 {
-    LOGD("(%p)", object);
-    G_OBJECT_CLASS(rp_input_stream_parent_class)->dispose(object);
+    NOISY_MSG_("(%p)", obj);
+    G_OBJECT_CLASS(rp_input_stream_parent_class)->dispose(obj);
 }
 
 static void
@@ -154,7 +158,7 @@ rp_input_stream_class_init(RpInputStreamClass* klass)
 static void
 rp_input_stream_init(RpInputStream* self G_GNUC_UNUSED)
 {
-    LOGD("(%p)", self);
+    NOISY_MSG_("(%p)", self);
 }
 
 RpInputStream*
@@ -169,7 +173,6 @@ rp_input_istream_set_data(RpInputStream* self, const char* data, gsize len)
 {
     LOGD("(%p, %p, %zu)", self, data, len);
     g_return_if_fail(RP_IS_INPUT_STREAM(self));
-LOGD("m_len %zu", self->m_len);
     self->m_data = data;
     self->m_len = len;
 }

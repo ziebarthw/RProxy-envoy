@@ -17,7 +17,7 @@ G_DEFINE_INTERFACE(RpStreamResetHandler, rp_stream_reset_handler, G_TYPE_OBJECT)
 static void
 reset_stream_i(RpStreamResetHandler* self G_GNUC_UNUSED, RpStreamResetReason_e reason G_GNUC_UNUSED)
 {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
+    g_debug("not implemented at line %d", __LINE__);
 }
 
 static void

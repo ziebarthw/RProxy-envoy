@@ -91,9 +91,6 @@ g_brotli_decompressor_convert (GConverter      *converter,
 	gsize available_out = outbuf_size;
 	guchar *next_out = outbuf;
 
-g_debug("%s(%p, %p, %zu, %p, %zu, %d, %p, %p, %p) [%d]",
-	__func__, converter, inbuf, inbuf_size, outbuf, outbuf_size, flags, bytes_read, bytes_written, error, __LINE__);
-
 	g_return_val_if_fail (inbuf, G_CONVERTER_ERROR);
 
 	if (self->last_error) {
@@ -114,13 +111,11 @@ g_debug("%s(%p, %p, %zu, %p, %zu, %d, %p, %p, %p) [%d]",
 	}
 
 	result = BrotliDecoderDecompressStream (self->state, &available_in, &next_in, &available_out, &next_out, NULL);
-g_debug("%s(%p,...) result %d [%d]", __func__, converter, result, __LINE__);
 
 	/* available_in is now set to *unread* input size */
 	*bytes_read = inbuf_size - available_in;
 	/* available_out is now set to *unwritten* output size */
 	*bytes_written = outbuf_size - available_out;
-g_debug("%s - %zu bytes read, %zu bytes written [%d]", __func__, *bytes_read, *bytes_written, __LINE__);
 
 	/* As per API docs: If any data was either produced or consumed, and then an error happens, then only
 	 * the successful conversion is reported and the error is returned on the next call. */
@@ -139,8 +134,6 @@ g_debug("%s - %zu bytes read, %zu bytes written [%d]", __func__, *bytes_read, *b
 			/* Just continue returning finished next time */
 			break;
 		}
-
-//g_debug("%s -\n%.*s\n[%d]", __func__, (int)*bytes_read, (char*)outbuf, __LINE__);
 
 		return G_CONVERTER_CONVERTED;
 	}
@@ -166,7 +159,6 @@ g_debug("%s - %zu bytes read, %zu bytes written [%d]", __func__, *bytes_read, *b
 static void
 g_brotli_decompressor_reset (GConverter *converter)
 {
-g_debug("%s(%p) [%d]", __func__, converter, __LINE__);
 	GBrotliDecompressor *self = G_BROTLI_DECOMPRESSOR (converter);
 
 	if (self->state && BrotliDecoderIsUsed (self->state))
@@ -177,7 +169,6 @@ g_debug("%s(%p) [%d]", __func__, converter, __LINE__);
 static void
 g_brotli_decompressor_finalize (GObject *object)
 {
-g_debug("%s(%p) [%d]", __func__, object, __LINE__);
 	GBrotliDecompressor *self = (GBrotliDecompressor *)object;
 	g_clear_pointer (&self->state, BrotliDecoderDestroyInstance);
 	g_clear_error (&self->last_error);
@@ -186,7 +177,6 @@ g_debug("%s(%p) [%d]", __func__, object, __LINE__);
 
 static void g_brotli_decompressor_iface_init (GConverterIface *iface)
 {
-g_debug("%s(%p) [%d]", __func__, iface, __LINE__);
 	iface->convert = g_brotli_decompressor_convert;
 	iface->reset = g_brotli_decompressor_reset;
 }
