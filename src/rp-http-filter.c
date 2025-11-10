@@ -37,49 +37,41 @@ rp_downstream_stream_filter_callbacks_default_init(RpDownstreamStreamFilterCallb
 {}
 
 static const char*
-filter_config_name_(RpStreamFilterCallbacks* self) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
+filter_config_name_(RpStreamFilterCallbacks* self G_GNUC_UNUSED) {
     return NULL;
 }
 
 static evhtp_headers_t*
-request_headers_(RpStreamFilterCallbacks* self) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
+request_headers_(RpStreamFilterCallbacks* self G_GNUC_UNUSED) {
     return NULL;
 }
 
 static evhtp_headers_t*
-request_trailers_(RpStreamFilterCallbacks* self) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
+request_trailers_(RpStreamFilterCallbacks* self G_GNUC_UNUSED) {
     return NULL;
 }
 
 static evhtp_headers_t*
-response_headers_(RpStreamFilterCallbacks* self) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
+response_headers_(RpStreamFilterCallbacks* self G_GNUC_UNUSED) {
     return NULL;
 }
 
 static evhtp_headers_t*
-response_trailers_(RpStreamFilterCallbacks* self) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
+response_trailers_(RpStreamFilterCallbacks* self G_GNUC_UNUSED) {
     return NULL;
 }
 
 static void
-reset_idle_timer_(RpStreamFilterCallbacks* self) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
+reset_idle_timer_(RpStreamFilterCallbacks* self G_GNUC_UNUSED) {
 }
 
 static RpUpstreamStreamFilterCallbacks*
 upstream_callbacks_(RpStreamFilterCallbacks* self G_GNUC_UNUSED) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
     return NULL;
 }
 
 static RpDownstreamStreamFilterCallbacks*
 downstream_callbacks_(RpStreamFilterCallbacks* self G_GNUC_UNUSED) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
     return NULL;
 }
 
@@ -121,17 +113,14 @@ rp_stream_filter_callbacks_reset_idle_timer(RpStreamFilterCallbacks* self) {
 
 static void
 rp_stream_filter_base_default_on_stream_complete(RpStreamFilterBase* self G_GNUC_UNUSED) {
-    g_debug("%s:%s(%p) - not implemented [%d]", __FILE__, __func__, self, __LINE__);
 }
 
 static void
 rp_stream_filter_base_default_on_destroy(RpStreamFilterBase* self) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
 }
 
 static RpLocalErrorStatus_e
 rp_stream_filter_base_default_on_local_reply(RpStreamFilterBase* self G_GNUC_UNUSED, const struct RpStreamFilterBase_LocalReplyData* data G_GNUC_UNUSED) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
     return RpLocalErrorStatus_Continue;
 }
 
@@ -156,54 +145,44 @@ rp_stream_filter_base_on_destroy(RpStreamFilterBase* self) {
 
 static void
 rp_stream_decoder_filter_callbacks_default_continue_decoding(RpStreamDecoderFilterCallbacks* self G_GNUC_UNUSED) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
 }
 
 static const evbuf_t *
 rp_stream_decoder_filter_callbacks_default_decoding_buffer(RpStreamDecoderFilterCallbacks* self G_GNUC_UNUSED) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
     return NULL;
 }
 
 static void
 rp_stream_decoder_filter_callbacks_default_modify_decoding_buffer(RpStreamDecoderFilterCallbacks* self G_GNUC_UNUSED, void (*callback)(evbuf_t *) G_GNUC_UNUSED) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
 }
 
 static void
 rp_stream_decoder_filter_callbacks_default_add_decoded_data(RpStreamDecoderFilterCallbacks* self G_GNUC_UNUSED, evbuf_t* data G_GNUC_UNUSED, bool streaming_filter G_GNUC_UNUSED) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
 }
 
 static void
 rp_stream_decoder_filter_callbacks_default_inject_decoded_data_to_filter_chain(RpStreamDecoderFilterCallbacks* self G_GNUC_UNUSED, evbuf_t* data G_GNUC_UNUSED, bool end_stream G_GNUC_UNUSED) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
 }
 
 static evhtp_headers_t*
 rp_stream_decoder_filter_callbacks_default_add_decoded_trailers(RpStreamDecoderFilterCallbacks* self G_GNUC_UNUSED) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
     return NULL;
 }
 
 static void
 rp_stream_decoder_filter_callbacks_default_send_local_reply(RpStreamDecoderFilterCallbacks* self G_GNUC_UNUSED, evhtp_res response_code G_GNUC_UNUSED, evbuf_t* body_text G_GNUC_UNUSED, modify_headers_cb modify_headers G_GNUC_UNUSED, const char* details G_GNUC_UNUSED, void* arg G_GNUC_UNUSED) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
 }
 
 static void
 rp_stream_decoder_filter_callbacks_default_endode_headers(RpStreamDecoderFilterCallbacks* self G_GNUC_UNUSED, evhtp_headers_t* response_headers G_GNUC_UNUSED, bool end_stream G_GNUC_UNUSED, const char* details G_GNUC_UNUSED) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
 }
 
 static void
 rp_stream_decoder_filter_callbacks_default_endode_data(RpStreamDecoderFilterCallbacks* self G_GNUC_UNUSED, evbuf_t* data G_GNUC_UNUSED, bool end_stream G_GNUC_UNUSED) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
 }
 
 static void
 rp_stream_decoder_filter_callbacks_default_endode_trailers(RpStreamDecoderFilterCallbacks* self G_GNUC_UNUSED, evhtp_headers_t* trailers G_GNUC_UNUSED) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
 }
 
 static void
@@ -258,24 +237,20 @@ rp_stream_decoder_filter_callbacks_send_local_reply(RpStreamDecoderFilterCallbac
 
 static RpFilterHeadersStatus_e
 rp_stream_decoder_filter_default_decode_headers(RpStreamDecoderFilter* self G_GNUC_UNUSED, evhtp_headers_t* request_headers G_GNUC_UNUSED, bool end_stream G_GNUC_UNUSED) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
     return RpFilterHeadersStatus_Continue;
 }
 
 static RpFilterDataStatus_e
 rp_stream_decoder_filter_default_decode_data(RpStreamDecoderFilter* self G_GNUC_UNUSED, evbuf_t* data G_GNUC_UNUSED, bool end_stream G_GNUC_UNUSED) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
     return RpFilterDataStatus_Continue;
 }
 
 static void
 rp_stream_decoder_filter_default_set_decoder_filter_callbacks(RpStreamDecoderFilter* self G_GNUC_UNUSED, RpStreamDecoderFilterCallbacks* callbacks G_GNUC_UNUSED) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
 }
 
 static void
 rp_stream_decoder_filter_default_decode_complete(RpStreamDecoderFilter* self G_GNUC_UNUSED) {
-    g_debug("%s:%s(%p) - not implemented [%d]", __FILE__, __func__, self, __LINE__);
 }
 
 static void
@@ -313,33 +288,27 @@ rp_stream_decoder_filter_decode_complete(RpStreamDecoderFilter* self) {
 
 static void
 rp_stream_encoder_filter_callbacks_default_continue_encoding(RpStreamEncoderFilterCallbacks* self G_GNUC_UNUSED) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
 }
 
 static const evbuf_t*
 rp_stream_encoder_filter_callbacks_default_encoding_buffer(RpStreamEncoderFilterCallbacks* self G_GNUC_UNUSED) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
     return NULL;
 }
 
 static void
 rp_stream_encoder_filter_callbacks_default_modify_encoding_buffer(RpStreamEncoderFilterCallbacks* self G_GNUC_UNUSED, void (*callback)(evbuf_t *) G_GNUC_UNUSED) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
 }
 
 static void
 rp_stream_encoder_filter_callbacks_default_add_encoded_data(RpStreamEncoderFilterCallbacks* self G_GNUC_UNUSED, evbuf_t* data G_GNUC_UNUSED, bool streaming_filter G_GNUC_UNUSED) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
 }
 
 static void
 rp_stream_encoder_filter_callbacks_default_inject_encoded_data_to_filter_chain(RpStreamEncoderFilterCallbacks* self G_GNUC_UNUSED, evbuf_t* data G_GNUC_UNUSED, bool end_stream G_GNUC_UNUSED) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
 }
 
 static void
 rp_stream_encoder_filter_callbacks_default_send_local_reply(RpStreamEncoderFilterCallbacks* self G_GNUC_UNUSED, evhtp_res response_code G_GNUC_UNUSED, evbuf_t* body_text G_GNUC_UNUSED, void (*modify_headers)(evhtp_headers_t *) G_GNUC_UNUSED, const char* details G_GNUC_UNUSED) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
 }
 
 static void
@@ -390,30 +359,25 @@ rp_stream_encoder_filter_callbacks_send_local_reply(RpStreamEncoderFilterCallbac
 
 static RpFilterHeadersStatus_e
 rp_stream_encoder_filter_default_encode_headers(RpStreamEncoderFilter* self G_GNUC_UNUSED, evhtp_headers_t* response_headers G_GNUC_UNUSED, bool end_stream G_GNUC_UNUSED) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
     return RpFilterHeadersStatus_Continue;
 }
 
 static RpFilterDataStatus_e
 rp_stream_encoder_filter_default_encode_data(RpStreamEncoderFilter* self G_GNUC_UNUSED, evbuf_t* data G_GNUC_UNUSED, bool end_stream G_GNUC_UNUSED) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
     return RpFilterDataStatus_Continue;
 }
 
 static RpFilterTrailerStatus_e
 rp_stream_encoder_filter_default_encode_trailers(RpStreamEncoderFilter* self G_GNUC_UNUSED, evhtp_headers_t* trailers G_GNUC_UNUSED) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
     return RpFilterTrailerStatus_Continue;
 }
 
 static void
 rp_stream_encoder_filter_default_set_encoder_filter_callbacks(RpStreamEncoderFilter* self G_GNUC_UNUSED, RpStreamEncoderFilterCallbacks* callbacks G_GNUC_UNUSED) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
 }
 
 static void
 rp_stream_encoder_filter_default_encode_complete(RpStreamEncoderFilter* self G_GNUC_UNUSED) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
 }
 
 static void
@@ -456,17 +420,14 @@ rp_stream_filter_default_init(RpStreamFilterInterface* iface G_GNUC_UNUSED) {
 
 static void
 add_stream_encoder_filter_(RpFilterChainFactoryCallbacks* self G_GNUC_UNUSED, RpStreamEncoderFilter* filter G_GNUC_UNUSED) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
 }
 
 static void
 add_stream_decoder_filter_(RpFilterChainFactoryCallbacks* self G_GNUC_UNUSED, RpStreamDecoderFilter* filter G_GNUC_UNUSED) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
 }
 
 static void
 add_stream_filter_(RpFilterChainFactoryCallbacks* self G_GNUC_UNUSED, RpStreamFilter* filter G_GNUC_UNUSED) {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
 }
 
 static void

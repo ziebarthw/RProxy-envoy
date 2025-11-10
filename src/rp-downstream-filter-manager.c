@@ -29,7 +29,7 @@ G_DEFINE_INTERFACE(RpLocalReply, rp_local_reply, G_TYPE_OBJECT)
 static void
 rp_local_reply_default_rewrite(RpLocalReply* self G_GNUC_UNUSED, const evhtp_headers_t* request_headers G_GNUC_UNUSED, evhtp_headers_t* response_headers G_GNUC_UNUSED, evhtp_res code G_GNUC_UNUSED, evbuf_t* body G_GNUC_UNUSED, const char* content_type G_GNUC_UNUSED)
 {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
+    g_debug("not implemented at line %d", __LINE__);
 }
 
 static void

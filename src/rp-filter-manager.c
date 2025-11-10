@@ -27,25 +27,25 @@ G_DEFINE_INTERFACE(RpFilterManagerCallbacks, rp_filter_manager_callbacks, G_TYPE
 static void
 encode_headers_(RpFilterManagerCallbacks* self G_GNUC_UNUSED, evhtp_headers_t* response_headers G_GNUC_UNUSED, bool end_stream G_GNUC_UNUSED)
 {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
+    g_debug("not implemented at line %d", __LINE__);
 }
 
 static void
 encode_data_(RpFilterManagerCallbacks* self G_GNUC_UNUSED, evbuf_t* data G_GNUC_UNUSED, bool end_stream G_GNUC_UNUSED)
 {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
+    g_debug("not implemented at line %d", __LINE__);
 }
 
 static void
 set_response_headers_(RpFilterManagerCallbacks* self G_GNUC_UNUSED, evhtp_headers_t* response_headers G_GNUC_UNUSED)
 {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
+    g_debug("not implemented at line %d", __LINE__);
 }
 
 static void
 set_response_trailers_(RpFilterManagerCallbacks* self G_GNUC_UNUSED, evhtp_headers_t* response_trailers G_GNUC_UNUSED)
 {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
+    g_debug("not implemented at line %d", __LINE__);
 }
 
 static void
@@ -56,73 +56,73 @@ charge_stats_(RpFilterManagerCallbacks* self G_GNUC_UNUSED, evhtp_headers_t* tra
 static void
 set_request_trailers_(RpFilterManagerCallbacks* self G_GNUC_UNUSED, evhtp_headers_t* request_trailers G_GNUC_UNUSED)
 {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
+    g_debug("not implemented at line %d", __LINE__);
 }
 
 static evhtp_headers_t*
 request_headers_(RpFilterManagerCallbacks* self G_GNUC_UNUSED)
 {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
+    g_debug("not implemented at line %d", __LINE__);
     return NULL;
 }
 
 static evhtp_headers_t*
 request_trailers_(RpFilterManagerCallbacks* self G_GNUC_UNUSED)
 {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
+    g_debug("not implemented at line %d", __LINE__);
     return NULL;
 }
 
 static evhtp_headers_t*
 response_headers_(RpFilterManagerCallbacks* self G_GNUC_UNUSED)
 {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
+    g_debug("not implemented at line %d", __LINE__);
     return NULL;
 }
 
 static evhtp_headers_t*
 response_trailers_(RpFilterManagerCallbacks* self G_GNUC_UNUSED)
 {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
+    g_debug("not implemented at line %d", __LINE__);
     return NULL;
 }
 
 static void
 end_stream_(RpFilterManagerCallbacks* self G_GNUC_UNUSED)
 {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
+    g_debug("not implemented at line %d", __LINE__);
 }
 
 static void
 disarm_request_timeout_(RpFilterManagerCallbacks* self G_GNUC_UNUSED)
 {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
+    g_debug("not implemented at line %d", __LINE__);
 }
 
 static void
 reset_idle_timer_(RpFilterManagerCallbacks* self G_GNUC_UNUSED)
 {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
+    g_debug("not implemented at line %d", __LINE__);
 }
 
 static RpUpstreamStreamFilterCallbacks*
 upstream_callbacks_(RpFilterManagerCallbacks* self G_GNUC_UNUSED)
 {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
+    g_debug("not implemented at line %d", __LINE__);
     return NULL;
 }
 
 static RpDownstreamStreamFilterCallbacks*
 downstream_callbacks_(RpFilterManagerCallbacks* self G_GNUC_UNUSED)
 {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
+    g_debug("not implemented at line %d", __LINE__);
     return NULL;
 }
 
 static void
 on_local_reply_(RpFilterManagerCallbacks* self G_GNUC_UNUSED, evhtp_res code G_GNUC_UNUSED)
 {
-    g_debug("%s:%s - not implemented [%d]", __FILE__, __func__, __LINE__);
+    g_debug("not implemented at line %d", __LINE__);
 }
 
 static void

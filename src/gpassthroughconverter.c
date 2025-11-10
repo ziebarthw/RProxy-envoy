@@ -58,9 +58,6 @@ g_pass_through_converter_convert (GConverter      *converter,
 	gsize available_out = outbuf_size;
 	guchar *next_out = outbuf;
 
-g_debug("%s(%p, %p, %zu, %p, %zu, %d, %p, %p, %p) [%d]",
-	__func__, converter, inbuf, inbuf_size, outbuf, outbuf_size, flags, bytes_read, bytes_written, error, __LINE__);
-
 	g_return_val_if_fail (inbuf, G_CONVERTER_ERROR);
 
 	gsize nbytes = available_out > available_in ? available_in : available_out;
@@ -68,27 +65,23 @@ g_debug("%s(%p, %p, %zu, %p, %zu, %d, %p, %p, %p) [%d]",
 	memcpy(next_out, next_in, nbytes);
 
 	*bytes_read = *bytes_written = nbytes;
-g_debug("%s - %zu bytes read, %zu bytes written [%d]", __func__, *bytes_read, *bytes_written, __LINE__);
 
 	return available_in - nbytes == 0 ? G_CONVERTER_FINISHED : G_CONVERTER_CONVERTED;
 }
 
 static void
-g_pass_through_converter_reset (GConverter *converter)
+g_pass_through_converter_reset (GConverter *converter G_GNUC_UNUSED)
 {
-g_debug("%s(%p) [%d]", __func__, converter, __LINE__);
 }
 
 static void
 g_pass_through_converter_finalize (GObject *object)
 {
-g_debug("%s(%p) [%d]", __func__, object, __LINE__);
 	G_OBJECT_CLASS (g_pass_through_converter_parent_class)->finalize (object);
 }
 
 static void g_pass_through_converter_iface_init (GConverterIface *iface)
 {
-g_debug("%s(%p) [%d]", __func__, iface, __LINE__);
 	iface->convert = g_pass_through_converter_convert;
 	iface->reset = g_pass_through_converter_reset;
 }

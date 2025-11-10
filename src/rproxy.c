@@ -1219,7 +1219,7 @@ clear_rp_instances(void)
 int
 rproxy_main(int argc, char** argv, const rproxy_hooks_t* hooks)
 {
-    g_debug(LOC_FMT"(%d, %p, %p)", LOC_ARG, argc, argv, hooks);
+    LOGD("(%d, %p, %p)", argc, argv, hooks);
 
     if (argc < 2)
     {

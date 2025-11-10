@@ -93,7 +93,6 @@ g_brotli_compressor_convert (GConverter      *converter,
 	*bytes_read = inbuf_size - available_in;
 	/* available_out is now set to *unwritten* output size */
 	*bytes_written = outbuf_size - available_out;
-g_debug("%s - %zu bytes read, %zu bytes written [%d]", __func__, *bytes_read, *bytes_written, __LINE__);
 
 	if (available_out == 0) {
 		self->last_error = g_error_new_literal (G_IO_ERROR, G_IO_ERROR_PARTIAL_INPUT, "GBrotliCompressorError: More input required");
@@ -101,7 +100,6 @@ g_debug("%s - %zu bytes read, %zu bytes written [%d]", __func__, *bytes_read, *b
 	}
 
 	if (BrotliEncoderIsFinished (self->state)) {
-		g_debug("%s - finished [%d]", __func__, __LINE__);
 		return G_CONVERTER_FINISHED;
 	}
 
@@ -129,7 +127,6 @@ g_brotli_compressor_finalize (GObject *object)
 
 static void g_brotli_compressor_iface_init (GConverterIface *iface)
 {
-g_debug("%s(%p) [%d]", __func__, iface, __LINE__);
 	iface->convert = g_brotli_compressor_convert;
 	iface->reset = g_brotli_compressor_reset;
 }
