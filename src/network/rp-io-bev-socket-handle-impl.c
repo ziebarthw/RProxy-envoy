@@ -113,7 +113,7 @@ eventcb(evbev_t* bev, short events, void* arg)
 {
     NOISY_MSG_("(%p(fd %d), %x, %p)", bev, bufferevent_getfd(bev), events, arg);
 
-    int sockfd = bufferevent_getfd(bev); // Grab sockfd in case bev is destroyed before end of func.
+    int sockfd G_GNUC_UNUSED = bufferevent_getfd(bev); // Grab sockfd in case bev is destroyed before end of func.
     RpIoBevSocketHandleImpl* self = RP_IO_BEV_SOCKET_HANDLE_IMPL(arg);
 
     if ((events & BEV_EVENT_EOF) || (events & BEV_EVENT_ERROR))

@@ -153,9 +153,7 @@ on_write_ready(RpNetworkConnectionImpl* self)
         //TODO...check errors?
         NOISY_MSG_("connected on fd %d", SOCKFD(self));
         me->m_connecting = false;
-NOISY_MSG_("calling on_connected(%p)", self);
         RP_NETWORK_CONNECTION_IMPL_GET_CLASS(self)->on_connected(self);
-NOISY_MSG_("back from calling on_connected(%p)", self);
         if (rp_network_connection_state(RP_NETWORK_CONNECTION(self)) != RpNetworkConnectionState_Open)
         {
             LOGD("connection closed");
@@ -166,7 +164,7 @@ NOISY_MSG_("back from calling on_connected(%p)", self);
 NOISY_MSG_("\n\"%.*s\"", (int)evbuffer_get_length(me->m_write_buffer), (char*)evbuffer_pullup(me->m_write_buffer, -1));
 
     RpIoResult result = rp_network_transport_socket_do_write(me->m_transport_socket, me->m_write_buffer, me->m_write_end_stream);
-    guint64 new_buffer_size = evbuffer_get_length(me->m_write_buffer);
+    guint64 new_buffer_size G_GNUC_UNUSED = evbuffer_get_length(me->m_write_buffer);
     //TODO...updateWriteBufferStats(...)
 NOISY_MSG_("%zu bytes written, new buffer size %zu", result.m_bytes_processed, new_buffer_size);
 
