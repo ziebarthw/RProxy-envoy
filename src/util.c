@@ -232,32 +232,32 @@ util_set_rlimits(int nofiles)
     }
 
     if (getrlimit(RLIMIT_NOFILE, &limit) == -1) {
-        fprintf(stderr, "Could not obtain curr NOFILE lim: %s\n", strerror(errno));
+        g_error("Could not obtain curr NOFILE lim: %s\n", strerror(errno));
         return 0;
     }
 
     if (nofiles > limit.rlim_max) {
-        fprintf(stderr, "Unable to set curr NOFILE (requested=%d, sys-limit=%d)\n",
+        g_error("Unable to set curr NOFILE (requested=%d, sys-limit=%d)\n",
                 (int)nofiles, (int)limit.rlim_max);
-        fprintf(stderr, "Please make sure your systems limits.conf is set high enough (usually in /etc/security/limits.conf!\n");
+        g_error("Please make sure your systems limits.conf is set high enough (usually in /etc/security/limits.conf!\n");
         return -1;
     }
 
     if (nofiles < 10000) {
-        fprintf(stderr, "WARNING: %d max-nofiles is very small, this could be bad, lets check...\n", nofiles);
+        g_warning("%d max-nofiles is very small, this could be bad, lets check...", nofiles);
 
         if ((int)limit.rlim_max >= 10000) {
-            fprintf(stderr, "INFO: using %d (your hard-limit) on max-nofiles instead of %d!\n", (int)limit.rlim_max, nofiles);
+            g_info("using %d (your hard-limit) on max-nofiles instead of %d!", (int)limit.rlim_max, nofiles);
             nofiles = limit.rlim_max;
         } else {
-            fprintf(stderr, "WARN: nope, can't go any higher, you may want to fix this...\n");
+            g_warning("nope, can't go any higher, you may want to fix this...");
         }
     }
 
     limit.rlim_cur = nofiles;
 
     if (setrlimit(RLIMIT_NOFILE, &limit) == -1) {
-        fprintf(stderr, "Could not set NOFILE lim: %s\n", strerror(errno));
+        g_error("Could not set NOFILE lim: %s\n", strerror(errno));
         return -1;
     }
 

@@ -332,6 +332,7 @@ enum logger_argtype {
     logger_argtype_printable
 };
 
+typedef struct thread_ctx        thread_ctx_t;
 typedef struct rproxy            rproxy_t;
 typedef struct upstream          upstream_t;
 typedef struct upstream_c        upstream_c_t;
@@ -434,6 +435,7 @@ struct rule {
 };
 
 struct rproxy {
+    thread_ctx_t      * m_thread_ctx;
     rproxy_cfg_t      * config;
     evhtp_t           * htp;
     evthr_t           * thr;
@@ -580,3 +582,9 @@ rproxy_hooks_ctor(bool (* cfg_init)(rproxy_cfg_t*, void*), void* cfg_init_arg,
     return hooks;
 }
 int rproxy_main(int argc, char** argv, const rproxy_hooks_t* hooks);
+
+struct thread_ctx {
+    server_cfg_t* m_server_cfg;
+    const rproxy_hooks_t* m_hooks;
+    volatile gint n_processing;     /**< number of in-flight requests */
+};

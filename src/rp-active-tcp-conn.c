@@ -28,6 +28,7 @@ struct _RpActiveTcpConn {
     GList** m_active_connections;
     UNIQUE_PTR(RpStreamInfo) m_stream_info;
     UNIQUE_PTR(RpNetworkConnection) m_connection;
+    SHARED_PTR(thread_ctx_t) m_thread_ctx;
 };
 
 static void network_connection_callbacks_iface_init(RpNetworkConnectionCallbacksInterface* iface);
@@ -55,7 +56,9 @@ on_event_i(RpNetworkConnectionCallbacks* self, RpNetworkConnectionEvent_e event)
     {
         NOISY_MSG_("calling remove_connection(%p)", self);
         //TODO...stream_info_->setDownstream...
-        remove_connection(RP_ACTIVE_TCP_CONN(self));
+        RpActiveTcpConn* me = RP_ACTIVE_TCP_CONN(self);
+        g_atomic_int_dec_and_test(&me->m_thread_ctx->n_processing);
+        remove_connection(me);
     }
 }
 
@@ -105,9 +108,9 @@ constructed(RpActiveTcpConn* self)
 }
 
 RpActiveTcpConn*
-rp_active_tcp_conn_new(GList** active_connections, RpNetworkConnection* new_connection, RpStreamInfo* stream_info)
+rp_active_tcp_conn_new(GList** active_connections, UNIQUE_PTR(RpNetworkConnection) new_connection, UNIQUE_PTR(RpStreamInfo) stream_info, SHARED_PTR(thread_ctx_t) thread_ctx)
 {
-    LOGD("(%p, %p, %p)", active_connections, new_connection, stream_info);
+    LOGD("(%p, %p, %p, %p)", active_connections, new_connection, stream_info, thread_ctx);
     g_return_val_if_fail(active_connections != NULL, NULL);
     g_return_val_if_fail(RP_IS_NETWORK_CONNECTION(new_connection), NULL);
     g_return_val_if_fail(RP_IS_STREAM_INFO(stream_info), NULL);
@@ -115,5 +118,6 @@ rp_active_tcp_conn_new(GList** active_connections, RpNetworkConnection* new_conn
     self->m_active_connections = active_connections;
     self->m_connection = g_steal_pointer(&new_connection);
     self->m_stream_info = g_steal_pointer(&stream_info);
+    self->m_thread_ctx = thread_ctx;
     return constructed(self);
 }

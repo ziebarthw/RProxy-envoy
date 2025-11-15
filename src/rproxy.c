@@ -72,12 +72,6 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
-typedef struct thread_ctx thread_ctx_t;
-struct thread_ctx {
-    server_cfg_t* m_server_cfg;
-    const rproxy_hooks_t* m_hooks;
-};
-
 static RpInstanceImpl* server = NULL;
 static RpFactoryContextImpl* factory_context = NULL; // It *appears* this is the listener_manger (or listener?) in envoy.???
 static RpTransportSocketFactoryImpl* transport_socket_factory = NULL;
@@ -141,7 +135,7 @@ map_rule_to_upstreams(rule_t* rule, rule_cfg_t* rule_cfg, rproxy_t* rproxy)
         if (!(ds = upstream_find_by_name(rproxy->upstreams, ds_name)))
         {
             /* could not find a upstream_t which has this name! */
-            LOGE("Could not find upstream named '%s!", ds_name);
+            g_error("Could not find upstream named '%s!", ds_name);
             exit(EXIT_FAILURE);
         }
 
@@ -301,7 +295,7 @@ downstream_pre_accept(evhtp_connection_t* up_conn, void* arg)
 {
     LOGD("(%p, %p)", up_conn, arg);
 
-    rproxy_t* rproxy = evthr_get_aux(up_conn->thread);
+    rproxy_t* rproxy = arg;
     NOISY_MSG_("rproxy %p, server_cfg %p(%s)", rproxy, rproxy->server_cfg, rproxy->server_cfg->name);
 
     if (rproxy->server_cfg->max_pending <= 0)
@@ -314,11 +308,13 @@ downstream_pre_accept(evhtp_connection_t* up_conn, void* arg)
     /* check to see if we have too many pending requests, and if so, drop this
      * connection.
      */
-    if ((rproxy->n_pending + 1) > rproxy->server_cfg->max_pending)
+    if ((g_atomic_int_get(&rproxy->m_thread_ctx->n_processing) + 1) > rproxy->server_cfg->max_pending)
     {
-        LOGE("Dropped connection, too many pending requests");
+        g_error("Dropped connection, too many pending requests");
         return EVHTP_RES_ERROR;
     }
+
+    g_atomic_int_inc(&rproxy->m_thread_ctx->n_processing);
 
     if (rproxy->server_cfg->disable_client_nagle)
     {
@@ -326,11 +322,11 @@ downstream_pre_accept(evhtp_connection_t* up_conn, void* arg)
          * turned off.
          */
 
-        LOGD("disabling nagle");
+        NOISY_MSG_("disabling nagle");
         setsockopt(up_conn->sock, IPPROTO_TCP, TCP_NODELAY, (int[]) { 1 }, sizeof(int));
     }
 
-    LOGD("returning EVHTP_RES_OK");
+    NOISY_MSG_("returning EVHTP_RES_OK");
     return EVHTP_RES_OK;
 }
 
@@ -347,7 +343,7 @@ downstream_post_accept(evhtp_connection_t* up_conn, void* arg)
 {
     LOGD("(%p, %p)", up_conn, arg);
 
-    rproxy_t* rproxy = evthr_get_aux(up_conn->thread);
+    rproxy_t* rproxy = arg;
     NOISY_MSG_("rproxy %p, fd %d", rproxy, bufferevent_getfd(evhtp_connection_get_bev(up_conn)));
 
     RpConnectionManagerConfig* config = RP_CONNECTION_MANAGER_CONFIG(rproxy->m_filter_config);
@@ -375,7 +371,8 @@ downstream_post_accept(evhtp_connection_t* up_conn, void* arg)
     g_autoptr(RpActiveTcpConn) active_conn =
         rp_active_tcp_conn_new(&rproxy->m_active_connections,
                                 RP_NETWORK_CONNECTION(g_steal_pointer(&connection)),
-                                RP_STREAM_INFO(g_steal_pointer(&stream_info)));
+                                RP_STREAM_INFO(g_steal_pointer(&stream_info)),
+                                rproxy->m_thread_ctx);
     rproxy->m_active_connections = g_list_append(rproxy->m_active_connections,
                                                     g_steal_pointer(&active_conn));
     return EVHTP_RES_OK;
@@ -550,6 +547,7 @@ rproxy_thread_init(evhtp_t* htp, evthr_t* thr, void* arg)
     g_assert(rproxy != NULL);
     LOGD("rproxy %p", rproxy);
 
+    rproxy->m_thread_ctx = thread_ctx;
     rproxy->worker_num = server_cfg_get_worker_num(server_cfg);
 
 #ifdef WITH_LOGGER
@@ -610,6 +608,7 @@ rproxy_thread_init(evhtp_t* htp, evthr_t* thr, void* arg)
     int res = lztq_for_each(server_cfg->upstreams, add_upstream, rproxy);
     g_assert(res == 0);
 
+NOISY_MSG_("calling evthr_set_aux(%p, %p)", thr, rproxy);
     /* set aux data argument to this threads specific rproxy_t structure */
     evthr_set_aux(thr, rproxy);
 
@@ -688,7 +687,7 @@ htp_worker_thread_init(evthr_t* thr, void* arg)
     struct evhtp* htp = create_htp(evbase, server_cfg);
     if (!htp)
     {
-        LOGE("alloc failed");
+        g_error("alloc failed");
         evthr_stop(thr);
         return;
     }
@@ -700,7 +699,7 @@ htp_worker_thread_init(evthr_t* thr, void* arg)
                             server_cfg->bind_port,
                             server_cfg->listen_backlog) < 0)
     {
-        LOGE("[ERROR] unable to bind to %s:%d (%s)",
+        g_error("unable to bind to %s:%d (%s)",
                 server_cfg->bind_addr,
                 server_cfg->bind_port,
                 strerror(errno));
@@ -804,7 +803,7 @@ add_callback_rule(lztq_elem* elem, void* arg)
 
     if (cb == NULL)
     {
-        LOGE("Could not compile evhtp callback for pattern \"%s\"", rule->matchstr);
+        g_error("Could not compile evhtp callback for pattern \"%s\"", rule->matchstr);
 // REVISIT: should not be fatal.(?)
         exit(EXIT_FAILURE);
     }
@@ -864,7 +863,7 @@ add_vhost(lztq_elem* elem, void* arg)
         if (!(cb = evhtp_set_glob_cb(htp_vhost, "*", NULL, htp_vhost)))
         {
             gint errnum = errno;
-            LOGE("Could not alloc callback: %s", g_strerror(errnum));
+            g_error("Could not alloc callback: %s", g_strerror(errnum));
             exit(EXIT_FAILURE);
         }
 
@@ -914,7 +913,7 @@ create_htp(evbase_t* evbase, server_cfg_t* server_cfg)
     evhtp_t* htp = evhtp_new(evbase, NULL);
     if (!htp)
     {
-        LOGE("alloc failed");
+        g_error("alloc failed");
         return NULL;
     }
 
@@ -986,7 +985,7 @@ rproxy_init(evbase_t* evbase, rproxy_cfg_t* cfg, const rproxy_hooks_t* hooks)
 
     if (hooks->on_cfg_init && !hooks->on_cfg_init(cfg, hooks->on_cfg_init_arg))
     {
-        LOGE("alloc failed");
+        g_error("alloc failed");
         return false;
     }
 
@@ -1038,7 +1037,7 @@ rproxy_init(evbase_t* evbase, rproxy_cfg_t* cfg, const rproxy_hooks_t* hooks)
                                     server_cfg->bind_port,
                                     server_cfg->listen_backlog) < 0)
             {
-                LOGE("[ERROR] unable to bind to %s:%d (%s)",
+                g_error("unable to bind to %s:%d (%s)",
                         server_cfg->bind_addr,
                         server_cfg->bind_port,
                         strerror(errno));
@@ -1072,26 +1071,22 @@ rproxy_report_rusage(rproxy_rusage_t * rusage)
 {
     LOGD("(%p)", rusage);
 
-    if (!rusage)
-    {
-        LOGE("rusage is null");
-        return;
-    }
+    g_return_if_fail(rusage != NULL);
 
-    printf("Configured resource usage information\n");
-    printf("  Number of upstream connections : %u\n", rusage->total_num_connections);
-    printf("  Number of threads                : %u\n", rusage->total_num_threads);
-    printf("  Number of pending connections    : %u\n\n", rusage->total_max_pending);
+    g_info("Configured resource usage information");
+    g_info("  Number of upstream connections : %u", rusage->total_num_connections);
+    g_info("  Number of threads                : %u", rusage->total_num_threads);
+    g_info("  Number of pending connections    : %u\n", rusage->total_max_pending);
 
-    printf("Detailed resource rundown\n");
-    printf("  A thread requires 2 fds            : %u\n", rusage->total_num_threads * 2);
-    printf("  A ds connection is 1 fd * nthreads : %u\n",
+    g_info("Detailed resource rundown\n");
+    g_info("  A thread requires 2 fds            : %u", rusage->total_num_threads * 2);
+    g_info("  A ds connection is 1 fd * nthreads : %u",
            (rusage->total_num_connections * rusage->total_num_threads));
-    printf("  Base fd resources needed           : %u\n\n",
+    g_info("  Base fd resources needed           : %u\n",
            ((rusage->total_num_connections) * (rusage->total_num_threads * 2)));
 
-    printf("  In a worst-case scenario where all pending queues are filled, you "
-           "will need a bit more than %u descriptors available\n\n",
+    g_info("  In a worst-case scenario where all pending queues are filled, you "
+           "will need a bit more than %u descriptors available\n",
            ((rusage->total_num_connections) * (rusage->total_num_threads * 2)) +
            rusage->total_max_pending);
 
@@ -1102,31 +1097,31 @@ rproxy_report_rusage(rproxy_rusage_t * rusage)
 
         if (getrlimit(RLIMIT_NOFILE, &limit) == -1)
         {
-            LOGE("getrlimi() failed");
+            g_error("getrlimi() failed");
             return;
         }
 
         needed_fds = ((rusage->total_num_connections) *
                       (rusage->total_num_threads * 2)) + rusage->total_max_pending;
 
-        printf("  Your *CURRENT* rlimit is : %u\n", (unsigned int)limit.rlim_cur);
-        printf("  Your *MAXIMUM* rlimit is : %u\n\n", (unsigned int)limit.rlim_max);
+        g_info("  Your *CURRENT* rlimit is : %u", (unsigned int)limit.rlim_cur);
+        g_info("  Your *MAXIMUM* rlimit is : %u\n", (unsigned int)limit.rlim_max);
 
         if ((unsigned int)limit.rlim_cur < needed_fds)
         {
-            printf("** WARNING: Needed resources exceed the current limits!\n");
+            g_warning("Needed resources exceed the current limits!");
 
             if ((unsigned int)limit.rlim_max > needed_fds)
             {
-                printf("** WARNING: The good news is that you do have the "
+                g_warning("The good news is that you do have the "
                        "ability to obtain the resources! Try increasing the "
-                       "option 'max-nofiles' in your configuration.\n");
+                       "option 'max-nofiles' in your configuration.");
             }
             else
             {
-                printf("** WARNING: You must consult your operating systems "
+                g_warning("You must consult your operating systems "
                        "documentation in order to increase the resources "
-                       "needed.\n");
+                       "needed.");
             }
         }
     }
@@ -1138,6 +1133,8 @@ sigint_cb(int fd G_GNUC_UNUSED, short event, void* arg)
 {
     printf("\n");
     LOGD("(%d, %d, %p)", fd, event, arg);
+
+    g_info("Shutting down");
 
     rproxy_cfg_t* cfg = arg;
     g_assert(cfg != NULL);
@@ -1225,14 +1222,14 @@ rproxy_main(int argc, char** argv, const rproxy_hooks_t* hooks)
     {
         printf("RProxy Version: %s (Libevhtp Version: %s, Libevent Version: %s, OpenSSL Version: %s)\n",
                RPROXY_VERSION, EVHTP_VERSION, event_get_version(), SSLeay_version(SSLEAY_VERSION));
-        LOGE("Usage: %s <config>", argv[0]);
+        g_error("Usage: %s <config>", argv[0]);
         return -1;
     }
 
     rproxy_cfg_t* rproxy_cfg = rproxy_cfg_parse(argv[1]);
     if (!rproxy_cfg)
     {
-        LOGE("Error parsing file %s", argv[1]);
+        g_error("Error parsing file %s", argv[1]);
         return -1;
     }
 
@@ -1246,7 +1243,7 @@ rproxy_main(int argc, char** argv, const rproxy_hooks_t* hooks)
 
     if (util_set_rlimits(rproxy_cfg->max_nofile) < 0)
     {
-        LOGE("set rlimits failed");
+        g_error("set rlimits failed");
         exit(-1);
     }
 
@@ -1257,7 +1254,7 @@ rproxy_main(int argc, char** argv, const rproxy_hooks_t* hooks)
     {
         if (util_daemonize(rproxy_cfg->rootdir, 1) < 0)
         {
-            LOGE("deamonize failed");
+            g_error("deamonize failed");
             exit(-1);
         }
     }
@@ -1268,7 +1265,7 @@ rproxy_main(int argc, char** argv, const rproxy_hooks_t* hooks)
     evbase_t* evbase = event_base_new();
     if (!evbase)
     {
-        LOGE("Error creating event_base: %s\n", g_strerror(errno));
+        g_error("Error creating event_base: %s\n", g_strerror(errno));
         rproxy_cfg_free(rproxy_cfg);
         return -1;
     }
@@ -1282,7 +1279,7 @@ rproxy_main(int argc, char** argv, const rproxy_hooks_t* hooks)
 
     if (!rproxy_init(evbase, rproxy_cfg, hooks))
     {
-        LOGE("rproxy_init() failed");
+        g_error("rproxy_init() failed");
         rproxy_cfg_free(rproxy_cfg);
         return -1;
     }
@@ -1290,6 +1287,8 @@ rproxy_main(int argc, char** argv, const rproxy_hooks_t* hooks)
     if (rproxy_cfg->user || rproxy_cfg->group) {
         util_dropperms(rproxy_cfg->user, rproxy_cfg->group);
     }
+
+    g_info("Entering main loop");
 
     // Run the main event loop until it is instructed to exit.
     event_base_loop(evbase, 0);
