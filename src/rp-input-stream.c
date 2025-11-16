@@ -101,7 +101,7 @@ get_property_i(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
 static void
 set_property_i(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec)
 {
-    NOISY_MSG_("(%p, %u, %p, %p)", obj, prop_id, value, pspec, pspec->name);
+    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
     switch (prop_id)
     {
         case PROP_DATA:
