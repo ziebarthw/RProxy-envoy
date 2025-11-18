@@ -1617,3 +1617,39 @@ rproxy_cfg_parse(const char* filename)
     LOGD("rp_cfg %p", rp_cfg);
     return rp_cfg;
 }
+
+bool
+rproxy_cfg_parse_server_buf(rproxy_cfg_t* rproxy_cfg, const char* server_cfg_buf)
+{
+    LOGD("(%p, %p(%s))", rproxy_cfg, server_cfg_buf, server_cfg_buf);
+
+    g_return_val_if_fail(rproxy_cfg != NULL, false);
+    g_return_val_if_fail(server_cfg_buf != NULL, false);
+    g_return_val_if_fail(server_cfg_buf[0] != 0, false);
+
+    cfg_t* cfg = cfg_init(rproxy_opts, CFGF_NOCASE|CFGF_IGNORE_UNKNOWN);
+    if (!cfg)
+    {
+        g_error("cfg_init() failed");
+        return false;
+    }
+
+    if (cfg_parse_buf(cfg, server_cfg_buf) != 0)
+    {
+        int err = errno;
+        g_error("cfg_parse() failed, errno %d(%s)", err, g_strerror(err));
+        cfg_free(cfg);
+        return false;
+    }
+
+    server_cfg_t* scfg = server_cfg_parse(cfg_getnsec(cfg, "server", 0));
+    g_assert(scfg != NULL);
+
+    scfg->rproxy_cfg = rproxy_cfg;
+
+    lztq_elem* elem = lztq_append(rproxy_cfg->servers, scfg, sizeof(scfg), server_cfg_free);
+    g_assert(elem != NULL);
+
+    cfg_free(cfg);
+    return true;
+}
