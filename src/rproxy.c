@@ -280,6 +280,35 @@ map_default_rule_to_upstreams(rule_t* rule, rule_cfg_t* rule_cfg, rproxy_t* rpro
     return 0;
 } /* map_default_rule_to_upstreams */
 
+static int
+add_vhost(lztq_elem* elem, void* arg)
+{
+    LOGD("(%p, %p)", elem, arg);
+
+    rproxy_t* rproxy = arg;
+    vhost_cfg_t* vhost_cfg = lztq_elem_data(elem);
+    LOGD("vhost_cfg %p(%s)", vhost_cfg, vhost_cfg->server_name);
+
+    vhost_t* vhost = g_new0(vhost_t, 1);
+    g_assert(vhost != NULL);
+
+    /* initialize the vhost specific logging, these are used if a rule
+        * does not have its own logging configuration. This allows for rule
+        * specific logs, and falling back to a global one.
+        */
+#ifdef WITH_LOGGER
+    vhost->req_log = logger_init(vhost_cfg->req_log, 0);
+    vhost->err_log = logger_init(vhost_cfg->err_log, 0);
+#endif//WITH_LOGGER
+    vhost->config  = vhost_cfg;
+    vhost->rproxy  = rproxy;
+
+    int res = lztq_for_each(vhost_cfg->rule_cfgs, map_vhost_rules_to_upstreams, vhost);
+    g_assert(res == 0);
+
+    return 0;
+}
+
 /**
  * @brief Before accepting an downstream connection, evhtp will call this function
  *        which will check whether we have hit our max-pending limits, and if so,
@@ -536,6 +565,7 @@ rproxy_thread_init(evhtp_t* htp, evthr_t* thr, void* arg)
     thread_ctx_t* thread_ctx = arg;
     g_atomic_rc_box_acquire(thread_ctx);
 
+    rproxy_cfg_t* rproxy_cfg = thread_ctx->m_rproxy_cfg;
     server_cfg_t* server_cfg = thread_ctx->m_server_cfg;
 
     LOGD("server %p(%s)", server_cfg, server_cfg->name);
@@ -568,6 +598,7 @@ rproxy_thread_init(evhtp_t* htp, evthr_t* thr, void* arg)
     rproxy->dns_base = evdns_base_new(evbase, 1);
     g_assert(rproxy->dns_base != NULL);
 
+    rproxy->config     = rproxy_cfg;
     rproxy->server_cfg = server_cfg;
     rproxy->evbase     = evbase;
     rproxy->htp        = htp;
@@ -608,7 +639,6 @@ rproxy_thread_init(evhtp_t* htp, evthr_t* thr, void* arg)
     int res = lztq_for_each(server_cfg->upstreams, add_upstream, rproxy);
     g_assert(res == 0);
 
-NOISY_MSG_("calling evthr_set_aux(%p, %p)", thr, rproxy);
     /* set aux data argument to this threads specific rproxy_t structure */
     evthr_set_aux(thr, rproxy);
 
@@ -628,6 +658,9 @@ NOISY_MSG_("calling evthr_set_aux(%p, %p)", thr, rproxy);
      * Each rule_t has a upstreams list containing pointers to
      * (already allocated) upstream_t structures.
      */
+    res = lztq_for_each(server_cfg->vhosts, add_vhost, rproxy);
+    g_assert(res == 0);
+#if 0
     lztq_elem* vhost_cfg_elem = lztq_first(server_cfg->vhosts);
     while (vhost_cfg_elem)
     {
@@ -653,6 +686,7 @@ NOISY_MSG_("calling evthr_set_aux(%p, %p)", thr, rproxy);
 
         vhost_cfg_elem = lztq_next(vhost_cfg_elem);
     }
+#endif//0
 
     if (server_cfg->default_rule_cfg)
     {
@@ -827,7 +861,7 @@ add_vhost_name(lztq_elem* elem, void* arg)
 }
 
 static int
-add_vhost(lztq_elem* elem, void* arg)
+add_evhtp_vhost(lztq_elem* elem, void* arg)
 {
     LOGD("(%p, %p)", elem, arg);
 
@@ -900,7 +934,7 @@ add_vhost(lztq_elem* elem, void* arg)
     }
 
     return 0;
-} /* add_vhost */
+} /* add_evhtp_vhost */
 
 static evhtp_t*
 create_htp(evbase_t* evbase, server_cfg_t* server_cfg)
@@ -946,7 +980,7 @@ create_htp(evbase_t* evbase, server_cfg_t* server_cfg)
     /* for each vhost, create a child virtual host and stick it in our main
      * evhtp structure.
      */
-    lztq_for_each(server_cfg->vhosts, add_vhost, htp);
+    lztq_for_each(server_cfg->vhosts, add_evhtp_vhost, htp);
 
     struct timeval* tv_read  = NULL;
     /* if configured, set our upstream connection's read/write timeouts */
@@ -974,6 +1008,89 @@ create_htp(evbase_t* evbase, server_cfg_t* server_cfg)
     return htp;
 } /* create_htp */
 
+typedef struct add_server_ctx add_server_ctx_t;
+struct add_server_ctx {
+    const rproxy_hooks_t* hooks;
+    rproxy_cfg_t* rproxy_cfg;
+    evbase_t* evbase;
+};
+
+static int
+add_server(lztq_elem* elem, void* arg)
+{
+    NOISY_MSG_("(%p, %p)", elem, arg);
+
+    server_cfg_t* server_cfg = lztq_elem_data(elem);
+    g_assert(server_cfg != NULL);
+
+    g_info("Server %s(%s:%d)", server_cfg->name, server_cfg->bind_addr, server_cfg->bind_port);
+
+    add_server_ctx_t* server_ctx = arg;
+    thread_ctx_t* thread_ctx = g_atomic_rc_box_new0(thread_ctx_t);
+    thread_ctx->m_hooks = server_ctx->hooks;
+    thread_ctx->m_rproxy_cfg = server_ctx->rproxy_cfg;
+    thread_ctx->m_server_cfg = server_cfg;
+
+    // Use a single listener for all workers unless the
+    // enable-workers-listen cfg option is set.
+    if (server_cfg->enable_workers_listen)
+    {
+        evthr_pool_t* workers = evthr_pool_wexit_new(server_cfg->num_threads,
+                                                        htp_worker_thread_init,
+                                                        htp_worker_thread_exit,
+                                                        thread_ctx);
+        g_assert(workers != NULL);
+
+        evthr_pool_start(workers);
+
+        server_cfg->m_thr_pool = workers;
+    }
+    else
+    {
+        evhtp_t* htp = create_htp(server_ctx->evbase, server_cfg);
+        g_assert(htp != NULL);
+
+        /* use a worker thread pool for connections, and for each
+            * thread that is initialized call the rproxy_thread_init
+            * function. rproxy_thread_init will create a new rproxy_t
+            * instance for each of the threads
+            */
+        evhtp_use_threads_wexit(htp,
+                                rproxy_thread_init,
+                                rproxy_thread_exit,
+                                server_cfg->num_threads,
+                                thread_ctx);
+
+        if (evhtp_bind_socket(htp,
+                                server_cfg->bind_addr,
+                                server_cfg->bind_port,
+                                server_cfg->listen_backlog) < 0)
+        {
+            int err = errno;
+            g_error("unable to bind to %s:%d (%s)",
+                    server_cfg->bind_addr,
+                    server_cfg->bind_port,
+                    g_strerror(err));
+            exit(-1);
+        }
+
+        if (server_cfg->disable_server_nagle)
+        {
+            LOGD("disabling nagle");
+
+            // Disable the tcp nagle algorithm for the listener socket.
+            evutil_socket_t sock = evconnlistener_get_fd(htp->server);
+            g_assert(sock >= 0);
+            setsockopt(sock, IPPROTO_TCP, TCP_NODELAY, (int[]) { 1 }, sizeof(int));
+        }
+
+        server_cfg->m_htp = htp;
+    }
+
+    server_cfg->m_arg = thread_ctx;
+
+    return 0;
+}
 static bool
 rproxy_init(evbase_t* evbase, rproxy_cfg_t* cfg, const rproxy_hooks_t* hooks)
 {
@@ -989,17 +1106,25 @@ rproxy_init(evbase_t* evbase, rproxy_cfg_t* cfg, const rproxy_hooks_t* hooks)
         return false;
     }
 
+    add_server_ctx_t server_ctx = {
+        .hooks = hooks,
+        .rproxy_cfg = cfg,
+        .evbase = evbase
+    };
+
     // Iterate over each server_cfg, and set up evhtp stuff.
-    lztq_elem* serv_elem = lztq_first(cfg->servers);
-    while (serv_elem)
+    lztq_for_each(cfg->servers, add_server, &server_ctx);
+#if 0
+    for (lztq_elem* elem = lztq_first(cfg->servers); elem; elem = lztq_next(elem))
     {
-        server_cfg_t* server_cfg = lztq_elem_data(serv_elem);
+        server_cfg_t* server_cfg = lztq_elem_data(elem);
         g_assert(server_cfg != NULL);
 
         LOGD("server %p(%s:%d)", server_cfg, server_cfg->bind_addr, server_cfg->bind_port);
 
         thread_ctx_t* thread_ctx = g_atomic_rc_box_new0(thread_ctx_t);
         thread_ctx->m_hooks = hooks;
+        thread_ctx->m_rproxy_cfg = cfg;
         thread_ctx->m_server_cfg = server_cfg;
 
         // Use a single listener for all workers unless the
@@ -1058,9 +1183,8 @@ rproxy_init(evbase_t* evbase, rproxy_cfg_t* cfg, const rproxy_hooks_t* hooks)
         }
 
         server_cfg->m_arg = thread_ctx;
-
-        serv_elem = lztq_next(serv_elem);
     }
+#endif//0
 
     NOISY_MSG_("done");
     return true;
@@ -1211,6 +1335,18 @@ clear_rp_instances(void)
     g_clear_object(&transport_socket_factory);
     g_clear_object(&factory_context);
     g_clear_object(&server);
+}
+
+bool
+rproxy_add_server_cfg(rproxy_cfg_t* rproxy_cfg, const char* server_cfg_buf)
+{
+    LOGD("(%p, %p(%s))", rproxy_cfg, server_cfg_buf, server_cfg_buf);
+
+    g_return_val_if_fail(rproxy_cfg != NULL, false);
+    g_return_val_if_fail(server_cfg_buf != NULL, false);
+    g_return_val_if_fail(server_cfg_buf[0] != 0, false);
+
+    return rproxy_cfg_parse_server_buf(rproxy_cfg, server_cfg_buf);
 }
 
 int

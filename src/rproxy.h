@@ -441,7 +441,6 @@ struct rproxy {
     evthr_t           * thr;
     evbase_t          * evbase;
     struct evdns_base * dns_base;
-    event_t           * request_ev;
     server_cfg_t      * server_cfg;
 #ifdef WITH_LOGGER
     logger_t          * request_log;              /* server specific request logging */
@@ -468,6 +467,8 @@ struct rproxy {
 * Configuration parsing function definitions.
 ************************************************/
 rproxy_cfg_t * rproxy_cfg_parse(const char * filename);
+bool rproxy_cfg_parse_server_buf(rproxy_cfg_t* rproxy_cfg,
+                                    const char* server_cfg_buf);
 void rproxy_cfg_free(rproxy_cfg_t * cfg);
 upstream_cfg_t* upstream_cfg_parse(cfg_t* cfg);
 server_cfg_t* server_cfg_parse(cfg_t* cfg);
@@ -582,8 +583,10 @@ rproxy_hooks_ctor(bool (* cfg_init)(rproxy_cfg_t*, void*), void* cfg_init_arg,
     return hooks;
 }
 int rproxy_main(int argc, char** argv, const rproxy_hooks_t* hooks);
+bool rproxy_add_server_cfg(rproxy_cfg_t* rproxy_cfg, const char* server_cfg_buf);
 
 struct thread_ctx {
+    rproxy_cfg_t* m_rproxy_cfg;
     server_cfg_t* m_server_cfg;
     const rproxy_hooks_t* m_hooks;
     volatile gint n_processing;     /**< number of in-flight requests */
