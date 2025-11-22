@@ -19,6 +19,7 @@ struct RpCustomHeaderValues_s {
     //TODO...
     const char* ContentEncoding;
     //TODO...
+    const char* Origin;
     const char* Referer;
 
     struct {

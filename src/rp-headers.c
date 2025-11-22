@@ -17,6 +17,7 @@ struct RpCustomHeaderValues_s RpCustomHeaderValues = {
     .Accept = "accept",
     .AcceptEncoding = "accept-encoding",
     .ContentEncoding = "content-encoding",
+    .Origin = "origin",
     .Referer = "referer",
 
     .AcceptEncodingValues = {

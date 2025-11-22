@@ -303,19 +303,18 @@ void
 rp_active_stream_filter_base_common_handle_buffer_data(RpActiveStreamFilterBase* self,
                                                         evbuf_t* provided_data)
 {
-    NOISY_MSG_("(%p, %p(%zu))", self, provided_data, provided_data ? evbuffer_get_length(provided_data) : 0);
+    NOISY_MSG_("(%p, %p(%zu))", self, provided_data, evbuf_length(provided_data));
     g_return_if_fail(RP_IS_ACTIVE_STREAM_FILTER_BASE(self));
     g_return_if_fail(provided_data != NULL);
     evbuf_t* buffered_data = rp_active_stream_filter_base_buffered_data(self);
-NOISY_MSG_("buffered data %p(%zu), provided data %p(%zu)", buffered_data, buffered_data ? evbuffer_get_length(buffered_data) : 0, provided_data, evbuffer_get_length(provided_data));
     if (buffered_data != provided_data)
     {
         if (!buffered_data)
         {
+            NOISY_MSG_("creating buffered_data buffer");
             buffered_data = rp_active_stream_filter_base_create_buffer(self);
         }
         evbuffer_add_buffer(buffered_data, provided_data);
-NOISY_MSG_("buffered data %p(%zu), provided data %p(%zu)", buffered_data, evbuffer_get_length(buffered_data), provided_data, evbuffer_get_length(provided_data));
     }
 }
 
@@ -385,7 +384,7 @@ rp_active_stream_filter_base_common_handle_after_data_callback(RpActiveStreamFil
                                                                 bool* buffer_was_streaming)
 {
     NOISY_MSG_("(%p, %d, %p(%zu), %p)",
-        self, status, provided_data, provided_data ? evbuffer_get_length(provided_data) : 0, buffer_was_streaming);
+        self, status, provided_data, evbuf_length(provided_data), buffer_was_streaming);
 
     g_return_val_if_fail(RP_IS_ACTIVE_STREAM_FILTER_BASE(self), false);
 
@@ -393,6 +392,7 @@ rp_active_stream_filter_base_common_handle_after_data_callback(RpActiveStreamFil
 
     if (status == RpFilterDataStatus_Continue)
     {
+        NOISY_MSG_("RpFilterDataStatus_Continue");
         if (me->m_iteration_state == RpIterationState_StopSingleIteration)
         {
             rp_active_stream_filter_base_common_handle_buffer_data(self, provided_data);
@@ -411,6 +411,7 @@ rp_active_stream_filter_base_common_handle_after_data_callback(RpActiveStreamFil
         if (status == RpFilterDataStatus_StopIterationAndBuffer ||
             status == RpFilterDataStatus_StopIterationAndWatermark)
         {
+            NOISY_MSG_("%s", status == RpFilterDataStatus_StopIterationAndBuffer ? "RpFilterDataStatus_StopIterationAndBuffer" : "RpFilterDataStatus_StopIterationAndWatermark");
             *buffer_was_streaming = status == RpFilterDataStatus_StopIterationAndWatermark;
             rp_active_stream_filter_base_common_handle_buffer_data(self, provided_data);
         }
@@ -436,7 +437,6 @@ rp_active_stream_filter_base_stopped_all(RpActiveStreamFilterBase* self)
 {
     NOISY_MSG_("(%p)", self);
     g_return_val_if_fail(RP_IS_ACTIVE_STREAM_FILTER_BASE(self), false);
-NOISY_MSG_("iteration state %d", PRIV(self)->m_iteration_state);
     return PRIV(self)->m_iteration_state == RpIterationState_StopAllBuffer ||
             PRIV(self)->m_iteration_state == RpIterationState_StopAllWatermark;
 }
@@ -556,7 +556,7 @@ rp_active_stream_filter_base_send_local_reply(RpActiveStreamFilterBase* self, ev
                                                 modify_headers_cb modify_headers, const char* details, void* arg)
 {
     LOGD("(%p, %d, %p(%zu), %p, %p, %p)",
-        self, code, body, body ? evbuffer_get_length(body) : 0, modify_headers, details, arg);
+        self, code, body, evbuf_length(body), modify_headers, details, arg);
     //TODO:...
     rp_filter_manager_send_local_reply(PRIV(self)->m_parent,
                                         code,

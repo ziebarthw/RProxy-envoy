@@ -70,8 +70,10 @@ static RpRequestEncoder*
 new_stream_i(RpHttpClientConnection* self, RpResponseDecoder* response_decoder)
 {
     NOISY_MSG_("(%p, %p)", self, response_decoder);
-    //TODO...debug asserts()
     RpHttp1ClientConnectionImpl* me = RP_HTTP1_CLIENT_CONNECTION_IMPL(self);
+    g_assert(rp_network_connection_read_enabled(rp_http1_connection_impl_connection_(RP_HTTP1_CONNECTION_IMPL(self))));
+    g_assert(!me->m_pending_response);
+    g_assert(me->m_pending_response_done);
     me->m_pending_response = PendingResponse_new(RP_HTTP1_CONNECTION_IMPL(self), response_decoder);
     me->m_pending_response_done = false;
     return RP_REQUEST_ENCODER(me->m_pending_response->m_encoder);
@@ -149,6 +151,7 @@ on_headers_complete_base(RpHttp1ConnectionImpl* self)
     if (!me->m_pending_response && !rp_http1_connection_impl_reset_stream_called(self))
     {
 //TODO...
+NOISY_MSG_("No pending response and reset stream not called - premature response?");
 return RpStatusCode_PrematureResponseError;
     }
     else if (me->m_pending_response)
@@ -270,6 +273,7 @@ on_reset_stream(RpHttp1ConnectionImpl* self, RpStreamResetReason_e reason)
     RpHttp1ClientConnectionImpl* me = RP_HTTP1_CLIENT_CONNECTION_IMPL(self);
     if (me->m_pending_response && !me->m_pending_response_done)
     {
+        NOISY_MSG_("Running reset callbacks for pending response.");
         rp_stream_callback_helper_run_reset_callbacks(RP_STREAM_CALLBACK_HELPER(me->m_pending_response->m_encoder), reason, "");
         me->m_pending_response_done = true;
         g_clear_pointer(&me->m_pending_response, PendingResponse_free);
@@ -306,7 +310,7 @@ static void
 rp_http1_client_connection_impl_init(RpHttp1ClientConnectionImpl* self)
 {
     NOISY_MSG_("(%p)", self);
-    self->m_pending_response_done = false;
+    self->m_pending_response_done = true;
 }
 
 RpHttp1ClientConnectionImpl*

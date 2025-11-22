@@ -54,7 +54,7 @@ encode_headers_i(RpRequestEncoder* self, evhtp_headers_t* request_headers, bool 
     else if (is_connect)
     {
         rp_http1_stream_encoder_options_disable_chunk_encoding(RP_HTTP1_STREAM_ENCODER_OPTIONS(self));
-        rp_network_connection_enable_half_close(rp_http1_connection_impl_connection(me->m_connection), true);
+        rp_network_connection_enable_half_close(rp_http1_connection_impl_connection_(me->m_connection), true);
         rp_stream_encoder_impl_set_connection_request(RP_STREAM_ENCODER_IMPL(self), true);
     }
     if (http_utility_is_upgrade(request_headers))

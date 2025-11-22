@@ -32,46 +32,7 @@ struct _RpUpstreamFilterManager {
     RpUpstreamRequest* m_upstream_request;
 };
 
-enum
-{
-    PROP_0, // Reserved.
-    PROP_UPSTREAM_REQUEST,
-    N_PROPERTIES
-};
-
-static GParamSpec* obj_properties[N_PROPERTIES] = { NULL, };
-
 G_DEFINE_FINAL_TYPE(RpUpstreamFilterManager, rp_upstream_filter_manager, RP_TYPE_FILTER_MANAGER)
-
-OVERRIDE void
-get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p)", obj, prop_id, value, pspec);
-    switch (prop_id)
-    {
-        case PROP_UPSTREAM_REQUEST:
-            g_value_set_object(value, RP_UPSTREAM_FILTER_MANAGER(obj)->m_upstream_request);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
-set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p)", obj, prop_id, value, pspec);
-    switch (prop_id)
-    {
-        case PROP_UPSTREAM_REQUEST:
-            RP_UPSTREAM_FILTER_MANAGER(obj)->m_upstream_request = g_value_get_object(value);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
 
 OVERRIDE void
 dispose(GObject* object)
@@ -120,19 +81,9 @@ rp_upstream_filter_manager_class_init(RpUpstreamFilterManagerClass* klass)
     LOGD("(%p)", klass);
 
     GObjectClass* object_class = G_OBJECT_CLASS(klass);
-    object_class->get_property = get_property;
-    object_class->set_property = set_property;
     object_class->dispose = dispose;
 
     filter_manager_class_init(RP_FILTER_MANAGER_CLASS(klass));
-
-    obj_properties[PROP_UPSTREAM_REQUEST] = g_param_spec_object("upstream-request",
-                                                    "Upstream request",
-                                                    "UpstreamRequest Instance",
-                                                    RP_TYPE_UPSTREAM_REQUEST,
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-
-    g_object_class_install_properties(object_class, N_PROPERTIES, obj_properties);
 }
 
 static void
@@ -156,12 +107,13 @@ rp_upstream_filter_manager_new(RpFilterManagerCallbacks* filter_manager_callback
     g_return_val_if_fail(RP_IS_FILTER_MANAGER_CALLBACKS(filter_manager_callbacks), NULL);
     g_return_val_if_fail(RP_IS_NETWORK_CONNECTION(connection), NULL);
     g_return_val_if_fail(RP_IS_UPSTREAM_REQUEST(request), NULL);
-    return g_object_new(RP_TYPE_UPSTREAM_FILTER_MANAGER,
-                        "filter-manager-callbacks", filter_manager_callbacks,
-                        "dispatcher", dispatcher,
-                        "connection", connection,
-                        "proxy-100-continue", proxy_100_continue,
-                        "buffer-limit", buffer_limit,
-                        "upstream-request", request,
-                        NULL);
+    RpUpstreamFilterManager* self = g_object_new(RP_TYPE_UPSTREAM_FILTER_MANAGER,
+                                                    "filter-manager-callbacks", filter_manager_callbacks,
+                                                    "dispatcher", dispatcher,
+                                                    "connection", connection,
+                                                    "proxy-100-continue", proxy_100_continue,
+                                                    "buffer-limit", buffer_limit,
+                                                    NULL);
+    self->m_upstream_request = request;
+    return self;
 }

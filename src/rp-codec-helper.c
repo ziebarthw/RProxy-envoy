@@ -99,6 +99,7 @@ rp_stream_callback_helper_remove_callbacks_helper(RpStreamCallbackHelper* self, 
         RpStreamCallbacks* callback = g_array_index(me->m_callbacks, RpStreamCallbacks*, i);
         if (callback == callbacks)
         {
+            NOISY_MSG_("clearing element at index %u", i);
             g_array_index(me->m_callbacks, RpStreamCallbacks*, i) = NULL;
             return;
         }
@@ -157,6 +158,7 @@ rp_stream_callback_helper_run_reset_callbacks(RpStreamCallbackHelper* self, RpSt
     RpStreamCallbackHelperPrivate* me = PRIV(self);
     if (me->m_reset_callbacks_started)
     {
+        NOISY_MSG_("reset callbacks already started, returning");
         return;
     }
 
@@ -164,6 +166,7 @@ rp_stream_callback_helper_run_reset_callbacks(RpStreamCallbackHelper* self, RpSt
     for (gint i=0; i < me->m_callbacks->len; ++i)
     {
         RpStreamCallbacks* callbacks = g_array_index(me->m_callbacks, RpStreamCallbacks*, i);
+        NOISY_MSG_("%d/%u) running reset callback for %p", i, me->m_callbacks->len, callbacks);
         rp_stream_callbacks_on_reset_stream(callbacks, reason, details);
     }
 }

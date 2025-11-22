@@ -18,10 +18,6 @@
 
 #include "rp-pass-through-filter.h"
 
-#ifndef OVERRIDE
-#define OVERRIDE static
-#endif
-
 typedef struct _RpPassThroughFilterPrivate RpPassThroughFilterPrivate;
 struct _RpPassThroughFilterPrivate {
     RpStreamDecoderFilterCallbacks* m_decoder_callbacks;
@@ -83,7 +79,7 @@ decode_headers_i(RpStreamDecoderFilter* self G_GNUC_UNUSED, evhtp_headers_t* req
 static RpFilterDataStatus_e
 decode_data_i(RpStreamDecoderFilter* self G_GNUC_UNUSED, evbuf_t* data G_GNUC_UNUSED, bool end_stream G_GNUC_UNUSED)
 {
-    NOISY_MSG_("(%p, %p(%zu), %u)", self, data, evbuffer_get_length(data), end_stream);
+    NOISY_MSG_("(%p, %p(%zu), %u)", self, data, evbuf_length(data), end_stream);
     return RpFilterDataStatus_Continue;
 }
 
@@ -120,7 +116,7 @@ encode_headers_i(RpStreamEncoderFilter* self G_GNUC_UNUSED, evhtp_headers_t* res
 static RpFilterDataStatus_e
 encode_data_i(RpStreamEncoderFilter* self G_GNUC_UNUSED, evbuf_t* data G_GNUC_UNUSED, bool end_stream G_GNUC_UNUSED)
 {
-    NOISY_MSG_("(%p, %p(%zu), %u)", self, data, data ? evbuffer_get_length(data) : 0, end_stream);
+    NOISY_MSG_("(%p, %p(%zu), %u)", self, data, evbuf_length(data), end_stream);
     return RpFilterDataStatus_Continue;
 }
 

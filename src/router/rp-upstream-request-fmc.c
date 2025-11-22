@@ -30,15 +30,6 @@ struct _RpUpstreamRequestFmc {
     RpUpstreamRequest* m_upstream_request;
 };
 
-enum
-{
-    PROP_0, // Reserved.
-    PROP_UPSTREAM_REQUEST,
-    N_PROPERTIES
-};
-
-static GParamSpec* obj_properties[N_PROPERTIES] = { NULL, };
-
 static void filter_manager_callbacks_iface_init(RpFilterManagerCallbacksInterface* iface);
 static void upstream_stream_filter_callbacks_iface_init(RpUpstreamStreamFilterCallbacksInterface* iface);
 
@@ -68,8 +59,7 @@ encode_1xx_headers_i(RpFilterManagerCallbacks* self, evhtp_headers_t* response_h
 static void
 encode_data_i(RpFilterManagerCallbacks* self, evbuf_t* data, bool end_stream)
 {
-    NOISY_MSG_("(%p, %p(%zu), %u)",
-        self, data, data ? evbuffer_get_length(data) : 0, end_stream);
+    NOISY_MSG_("(%p, %p(%zu), %u)", self, data, evbuf_length(data), end_stream);
     RpUpstreamRequestFmc* me = RP_UPSTREAM_REQUEST_FMC(self);
     RpStreamDecoder* stream_decoder = RP_STREAM_DECODER(me->m_upstream_request);
     rp_stream_decoder_decode_data(stream_decoder, data, end_stream);
@@ -110,9 +100,7 @@ request_headers_i(RpFilterManagerCallbacks* self)
 {
     NOISY_MSG_("(%p)", self);
     RpUpstreamRequest* upstream_request = RP_UPSTREAM_REQUEST_FMC(self)->m_upstream_request;
-NOISY_MSG_("upstream_request %p", upstream_request);
     RpRouterFilterInterface* parent_ = rp_upstream_request_parent_(upstream_request);
-NOISY_MSG_("parent %p", parent_);
     return rp_router_filter_interface_downstream_headers(parent_);
 }
 
@@ -367,36 +355,6 @@ upstream_stream_filter_callbacks_iface_init(RpUpstreamStreamFilterCallbacksInter
 }
 
 OVERRIDE void
-get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_UPSTREAM_REQUEST:
-            g_value_set_object(value, RP_UPSTREAM_REQUEST_FMC(obj)->m_upstream_request);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
-set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_UPSTREAM_REQUEST:
-            RP_UPSTREAM_REQUEST_FMC(obj)->m_upstream_request = g_value_get_object(value);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
 dispose(GObject* obj)
 {
     NOISY_MSG_("(%p)", obj);
@@ -409,17 +367,7 @@ rp_upstream_request_fmc_class_init(RpUpstreamRequestFmcClass* klass)
     LOGD("(%p)", klass);
 
     GObjectClass* object_class = G_OBJECT_CLASS(klass);
-    object_class->get_property = get_property;
-    object_class->set_property = set_property;
     object_class->dispose = dispose;
-
-    obj_properties[PROP_UPSTREAM_REQUEST] = g_param_spec_object("upstream-request",
-                                                    "Upstream request",
-                                                    "UpstreamRequest Instance",
-                                                    RP_TYPE_UPSTREAM_REQUEST,
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-
-    g_object_class_install_properties(object_class, N_PROPERTIES, obj_properties);
 }
 
 static void
@@ -433,7 +381,7 @@ rp_upstream_request_fmc_new(RpUpstreamRequest* upstream_request)
 {
     LOGD("(%p)", upstream_request);
     g_return_val_if_fail(RP_IS_UPSTREAM_REQUEST(upstream_request), NULL);
-    return g_object_new(RP_TYPE_UPSTREAM_REQUEST_FMC,
-                        "upstream-request", upstream_request,
-                        NULL);
+    RpUpstreamRequestFmc* self = g_object_new(RP_TYPE_UPSTREAM_REQUEST_FMC, NULL);
+    self->m_upstream_request = upstream_request;
+    return self;
 }

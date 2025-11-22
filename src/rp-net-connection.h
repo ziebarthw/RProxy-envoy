@@ -255,6 +255,12 @@ rp_network_connection_detect_early_close_when_read_disabled(RpNetworkConnection*
     if (RP_IS_NETWORK_CONNECTION(self)) \
         RP_NETWORK_CONNECTION_GET_IFACE(self)->detect_early_close_when_read_disabled(self, should_detect);
 }
+static inline bool
+rp_network_connection_read_enabled(RpNetworkConnection* self)
+{
+    return RP_IS_NETWORK_CONNECTION(self) ?
+        RP_NETWORK_CONNECTION_GET_IFACE(self)->read_enabled(self) : false;
+}
 static inline RpConnectionInfoSetter*
 rp_network_connection_connection_info_setter(RpNetworkConnection* self)
 {

@@ -66,13 +66,10 @@ static void
 reset_all_streams(RpHttpConnectionManagerImpl* self/*, response_flag*/, const char* details)
 {
     NOISY_MSG_("(%p, %p(%s))", self, details, details);
-NOISY_MSG_("streams %p", self->m_streams);
     while (self->m_streams)
     {
         RpHttpConnMgrImplActiveStream* stream = self->m_streams->data;
-NOISY_MSG_("removing stream %p", stream);
         self->m_streams = g_slist_remove(self->m_streams, stream);
-NOISY_MSG_("streams %p", self->m_streams);
         rp_stream_remove_callbacks(
             rp_stream_encoder_get_stream(
                 RP_STREAM_ENCODER(rp_http_conn_mgr_impl_active_stream_response_encoder(stream))), RP_STREAM_CALLBACKS(stream));
@@ -91,9 +88,9 @@ do_connection_close(RpHttpConnectionManagerImpl* self, RpNetworkConnectionCloseT
 
     //TODO...if (drain_timer_)
 
-NOISY_MSG_("streams %p", self->m_streams);
     if (self->m_streams)
     {
+        NOISY_MSG_("resetting all streams");
         //TODO...event
         //TODO...user_agent_.onConnectionDestroy();
         reset_all_streams(self, details);
@@ -102,7 +99,7 @@ NOISY_MSG_("streams %p", self->m_streams);
     RpNetworkConnection* connection = rp_network_filter_callbacks_connection(RP_NETWORK_FILTER_CALLBACKS(self->m_read_callbacks));
     if (close_type != RpNetworkConnectionCloseType_None)
     {
-NOISY_MSG_("here");
+        NOISY_MSG_("closing");
         rp_network_connection_close(connection, close_type/*details*/);
     }
 }
@@ -113,7 +110,6 @@ check_for_deferred_close(RpHttpConnectionManagerImpl* self, bool skip_delay_clos
     NOISY_MSG_("(%p, %u)", self, skip_delay_close);
     RpNetworkConnectionCloseType_e close_type = RpNetworkConnectionCloseType_FlushWrite;//TODO... RpNetworkConnectionCloseType_FlushWriteAndDelay;
     //TODO...
-NOISY_MSG_("drain state %d(%u), streams.empty() %u", self->m_drain_state, self->m_drain_state == RpDrainState_Closing, !self->m_streams);
     if (self->m_drain_state == RpDrainState_Closing &&
         !self->m_streams &&
         !rp_http_connection_wants_to_write(RP_HTTP_CONNECTION(self->m_codec)))
@@ -130,14 +126,14 @@ on_event_i(RpNetworkConnectionCallbacks* self, RpNetworkConnectionEvent_e event)
 
     if (event == RpNetworkConnectionEvent_LocalClose)
     {
-        NOISY_MSG_("local close");
+        NOISY_MSG_("localClose");
         //TODO...stats_.named_.downstream_cx...
     }
 
     if (event == RpNetworkConnectionEvent_RemoteClose ||
         event == RpNetworkConnectionEvent_LocalClose)
     {
-NOISY_MSG_("%s", event == RpNetworkConnectionEvent_RemoteClose ? "RemoteClose" : "LocalClose");
+        NOISY_MSG_("%s", event == RpNetworkConnectionEvent_RemoteClose ? "RemoteClose" : "LocalClose");
         RpHttpConnectionManagerImpl* me = RP_HTTP_CONNECTION_MANAGER_IMPL(self);
         const char* details;
         if (event == RpNetworkConnectionEvent_RemoteClose)
@@ -284,7 +280,6 @@ new_stream_i(RpHttpServerConnectionCallbacks* self, RpResponseEncoder* response_
     RpStream* stream = rp_stream_encoder_get_stream(RP_STREAM_ENCODER(response_encoder));
     guint32 buffer_limit = rp_stream_buffer_limit(stream);
     RpHttpConnMgrImplActiveStream* new_stream = rp_http_conn_mgr_impl_active_stream_new(me, buffer_limit);
-NOISY_MSG_("new stream %p", new_stream);
 
     ++me->m_accumulated_requests;
     guint64 max_requests_per_connection = rp_connection_manager_config_max_requests_per_connection(me->m_config);
@@ -305,11 +300,7 @@ NOISY_MSG_("new stream %p", new_stream);
     rp_stream_register_codec_event_callbacks(stream, RP_CODEC_EVENT_CALLBACKS(new_stream));
     rp_stream_set_flush_timeout(stream, rp_http_conn_mgr_impl_active_stream_get_idle_timeout(new_stream));
 
-NOISY_MSG_("streams %p", me->m_streams);
-//    me->m_streams = g_slist_prepend(me->m_streams, new_stream);
-me->m_streams = g_slist_append(me->m_streams, new_stream);
-NOISY_MSG_("appended stream %p", new_stream);
-NOISY_MSG_("streams %p", me->m_streams);
+    me->m_streams = g_slist_append(me->m_streams, new_stream);
 
     return RP_REQUEST_DECODER(new_stream);
 }
@@ -535,11 +526,6 @@ rp_http_connection_manager_impl_do_end_stream(RpHttpConnectionManagerImpl* self,
     RpDownstreamFilterManager* filter_manager = rp_http_conn_mgr_impl_active_stream_filter_manager_(stream);
     bool reset_stream = false;
 
-NOISY_MSG_("response encoder %p, last byte recvd %u, saw local complete %u",
-    rp_http_conn_mgr_impl_active_stream_response_encoder(stream),
-    rp_downstream_filter_manager_has_last_downstream_byte_received(filter_manager),
-    rp_http_conn_mgr_impl_active_stream_get_codec_saw_local_complete(stream));
-
     if (rp_http_conn_mgr_impl_active_stream_response_encoder(stream) &&
         (!rp_downstream_filter_manager_has_last_downstream_byte_received(filter_manager) ||
             !rp_http_conn_mgr_impl_active_stream_get_codec_saw_local_complete(stream)))
@@ -590,17 +576,12 @@ NOISY_MSG_("response encoder %p, last byte recvd %u, saw local complete %u",
 
     if (check_for_deferred_close_flag)
     {
-NOISY_MSG_("checking for deferred close flag");
         evhtp_headers_t* response_headers = rp_http_conn_mgr_impl_active_stream_response_headers_(stream);
-NOISY_MSG_("response headers %p", response_headers);
         bool http_10_sans_cl = (rp_http_connection_protocol(RP_HTTP_CONNECTION(self->m_codec)) == EVHTP_PROTO_10) &&
                                 (!response_headers || !evhtp_header_find(response_headers, RpHeaderValues.ContentLength));
-NOISY_MSG_("http 10 sans cl %u", http_10_sans_cl);
         RpStreamInfo* stream_info = rp_filter_manager_stream_info(RP_FILTER_MANAGER(filter_manager));
         bool connection_close = rp_stream_info_should_drain_connection_upon_completion(stream_info);
-NOISY_MSG_("connection close %u", connection_close);
         bool request_complete = rp_downstream_filter_manager_has_last_downstream_byte_received(filter_manager);
-NOISY_MSG_("request complete %u", request_complete);
         check_for_deferred_close(self, connection_close && (request_complete || http_10_sans_cl));
     }
 }
@@ -632,8 +613,6 @@ rp_http_connection_manager_impl_should_keep_alive_(RpHttpConnectionManagerImpl* 
 {
     NOISY_MSG_("(%p)", self);
     g_return_val_if_fail(RP_IS_HTTP_CONNECTION_MANAGER_IMPL(self), false);
-NOISY_MSG_("rp_http_connection_should_keep_alive(%p) %u",
-    RP_HTTP_CONNECTION(self->m_codec), rp_http_connection_should_keep_alive(RP_HTTP_CONNECTION(self->m_codec)));
     return rp_http_connection_should_keep_alive(RP_HTTP_CONNECTION(self->m_codec));
 }
 

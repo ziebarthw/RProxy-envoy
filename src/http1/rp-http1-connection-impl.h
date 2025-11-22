@@ -124,7 +124,7 @@ rp_http1_connection_impl_send_protocol_error(RpHttp1ConnectionImpl* self, const 
         RP_HTTP1_CONNECTION_IMPL_GET_CLASS(self)->send_protocol_error(self, details) :
         RpStatusCode_Ok;
 }
-RpNetworkConnection* rp_http1_connection_impl_connection(RpHttp1ConnectionImpl* self);
+RpNetworkConnection* rp_http1_connection_impl_connection_(RpHttp1ConnectionImpl* self);
 guint64 rp_http1_connection_impl_flush_output(RpHttp1ConnectionImpl* self, bool end_encode/*=false*/);
 void rp_http1_connection_impl_buffer_add(RpHttp1ConnectionImpl* self, const char* data, size_t len);
 void rp_http1_connection_impl_buffer_move(RpHttp1ConnectionImpl* self, evbuf_t* data);

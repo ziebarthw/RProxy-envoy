@@ -20,6 +20,13 @@
 #include "rp-request-encoder-wrapper.h"
 #include "http1/rp-active-client-stream-wrapper.h"
 
+#define ENCODER(s) RP_ACTIVE_CLIENT_STREAM_WRAPPER(s)->m_request_encoder
+#define STREAM_ENCODER(s) RP_STREAM_ENCODER(ENCODER(s))
+#define REQUEST_ENCODER(s) RP_REQUEST_ENCODER(ENCODER(s))
+#define DECODER(s) RP_ACTIVE_CLIENT_STREAM_WRAPPER(s)->m_response_decoder
+#define STREAM_DECODER(s) RP_STREAM_DECODER(DECODER(s))
+#define RESPONSE_DECODER(s) RP_RESPONSE_DECODER(DECODER(s))
+
 struct _RpActiveClientStreamWrapper {
     GObject parent_instance;
 
@@ -82,8 +89,7 @@ static void
 decode_data_i(RpStreamDecoder* self, evbuf_t* data, bool end_stream)
 {
     NOISY_MSG_("(%p, %p(%zu), %u)", self, data, evbuf_length(data), end_stream);
-    RpActiveClientStreamWrapper* me = RP_ACTIVE_CLIENT_STREAM_WRAPPER(self);
-    rp_stream_decoder_decode_data(RP_STREAM_DECODER(me->m_response_decoder), data, end_stream);
+    rp_stream_decoder_decode_data(STREAM_DECODER(self), data, end_stream);
 }
 
 static void
@@ -97,8 +103,7 @@ static void
 decode_1xx_headers_i(RpResponseDecoder* self, evhtp_headers_t* response_headers)
 {
     NOISY_MSG_("(%p, %p)", self, response_headers);
-    RpActiveClientStreamWrapper* me = RP_ACTIVE_CLIENT_STREAM_WRAPPER(self);
-    rp_response_decoder_decode_1xx_headers(RP_RESPONSE_DECODER(me->m_response_decoder), response_headers);
+    rp_response_decoder_decode_1xx_headers(RESPONSE_DECODER(self), response_headers);
 }
 
 static void
@@ -108,7 +113,7 @@ decode_headers_i(RpResponseDecoder* self, evhtp_headers_t* response_headers, boo
     RpActiveClientStreamWrapper* me = RP_ACTIVE_CLIENT_STREAM_WRAPPER(self);
     RpCodecClient* codec_client_ = rp_http_conn_pool_base_active_client_codec_client_(RP_HTTP_CONN_POOL_BASE_ACTIVE_CLIENT(me->m_parent));
     me->m_close_connection = rp_header_utility_should_close_connection(rp_codec_client_protocol(codec_client_), response_headers);
-    rp_response_decoder_decode_headers(RP_RESPONSE_DECODER(me->m_response_decoder), response_headers, end_stream);
+    rp_response_decoder_decode_headers(RESPONSE_DECODER(self), response_headers, end_stream);
 }
 
 static void
@@ -130,8 +135,14 @@ static RpStream*
 get_stream_i(RpStreamEncoder* self)
 {
     NOISY_MSG_("(%p)", self);
-    RpActiveClientStreamWrapper* me = RP_ACTIVE_CLIENT_STREAM_WRAPPER(self);
-    return rp_stream_encoder_get_stream(RP_STREAM_ENCODER(me->m_request_encoder));
+    return rp_stream_encoder_get_stream(STREAM_ENCODER(self));
+}
+
+static void
+encode_data_i(RpStreamEncoder* self, evbuf_t* data, bool end_stream)
+{
+    NOISY_MSG_("(%p, %p(%zu), %u)", self, data, evbuf_length(data), end_stream);
+    rp_stream_encoder_encode_data(STREAM_ENCODER(self), data, end_stream);
 }
 
 static void
@@ -139,22 +150,21 @@ stream_encoder_iface_init(RpStreamEncoderInterface* iface)
 {
     LOGD("(%p)", iface);
     iface->get_stream = get_stream_i;
+    iface->encode_data = encode_data_i;
 }
 
 static RpStatusCode_e
 encode_headers_i(RpRequestEncoder* self, evhtp_headers_t* request_headers, bool end_stream)
 {
     NOISY_MSG_("(%p, %p, %u)", self, request_headers, end_stream);
-    RpActiveClientStreamWrapper* me = RP_ACTIVE_CLIENT_STREAM_WRAPPER(self);
-    return rp_request_encoder_encode_headers(RP_REQUEST_ENCODER(me->m_request_encoder), request_headers, end_stream);
+    return rp_request_encoder_encode_headers(REQUEST_ENCODER(self), request_headers, end_stream);
 }
 
 static void
 encode_trailers_i(RpRequestEncoder* self, evhtp_headers_t* trailers)
 {
     NOISY_MSG_("(%p, %p)", self, trailers);
-    RpActiveClientStreamWrapper* me = RP_ACTIVE_CLIENT_STREAM_WRAPPER(self);
-    rp_request_encoder_encode_trailers(RP_REQUEST_ENCODER(me->m_request_encoder), trailers);
+    rp_request_encoder_encode_trailers(REQUEST_ENCODER(self), trailers);
 }
 
 static void
