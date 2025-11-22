@@ -119,7 +119,6 @@ static void
 reset_all(RpRouterFilter* self)
 {
     NOISY_MSG_("(%p)", self);
-NOISY_MSG_("%u upstream requests", g_slist_length(self->m_upstream_requests));
     while (self->m_upstream_requests)
     {
         GSList* entry = g_slist_last(self->m_upstream_requests);
@@ -639,8 +638,10 @@ on_upstream_data_i(RpRouterFilterInterface* self, evbuf_t* data, RpUpstreamReque
 {
     NOISY_MSG_("(%p, %p(%zu), %p, %u)", self, data, data ? evbuffer_get_length(data) : 0, upstream_request, end_stream);
     RpRouterFilter* me = RP_ROUTER_FILTER(self);
+    g_assert(g_slist_length(me->m_upstream_requests) == 1);
     if (end_stream)
     {
+        NOISY_MSG_("calling on_upstream_complete(%p, %p)", me, upstream_request);
         on_upstream_complete(me, upstream_request);
     }
 

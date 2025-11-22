@@ -113,8 +113,6 @@ on_event_i(RpNetworkConnectionCallbacks* self, RpNetworkConnectionEvent_e event)
         me->m_remote_closed = true;
     }
 
-NOISY_MSG_("%u active requests", g_slist_length(me->m_active_requests));
-
     if (me->m_type == RpCodecType_HTTP1 &&
         event == RpNetworkConnectionEvent_RemoteClose &&
         me->m_active_requests)

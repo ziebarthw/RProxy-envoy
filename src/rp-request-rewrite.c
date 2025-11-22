@@ -24,8 +24,10 @@ typedef struct _RewriteHeaderCtx RewriteHeaderCtx;
 struct _RewriteHeaderCtx {
     GRegex* m_regex;
     gchar* m_replacement;
-    size_t m_host_len;
-    bool m_saw_host;
+    gsize m_host_len;
+    gsize m_origin_len;
+    bool m_saw_host : 1;
+    bool m_saw_origin : 1;
 };
 
 static inline RewriteHeaderCtx
@@ -35,7 +37,9 @@ rewrite_header_ctx_ctor(GRegex* regex, gchar* replacement)
         .m_regex = regex,
         .m_replacement = replacement,
         .m_host_len = strlen(RpHeaderValues.HostLegacy),
-        .m_saw_host = false
+        .m_saw_host = false,
+        .m_origin_len = strlen(RpCustomHeaderValues.Origin),
+        .m_saw_origin = false
     };
     return self;
 }
@@ -45,12 +49,9 @@ create_pattern(RpRequestRewrite* self)
 {
     NOISY_MSG_("(%p)", self);
 
-NOISY_MSG_("original uri %p(%s)", self->m_original_uri, self->m_original_uri);
-
     g_autofree gchar* scheme = NULL;
     gint port;
     g_uri_split_network(self->m_original_uri, 0, &scheme, &self->m_host, &port, NULL);
-NOISY_MSG_("m_host %p(%s)", self->m_host, self->m_host);
     return port != -1 ?
         g_strdup_printf("%s://%s:%d/", scheme, self->m_host, port) :
         g_strdup_printf("%s://%s/", scheme, self->m_host);
@@ -74,7 +75,6 @@ create_replacement(RpRequestRewrite* self, lztq* rewrite_urls)
             g_autofree gchar* host = NULL;
             gint port;
             g_uri_split_network(rewrite_url, 0, &scheme, &host, &port, NULL);
-NOISY_MSG_("host %p(%s), m_host %p(%s)", host, host, self->m_host, self->m_host);
             if (g_ascii_strcasecmp(host, self->m_host) == 0)
             {
                 NOISY_MSG_("found \"%s:%d\"", host, port);
@@ -98,9 +98,7 @@ create_regex(RpRequestRewrite* self)
     NOISY_MSG_("(%p)", self);
 
     g_autofree gchar* pattern = create_pattern(self);
-NOISY_MSG_("pattern %p(%s)", pattern, pattern);
     g_autofree gchar* replacement = create_replacement(self, self->m_rewrite_urls);
-NOISY_MSG_("replacement %p(%s)", replacement, replacement);
     // No point in going through a bunch of rigmarole if the pattern and
     // replacement are the same.
     if (g_ascii_strcasecmp(pattern, replacement) == 0)
@@ -124,6 +122,18 @@ get_host_value(gchar* replacement)
     return port != -1 ? g_strdup_printf("%s:%d", host, port) : g_strdup(host);
 }
 
+static inline gchar*
+get_origin_value(gchar* replacement)
+{
+    NOISY_MSG_("(%p(%s))", replacement, replacement);
+    g_autofree gchar* scheme = NULL;
+    g_autofree gchar* host = NULL;
+    gint port;
+    g_uri_split_network(replacement, 0, &scheme, &host, &port, NULL);
+    return port != -1 ? g_strdup_printf("%s://%s:%d", scheme, host, port) :
+                        g_strdup_printf("%s://%s", scheme, host);
+}
+
 static inline int
 rewrite_header_cb_(evhtp_header_t* header, gpointer arg)
 {
@@ -137,6 +147,14 @@ rewrite_header_cb_(evhtp_header_t* header, gpointer arg)
         NOISY_MSG_("header val %p(%s)", header->val, header->val);
         evhtp_header_val_set(header, get_host_value(ctx->m_replacement), 1);
         ctx->m_saw_host = true;
+    }
+    else if (!ctx->m_saw_origin &&
+        header->klen == ctx->m_origin_len &&
+        g_ascii_strcasecmp(header->key, RpCustomHeaderValues.Origin) == 0)
+    {
+        NOISY_MSG_("header val %p(%s)", header->val, header->val);
+        evhtp_header_val_set(header, get_origin_value(ctx->m_replacement), 1);
+        ctx->m_saw_origin = true;
     }
     else
     {
@@ -233,7 +251,7 @@ rp_request_rewrite_process_data(RpRequestRewrite* self, evbuf_t* input_buffer)
     }
 
     gchar* data = (gchar*)evbuffer_pullup(input_buffer, data_len);
-    NOISY_MSG_("input_buffer\n\"%.*s\"", (int)data_len, data);
+    NOISY_MSG_("input_buffer before\n\"%.*s\"", (int)data_len, data);
 
     GMatchInfo* match_info;
     g_regex_match_full(self->m_regex, data, data_len, 0, 0, &match_info, NULL);
@@ -252,6 +270,6 @@ rp_request_rewrite_process_data(RpRequestRewrite* self, evbuf_t* input_buffer)
     }
     g_match_info_free(match_info);
 
-    NOISY_MSG_("input_buffer\n\"%.*s\"",
+    NOISY_MSG_("input_buffer after\n\"%.*s\"",
         (int)evbuffer_get_length(input_buffer), (char*)evbuffer_pullup(input_buffer, -1));
 }

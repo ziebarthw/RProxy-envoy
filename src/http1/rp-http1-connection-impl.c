@@ -381,8 +381,6 @@ complete_current_header(RpHttp1ConnectionImpl* self)
         GString* field = g_string_ascii_down(me->m_current_header_field);
         gchar* value = g_strchomp(me->m_current_header_value->str);
 
-NOISY_MSG_("%s: \"%s\"", field->str, value);
-
         evhtp_headers_add_header(headers_or_trailers,
                                     evhtp_header_new(field->str, value, 1, 1));
         g_string_truncate(field, 0);
@@ -825,7 +823,7 @@ rp_http1_connection_impl_enable_trailers(RpHttp1ConnectionImpl* self)
 }
 
 RpNetworkConnection*
-rp_http1_connection_impl_connection(RpHttp1ConnectionImpl* self)
+rp_http1_connection_impl_connection_(RpHttp1ConnectionImpl* self)
 {
     LOGD("(%p)", self);
     g_return_val_if_fail(RP_IS_HTTP1_CONNECTION_IMPL(self), NULL);

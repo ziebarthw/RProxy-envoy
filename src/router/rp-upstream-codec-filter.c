@@ -116,7 +116,7 @@ decode_headers_i(RpStreamDecoderFilter* self, evhtp_headers_t* request_headers, 
 static RpFilterDataStatus_e
 decode_data_i(RpStreamDecoderFilter* self, evbuf_t* data, bool end_stream)
 {
-    NOISY_MSG_("(%p, %p(%zu), %u)", self, data, data ? evbuffer_get_length(data) : 0, end_stream);
+    NOISY_MSG_("(%p, %p(%zu), %u)", self, data, evbuf_length(data), end_stream);
     //TODO...
     RpUpstreamCodecFilter* me = RP_UPSTREAM_CODEC_FILTER(self);
     rp_generic_upstream_encode_data(GENERIC_UPSTREAM(self), data, end_stream);

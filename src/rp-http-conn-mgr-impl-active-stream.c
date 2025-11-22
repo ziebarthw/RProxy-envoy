@@ -1124,6 +1124,7 @@ constructed(RpHttpConnMgrImplActiveStream* self)
     RpDispatcher* dispatcher = rp_http_connection_manager_impl_dispatcher_(connection_manager_);
     RpHttpServerConnection* codec_ = rp_http_connection_manager_impl_codec_(connection_manager_);
     bool proxy_100_continue = rp_connection_manager_config_proxy_100_continue(config);
+NOISY_MSG_("%p creating filter manager...", self);
     self->m_filter_manager = rp_downstream_filter_manager_new(RP_FILTER_MANAGER_CALLBACKS(self),
                                                                 dispatcher,
                                                                 connection,

@@ -28,7 +28,6 @@ struct _RpStreamEncoderImplPrivate {
     const char* m_details;
 
     RpCodecEventCallbacks* m_codec_callbacks;
-    GSList/*<StreamCallbacks>*/* m_callbacks;
 
     guint32 m_read_disabled_calls;
 
@@ -79,14 +78,6 @@ stream_reset_handler_iface_init(RpStreamResetHandlerInterface* iface)
     iface->reset_stream = reset_stream_i;
 }
 
-static void
-add_callbacks_i(RpStream* self, RpStreamCallbacks* callbacks)
-{
-    NOISY_MSG_("(%p)", callbacks);
-    RpStreamEncoderImplPrivate* me = PRIV(self);
-    me->m_callbacks = g_slist_append(me->m_callbacks, callbacks);
-}
-
 static guint32
 buffer_limit_i(RpStream* self)
 {
@@ -126,11 +117,17 @@ register_codec_event_callbacks_i(RpStream* self, RpCodecEventCallbacks* codec_ca
 }
 
 static void
+add_callbacks_i(RpStream* self, RpStreamCallbacks* callbacks)
+{
+    NOISY_MSG_("(%p)", callbacks);
+    rp_stream_callback_helper_add_callbacks_helper(RP_STREAM_CALLBACK_HELPER(self), callbacks);
+}
+
+static void
 remove_callbacks_i(RpStream* self, RpStreamCallbacks* callbacks)
 {
     NOISY_MSG_("(%p, %p)", self, callbacks);
-    RpStreamEncoderImplPrivate* me = PRIV(self);
-    me->m_callbacks = g_slist_remove(me->m_callbacks, callbacks);
+    rp_stream_callback_helper_remove_callbacks_helper(RP_STREAM_CALLBACK_HELPER(self), callbacks);
 }
 
 static const char*
@@ -151,7 +148,7 @@ connection_info_provider_i(RpStream* self)
 {
     NOISY_MSG_("(%p)", self);
     return rp_network_connection_connection_info_provider(
-                rp_http1_connection_impl_connection(PRIV(self)->m_connection));
+                rp_http1_connection_impl_connection_(PRIV(self)->m_connection));
 }
 
 static void
@@ -203,7 +200,7 @@ end_encode(RpStreamEncoderImplPrivate* me)
     notify_encode_complete(me);
     if (me->m_connect_request || me->m_is_tcp_tunneling)
     {
-        RpNetworkConnection* connection = rp_http1_connection_impl_connection(me->m_connection);
+        RpNetworkConnection* connection = rp_http1_connection_impl_connection_(me->m_connection);
         rp_network_connection_close(connection, RpNetworkConnectionCloseType_FlushWrite);
     }
 }

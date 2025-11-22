@@ -61,8 +61,7 @@ G_DEFINE_ABSTRACT_TYPE_WITH_CODE(RpHttpUpstream, rp_http_upstream, G_TYPE_OBJECT
 static void
 encode_data_i(RpGenericUpstream* self, evbuf_t* data, bool end_stream)
 {
-    NOISY_MSG_("(%p, %p(%zu), %u)",
-        self, data, data ? evbuffer_get_length(data) : 0, end_stream);
+    NOISY_MSG_("(%p, %p(%zu), %u)", self, data, evbuf_length(data), end_stream);
     rp_stream_encoder_encode_data(STREAM_ENCODER(self), data, end_stream);
 }
 

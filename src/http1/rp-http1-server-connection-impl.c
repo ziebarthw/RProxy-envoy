@@ -51,7 +51,6 @@ ActiveRequest_new(RpHttp1ServerConnectionImpl* connection, const struct RpHttp1S
     self->m_response_encoder = rp_response_encoder_impl_new(RP_HTTP1_CONNECTION_IMPL(connection),
                                 settings->m_stream_error_on_invalid_http_message);
     self->m_request_url = g_string_new(NULL);
-NOISY_MSG_("request url %p", self->m_request_url);
     return self;
 }
 
@@ -59,9 +58,7 @@ static inline void
 ActiveRequest_free(ActiveRequest* self)
 {
     NOISY_MSG_("(%p)", self);
-NOISY_MSG_("freeing request url %p", self->m_request_url);
     g_string_free_and_clear(&self->m_request_url);
-NOISY_MSG_("clearing response encoder %p", self->m_response_encoder);
     g_clear_object(&self->m_response_encoder);
 }
 
@@ -439,7 +436,6 @@ handle_path(RpHttp1ServerConnectionImpl* self, evhtp_headers_t* request_headers,
     }
 
     g_autofree gchar* path_and_query_params = url_path_and_query_params(absolute_url);
-NOISY_MSG_("path and query params %p(%s)", path_and_query_params, path_and_query_params);
     if (path_and_query_params && path_and_query_params[0])
     {
         NOISY_MSG_("here");
@@ -586,6 +582,7 @@ send_protocol_error(RpHttp1ConnectionImpl* self, const char* details)
 
     if (rp_http1_connection_impl_reset_stream_called(self))
     {
+        NOISY_MSG_("returning ok");
         return RpStatusCode_Ok;
     }
 

@@ -42,18 +42,18 @@ struct _RpUpstreamRequest {
     GObject parent_instance;
 
     RpRouterFilterInterface* m_parent;
-    RpGenericConnPool* m_conn_pool;
 
+    UNIQUE_PTR(RpGenericConnPool) m_conn_pool;
     UNIQUE_PTR(RpGenericUpstream) m_upstream;
+    UNIQUE_PTR(RpUpstreamRequestFmc) m_filter_manager_callbacks;
+    UNIQUE_PTR(RpFilterManager) m_filter_manager;
+
     RpHostDescription* m_upstream_host;
     RpStreamInfoImpl* m_stream_info;
-    evhtp_headers_t* m_upstrea_headers;
+    evhtp_headers_t* m_upstream_headers;
     evhtp_headers_t* m_upstream_trailers;
     RpUpstreamToDownstream* m_upstream_interface;
     GSList/*<UpstreamCallbacks>*/* m_upstream_callbacks;
-
-    RpUpstreamRequestFmc* m_filter_manager_callbacks;
-    RpFilterManager* m_filter_manager;
 
     guint64 m_response_headers_size;
     gsize m_response_headers_count;
@@ -74,19 +74,6 @@ struct _RpUpstreamRequest {
     bool m_cleaned_up : 1;
 
 };
-
-enum
-{
-    PROP_0, // Reserved.
-    PROP_PARENT,
-    PROP_CONN_POOL,
-    PROP_CAN_SEND_EARLY_DATA,
-    PROP_CAN_USE_HTTP3,
-    PROP_ENABLE_HALF_CLOSE,
-    N_PROPERTIES
-};
-
-static GParamSpec* obj_properties[N_PROPERTIES] = { NULL, };
 
 static void stream_callbacks_iface_init(RpStreamCallbacksInterface* iface);
 static void upstream_to_downstream_iface_init(RpUpstreamToDownstreamInterface* iface);
@@ -191,17 +178,6 @@ response_decoder_iface_init(RpResponseDecoderInterface* iface)
     iface->decode_1xx_headers = decode_1xx_headers_i;
     iface->decode_headers = decode_headers_i;
     iface->decode_trailers = decode_trailers_i;
-}
-
-static void
-clear_request_encoder(RpUpstreamRequest* me)
-{
-    NOISY_MSG_("(%p)", me);
-    if (me->m_upstream)
-    {
-        //TODO...
-    }
-    g_clear_object(&me->m_upstream);
 }
 
 static RpNetworkConnection*
@@ -363,68 +339,143 @@ generic_connection_pool_callbacks_iface_init(RpGenericConnectionPoolCallbacksInt
     iface->upstream_to_downstream = upstream_to_downstream_i;
 }
 
-OVERRIDE void
-get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
+static void
+clean_up(RpUpstreamRequest* self)
 {
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
+    NOISY_MSG_("(%p)", self);
+
+    if (self->m_cleaned_up)
     {
-        case PROP_PARENT:
-            g_value_set_object(value, RP_UPSTREAM_REQUEST(obj)->m_parent);
-            break;
-        case PROP_CONN_POOL:
-            g_value_set_object(value, RP_UPSTREAM_REQUEST(obj)->m_conn_pool);
-            break;
-        case PROP_CAN_SEND_EARLY_DATA:
-            g_value_set_boolean(value, RP_UPSTREAM_REQUEST(obj)->m_can_send_early_data);
-            break;
-        case PROP_CAN_USE_HTTP3:
-            g_value_set_boolean(value, RP_UPSTREAM_REQUEST(obj)->m_can_use_http3);
-            break;
-        case PROP_ENABLE_HALF_CLOSE:
-            g_value_set_boolean(value, RP_UPSTREAM_REQUEST(obj)->m_enable_half_close);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
+        LOGD("already cleaned up");
+        return;
     }
+    self->m_cleaned_up = true;
+
+    rp_filter_manager_destroy_filters(RP_FILTER_MANAGER(self->m_filter_manager));
+
+    //TODO...if(span_ != nullptr)...
+
+    //TODO...timers
+
+    rp_upstream_request_clear_request_encoder(self);
+
+    //TODO...stats
+
+    rp_stream_info_on_request_complete(RP_STREAM_INFO(self->m_stream_info));
+    //TODO...upstreamLog(...)
+
+    //TODO..while (downstream_data_disabled_ != 0) {...}
+
+    rp_dispatcher_deferred_delete(
+        rp_stream_filter_callbacks_dispatcher(
+            RP_STREAM_FILTER_CALLBACKS(
+                rp_router_filter_interface_callbacks(self->m_parent))), G_OBJECT(g_steal_pointer(&self->m_filter_manager_callbacks)));
 }
 
 OVERRIDE void
-set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_PARENT:
-            RP_UPSTREAM_REQUEST(obj)->m_parent = g_value_get_object(value);
-            break;
-        case PROP_CONN_POOL:
-            RP_UPSTREAM_REQUEST(obj)->m_conn_pool = g_value_get_object(value);
-            break;
-        case PROP_CAN_SEND_EARLY_DATA:
-            RP_UPSTREAM_REQUEST(obj)->m_can_send_early_data = g_value_get_boolean(value);
-            break;
-        case PROP_CAN_USE_HTTP3:
-            RP_UPSTREAM_REQUEST(obj)->m_can_use_http3 = g_value_get_boolean(value);
-            break;
-        case PROP_ENABLE_HALF_CLOSE:
-            RP_UPSTREAM_REQUEST(obj)->m_enable_half_close = g_value_get_boolean(value);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
-constructed(GObject* obj)
+dispose(GObject* obj)
 {
     NOISY_MSG_("(%p)", obj);
 
-    G_OBJECT_CLASS(rp_upstream_request_parent_class)->constructed(obj);
-
     RpUpstreamRequest* self = RP_UPSTREAM_REQUEST(obj);
+    clean_up(self);
+    g_clear_object(&self->m_conn_pool);
+    g_clear_object(&self->m_filter_manager);
+
+    G_OBJECT_CLASS(rp_upstream_request_parent_class)->dispose(obj);
+}
+
+void
+rp_upstream_request_reset_stream(RpUpstreamRequest* self)
+{
+    LOGD("(%p)", self);
+    RpUpstreamRequest* me = RP_UPSTREAM_REQUEST(self);
+    if (rp_generic_conn_pool_cancel_any_pending_stream(me->m_conn_pool))
+    {
+        LOGD("cancelled pool request");
+    }
+
+    if (rp_upstream_timing_last_upstream_tx_byte_sent(UPSTREAM_TIMING(self)) &&
+        rp_upstream_timing_last_upstream_rx_byte_received(UPSTREAM_TIMING(self)))
+    {
+        NOISY_MSG_("returning");
+        return;
+    }
+
+    if (me->m_upstream)
+    {
+        LOGD("resetting pool request");
+        rp_generic_upstream_reset_stream(me->m_upstream);
+        rp_upstream_request_clear_request_encoder(me);
+    }
+    me->m_reset_stream = true;
+}
+
+void
+rp_upstream_request_accept_headers_from_router(RpUpstreamRequest* self, bool end_stream)
+{
+    LOGD("(%p, %u)", self, end_stream);
+
+    RpUpstreamRequest* me = RP_UPSTREAM_REQUEST(self);
+    me->m_router_sent_end_stream = end_stream;
+
+    rp_generic_conn_pool_new_stream(me->m_conn_pool, RP_GENERIC_CONNECTION_POOL_CALLBACKS(self));
+
+    rp_filter_manager_request_headers_initialized(me->m_filter_manager);
+    RpStreamInfo* stream_info = rp_filter_manager_stream_info(me->m_filter_manager);
+    evhtp_headers_t* headers = rp_router_filter_interface_downstream_headers(me->m_parent);
+    const char* method_value = evhtp_header_find(headers, RpHeaderValues.Method);
+    if (g_ascii_strcasecmp(method_value, RpHeaderValues.MethodValues.Connect) == 0)
+    {
+        NOISY_MSG_("CONNECT");
+        me->m_paused_for_connect = true;
+    }
+    rp_stream_info_set_request_headers(stream_info, headers);
+    rp_filter_manager_decode_headers(me->m_filter_manager, headers, end_stream);
+}
+
+void
+rp_upstream_request_accept_data_from_router(RpUpstreamRequest* self, evbuf_t* data, bool end_stream)
+{
+    LOGD("(%p, %p(%zu), %u)", self, data, data ? evbuffer_get_length(data) : 0, end_stream);
+
+    RpUpstreamRequest* me = RP_UPSTREAM_REQUEST(self);
+    me->m_router_sent_end_stream = end_stream;
+
+    rp_filter_manager_decode_data(me->m_filter_manager, data, end_stream);
+}
+
+static void
+rp_upstream_request_class_init(RpUpstreamRequestClass* klass)
+{
+    LOGD("(%p)", klass);
+
+    GObjectClass* object_class = G_OBJECT_CLASS(klass);
+    object_class->dispose = dispose;
+}
+
+static void
+rp_upstream_request_init(RpUpstreamRequest* self)
+{
+    NOISY_MSG_("(%p)", self);
+
+    RpUpstreamRequest* me = RP_UPSTREAM_REQUEST(self);
+    me->m_router_sent_end_stream = false;
+    me->m_encode_trailers = false;
+    me->m_awaiting_headers = true;
+    me->m_paused_for_connect = false;
+    me->m_paused_for_websocket = false;
+    me->m_reset_stream = false;
+    me->m_cleaned_up = false;
+    me->m_had_upstream = false;
+    me->m_deferred_read_disabling_count = 0;
+}
+
+static inline RpUpstreamRequest*
+constructed(RpUpstreamRequest* self)
+{
+    NOISY_MSG_("(%p)", self);
+
     RpHostDescription* upstream_host = rp_generic_conn_pool_host(RP_GENERIC_CONN_POOL(self->m_conn_pool));
     RpStreamInfo* downstream_stream_info = rp_stream_filter_callbacks_stream_info(CALLBACKS(self));
     self->m_stream_info = rp_stream_info_impl_new(EVHTP_PROTO_INVALID, /*NULL*/rp_stream_info_downstream_address_provider(downstream_stream_info), RpFilterStateLifeSpan_FilterChain, NULL);
@@ -471,187 +522,24 @@ constructed(GObject* obj)
                 RP_FILTER_CHAIN_FACTORY(rp_default_upstream_http_filter_chain_factory_new()));
     }
 
-NOISY_MSG_("res.m_created %u", res.m_created);
-}
+    g_assert(res.m_created && self->m_upstream_interface);
 
-#if 0
-static void
-clean_up(RpUpstreamRequest* self)
-{
-    NOISY_MSG_("(%p)", self);
-
-    if (self->m_cleaned_up)
-    {
-        LOGD("already cleaned up");
-        return;
-    }
-    self->m_cleaned_up = true;
-
-    rp_filter_manager_destroy_filters(RP_FILTER_MANAGER(self->m_filter_manager));
-
-    //TODO...if(span_ != nullptr)...
-
-    //TODO...timers
-
-    clear_request_encoder(self);
-
-    //TODO...stats
-
-    rp_stream_info_on_request_complete(RP_STREAM_INFO(self->m_stream_info));
-    //TODO...upstreamLog(...)
-
-    //TODO..while (downstream_data_disabled_ != 0) {...}
-
-    rp_dispatcher_deferred_delete(
-        rp_stream_filter_callbacks_dispatcher(
-            RP_STREAM_FILTER_CALLBACKS(
-                rp_router_filter_interface_callbacks(self->m_parent))), G_OBJECT(g_steal_pointer(&self->m_filter_manager_callbacks)));
-}
-#endif//0
-
-OVERRIDE void
-dispose(GObject* obj)
-{
-    NOISY_MSG_("(%p)", obj);
-
-    RpUpstreamRequest* self = RP_UPSTREAM_REQUEST(obj);
-    rp_filter_manager_destroy_filters(RP_FILTER_MANAGER(self->m_filter_manager));
-    g_clear_object(&self->m_filter_manager);
-    g_clear_object(&self->m_upstream);
-
-    G_OBJECT_CLASS(rp_upstream_request_parent_class)->dispose(obj);
-}
-
-void
-rp_upstream_request_reset_stream(RpUpstreamRequest* self)
-{
-    LOGD("(%p)", self);
-    RpUpstreamRequest* me = RP_UPSTREAM_REQUEST(self);
-    if (rp_generic_conn_pool_cancel_any_pending_stream(me->m_conn_pool))
-    {
-        LOGD("cancelled pool request");
-    }
-
-    if (rp_upstream_timing_last_upstream_tx_byte_sent(UPSTREAM_TIMING(self)) &&
-        rp_upstream_timing_last_upstream_rx_byte_received(UPSTREAM_TIMING(self)))
-    {
-        NOISY_MSG_("returning");
-        return;
-    }
-
-    if (me->m_upstream)
-    {
-        LOGD("resetting pool request");
-        rp_generic_upstream_reset_stream(me->m_upstream);
-        clear_request_encoder(me);
-    }
-    me->m_reset_stream = true;
-}
-
-void
-rp_upstream_request_accept_headers_from_router(RpUpstreamRequest* self, bool end_stream)
-{
-    LOGD("(%p, %u)", self, end_stream);
-
-    RpUpstreamRequest* me = RP_UPSTREAM_REQUEST(self);
-    me->m_router_sent_end_stream = end_stream;
-
-    rp_generic_conn_pool_new_stream(me->m_conn_pool, RP_GENERIC_CONNECTION_POOL_CALLBACKS(self));
-
-    rp_filter_manager_request_headers_initialized(me->m_filter_manager);
-    RpStreamInfo* stream_info = rp_filter_manager_stream_info(me->m_filter_manager);
-    evhtp_headers_t* headers = rp_router_filter_interface_downstream_headers(me->m_parent);
-    const char* method_value = evhtp_header_find(headers, RpHeaderValues.Method);
-    if (g_ascii_strcasecmp(method_value, RpHeaderValues.MethodValues.Connect) == 0)
-    {
-        NOISY_MSG_("CONNECT");
-        me->m_paused_for_connect = true;
-    }
-    rp_stream_info_set_request_headers(stream_info, headers);
-    rp_filter_manager_decode_headers(me->m_filter_manager, headers, end_stream);
-}
-
-void
-rp_upstream_request_accept_data_from_router(RpUpstreamRequest* self, evbuf_t* data, bool end_stream)
-{
-    LOGD("(%p, %p(%zu), %u)", self, data, data ? evbuffer_get_length(data) : 0, end_stream);
-
-    RpUpstreamRequest* me = RP_UPSTREAM_REQUEST(self);
-    me->m_router_sent_end_stream = end_stream;
-
-    rp_filter_manager_decode_data(me->m_filter_manager, data, end_stream);
-}
-
-static void
-rp_upstream_request_class_init(RpUpstreamRequestClass* klass)
-{
-    LOGD("(%p)", klass);
-
-    GObjectClass* object_class = G_OBJECT_CLASS(klass);
-    object_class->get_property = get_property;
-    object_class->set_property = set_property;
-    object_class->constructed = constructed;
-    object_class->dispose = dispose;
-
-    obj_properties[PROP_PARENT] = g_param_spec_object("parent",
-                                                    "Parent",
-                                                    "Parent RouterFilterInterface Instance",
-                                                    RP_TYPE_ROUTER_FILTER_INTERFACE,
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-    obj_properties[PROP_CONN_POOL] = g_param_spec_object("conn-pool",
-                                                    "Conn pool",
-                                                    "GenericConnPool Instance",
-                                                    RP_TYPE_GENERIC_CONN_POOL,
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-    obj_properties[PROP_CAN_SEND_EARLY_DATA] = g_param_spec_boolean("can-send-early-data",
-                                                    "Can send early data",
-                                                    "Can Send Early Data Flag",
-                                                    false,
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-    obj_properties[PROP_CAN_USE_HTTP3] = g_param_spec_boolean("can-use-http3",
-                                                    "Can use http3",
-                                                    "Can Use Http3 Flag",
-                                                    false,
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-    obj_properties[PROP_ENABLE_HALF_CLOSE] = g_param_spec_boolean("enable-half-close",
-                                                    "Enable half close",
-                                                    "Enable Half Close Flag",
-                                                    false,
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-
-    g_object_class_install_properties(object_class, N_PROPERTIES, obj_properties);
-}
-
-static void
-rp_upstream_request_init(RpUpstreamRequest* self)
-{
-    NOISY_MSG_("(%p)", self);
-
-    RpUpstreamRequest* me = RP_UPSTREAM_REQUEST(self);
-    me->m_router_sent_end_stream = false;
-    me->m_encode_trailers = false;
-    me->m_awaiting_headers = true;
-    me->m_paused_for_connect = false;
-    me->m_paused_for_websocket = false;
-    me->m_reset_stream = false;
-    me->m_cleaned_up = false;
-    me->m_had_upstream = false;
-    me->m_deferred_read_disabling_count = 0;
+    return self;
 }
 
 RpUpstreamRequest*
-rp_upstream_request_new(RpRouterFilterInterface* parent, RpGenericConnPool* conn_pool, bool can_send_early_data, bool can_use_http3, bool enable_half_close)
+rp_upstream_request_new(RpRouterFilterInterface* parent, UNIQUE_PTR(RpGenericConnPool) conn_pool, bool can_send_early_data, bool can_use_http3, bool enable_half_close)
 {
     LOGD("(%p, %p, %u, %u, %u)", parent, conn_pool, can_send_early_data, can_use_http3, enable_half_close);
     g_return_val_if_fail(RP_IS_ROUTER_FILTER_INTERFACE(parent), NULL);
     g_return_val_if_fail(RP_IS_GENERIC_CONN_POOL(conn_pool), NULL);
-    return g_object_new(RP_TYPE_UPSTREAM_REQUEST,
-                        "parent", parent,
-                        "conn-pool", conn_pool,
-                        "can-send-early-data", can_send_early_data,
-                        "can-use-http3", can_use_http3,
-                        "enable-half-close", enable_half_close,
-                        NULL);
+    RpUpstreamRequest* self = g_object_new(RP_TYPE_UPSTREAM_REQUEST, NULL);
+    self->m_parent = parent;
+    self->m_conn_pool = g_steal_pointer(&conn_pool);
+    self->m_can_send_early_data = can_send_early_data;
+    self->m_can_use_http3 = can_use_http3;
+    self->m_enable_half_close = enable_half_close;
+    return constructed(self);
 }
 
 RpRouterFilterInterface*
@@ -763,10 +651,10 @@ rp_upstream_request_clear_request_encoder(RpUpstreamRequest* self)
     g_return_if_fail(RP_IS_UPSTREAM_REQUEST(self));
     if (self->m_upstream)
     {
-//TODO...        rp_stream_filter_callbacks_remove_downstream_watermark_callbacks(
-//            rp_router_filter_interface_callbacks(self->m_parent));
+        rp_stream_decoder_filter_callbacks_remove_downstream_watermark_callbacks(
+            rp_router_filter_interface_callbacks(self->m_parent), RP_DOWNSTREAM_WATERMARK_CALLBACKS(self));
     }
-    self->m_upstream = NULL;//upstream_.reset() ?????
+    g_clear_object(&self->m_upstream);
 }
 
 bool

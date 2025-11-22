@@ -211,7 +211,6 @@ rp_filter_manager_callbacks_reset_idle_timer(RpFilterManagerCallbacks* self)
 RpUpstreamStreamFilterCallbacks*
 rp_filter_manager_callbacks_upstream_callbacks(RpFilterManagerCallbacks* self)
 {
-NOISY_MSG_("(%p)", self);
     g_return_val_if_fail(RP_IS_FILTER_MANAGER_CALLBACKS(self), NULL);
     return RP_FILTER_MANAGER_CALLBACKS_GET_IFACE(self)->upstream_callbacks(self);
 }
@@ -917,6 +916,7 @@ decode_data(RpFilterManager* self, RpActiveStreamDecoderFilter* filter, evbuf_t*
         if (state->m_decoder_filter_chain_aborted)
         {
             //TODO: executeLocalReplyIfPrepared();
+            NOISY_MSG_("executeLocalReplyIfPrepared()");
             return;
         }
 
@@ -935,6 +935,7 @@ decode_data(RpFilterManager* self, RpActiveStreamDecoderFilter* filter, evbuf_t*
         if (!rp_active_stream_filter_base_common_handle_after_data_callback(fb, status, data, &state->m_decoder_filters_streaming) &&
             entry->next/*std::next(entry) != decoder_filters_.end()*/)
         {
+            NOISY_MSG_("breaking (%p)", self);
             break;
         }
     }
@@ -1066,7 +1067,6 @@ encode_headers(RpFilterManager* self, RpActiveStreamEncoderFilter* filter, evhtp
 
     bool modified_end_stream = (end_stream && !continue_data_entry);
     state->m_non_100_response_headers_encoded = true;
-NOISY_MSG_("calling rp_filter_manager_callbacks_encode_headers(%p, %p, %u)", filter_manager_callbacks, response_headers, modified_end_stream);
     rp_filter_manager_callbacks_encode_headers(filter_manager_callbacks, response_headers, modified_end_stream);
     if (state->m_saw_downstream_reset)
     {
