@@ -17,6 +17,7 @@
 #endif
 
 #include "router/rp-default-upstream-http-filter-chain-factory.h"
+#include "router/rp-downstream-watermark-manager.h"
 #include "router/rp-router-filter.h"
 #include "router/rp-router-filter-interface.h"
 #include "router/rp-upstream-filter-manager.h"
@@ -48,6 +49,8 @@ struct _RpUpstreamRequest {
     UNIQUE_PTR(RpUpstreamRequestFmc) m_filter_manager_callbacks;
     UNIQUE_PTR(RpFilterManager) m_filter_manager;
 
+    UNIQUE_PTR(RpDownstreamWatermarkManager) m_downstream_watermark_manager;
+
     RpHostDescription* m_upstream_host;
     RpStreamInfoImpl* m_stream_info;
     evhtp_headers_t* m_upstream_headers;
@@ -72,7 +75,7 @@ struct _RpUpstreamRequest {
     bool m_awaiting_headers : 1;
     bool m_had_upstream : 1;
     bool m_cleaned_up : 1;
-
+    bool m_create_per_try_timeout_on_request_complete : 1;
 };
 
 static void stream_callbacks_iface_init(RpStreamCallbacksInterface* iface);
@@ -304,6 +307,20 @@ on_pool_ready_i(RpGenericConnectionPoolCallbacks* self, UNIQUE_PTR(RpGenericUpst
         rp_upstream_info_set_upstream_protocol(upstream_info, protocol);
     }
 
+    if (rp_router_filter_interface_downstream_end_stream(me->m_parent))
+    {
+        //TODO...setupPerTryTimeout();
+        NOISY_MSG_("setupPerTryTimeout();");
+    }
+    else
+    {
+        me->m_create_per_try_timeout_on_request_complete = true;
+    }
+
+    rp_stream_decoder_filter_callbacks_add_downstream_watermark_callbacks(
+        rp_router_filter_interface_callbacks(me->m_parent),
+            RP_DOWNSTREAM_WATERMARK_CALLBACKS(me->m_downstream_watermark_manager));
+
     //TODO...
 
 #if 0
@@ -381,6 +398,7 @@ dispose(GObject* obj)
     clean_up(self);
     g_clear_object(&self->m_conn_pool);
     g_clear_object(&self->m_filter_manager);
+    g_clear_object(&self->m_downstream_watermark_manager);
 
     G_OBJECT_CLASS(rp_upstream_request_parent_class)->dispose(obj);
 }
@@ -469,6 +487,7 @@ rp_upstream_request_init(RpUpstreamRequest* self)
     me->m_cleaned_up = false;
     me->m_had_upstream = false;
     me->m_deferred_read_disabling_count = 0;
+    me->m_create_per_try_timeout_on_request_complete = false;
 }
 
 static inline RpUpstreamRequest*
@@ -521,6 +540,8 @@ constructed(RpUpstreamRequest* self)
         res = rp_filter_manager_create_filter_chain(FILTER_MANAGER(self),
                 RP_FILTER_CHAIN_FACTORY(rp_default_upstream_http_filter_chain_factory_new()));
     }
+
+    self->m_downstream_watermark_manager = rp_downstream_watermark_manager_new(self);
 
     g_assert(res.m_created && self->m_upstream_interface);
 
@@ -652,7 +673,8 @@ rp_upstream_request_clear_request_encoder(RpUpstreamRequest* self)
     if (self->m_upstream)
     {
         rp_stream_decoder_filter_callbacks_remove_downstream_watermark_callbacks(
-            rp_router_filter_interface_callbacks(self->m_parent), RP_DOWNSTREAM_WATERMARK_CALLBACKS(self));
+            rp_router_filter_interface_callbacks(self->m_parent),
+                RP_DOWNSTREAM_WATERMARK_CALLBACKS(self->m_downstream_watermark_manager));
     }
     g_clear_object(&self->m_upstream);
 }
@@ -671,4 +693,34 @@ rp_upstream_request_awaiting_headers(RpUpstreamRequest* self)
     LOGD("(%p)", self);
     g_return_val_if_fail(RP_IS_UPSTREAM_CALLBACKS(self), false);
     return self->m_awaiting_headers;
+}
+
+void
+rp_upstream_request_read_disable_or_defer(RpUpstreamRequest* self, bool disable)
+{
+    LOGD("(%p, %u)", self, disable);
+    g_return_if_fail(RP_IS_UPSTREAM_REQUEST(self));
+    if (disable)
+    {
+        if (rp_router_filter_interface_downstream_response_started(self->m_parent))
+        {
+            //TODO...
+            rp_stream_read_disable(RP_STREAM(self->m_upstream), disable);
+        }
+        else
+        {
+            ++self->m_deferred_read_disabling_count;
+        }
+    }
+    else if (self->m_deferred_read_disabling_count > 0)
+    {
+        g_assert(!rp_router_filter_interface_downstream_response_started(self->m_parent));
+        --self->m_deferred_read_disabling_count;
+    }
+    else
+    {
+        g_assert(rp_router_filter_interface_downstream_response_started(self->m_parent));
+        //TODO...
+        rp_stream_read_disable(RP_STREAM(self->m_upstream), disable);
+    }
 }

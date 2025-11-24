@@ -142,8 +142,6 @@ refresh_cached_route_internal(RpHttpConnMgrImplActiveStream* self, RpRouteCallba
         return;
     }
 
-NOISY_MSG_("request headers %p", self->m_request_headers);
-
     RpRoute* route = NULL;
     if (self->m_request_headers)
     {
@@ -267,6 +265,7 @@ on_reset_stream_i(RpStreamCallbacks* self, RpStreamResetReason_e reason, const c
     //TODO...response_encoder_->getStream().responseDetails();
     RpHttpConnMgrImplActiveStream* me = RP_HTTP_CONN_MGR_IMPL_ACTIVE_STREAM(self);
     struct state_s* state = &me->m_state;
+g_assert(!state->m_on_reset_stream_called);
     state->m_on_reset_stream_called = true;
 
     //TODO...
@@ -562,7 +561,6 @@ decode_headers_i(RpRequestDecoder* self, evhtp_headers_t* request_headers, bool 
     //TODO...apply request header sanity checks????
 
     const char* path_value = evhtp_header_find(me->m_request_headers, RpHeaderValues.Path);
-NOISY_MSG_("path value %p(%s), headers %p", path_value, path_value, me->m_request_headers);
     if ((!rp_header_utility_is_connect(me->m_request_headers) || path_value) && !path_value[0])
     {
         LOGE("missing path");
@@ -572,7 +570,6 @@ NOISY_MSG_("path value %p(%s), headers %p", path_value, path_value, me->m_reques
 
     //TODO...udp-connect????
 
-NOISY_MSG_("path value %p(%s), headers %p", path_value, path_value, me->m_request_headers);
     if (path_value && path_value[0] && path_value[0] != '/')
     {
         LOGE("relative path");
@@ -689,7 +686,7 @@ end_stream_i(RpFilterManagerCallbacks* self)
     NOISY_MSG_("(%p)", self);
     RpHttpConnMgrImplActiveStream* me = RP_HTTP_CONN_MGR_IMPL_ACTIVE_STREAM(self);
     me->m_state.m_codec_saw_local_complete = true;
-    rp_http_connection_manager_impl_do_end_stream(me->m_connection_manager, me, true/*????*/);
+    rp_http_connection_manager_impl_do_end_stream(me->m_connection_manager, me, true);
 }
 
 static void
@@ -1124,7 +1121,6 @@ constructed(RpHttpConnMgrImplActiveStream* self)
     RpDispatcher* dispatcher = rp_http_connection_manager_impl_dispatcher_(connection_manager_);
     RpHttpServerConnection* codec_ = rp_http_connection_manager_impl_codec_(connection_manager_);
     bool proxy_100_continue = rp_connection_manager_config_proxy_100_continue(config);
-NOISY_MSG_("%p creating filter manager...", self);
     self->m_filter_manager = rp_downstream_filter_manager_new(RP_FILTER_MANAGER_CALLBACKS(self),
                                                                 dispatcher,
                                                                 connection,
@@ -1221,6 +1217,7 @@ rp_http_conn_mgr_impl_active_stream_can_destroy_stream(RpHttpConnMgrImplActiveSt
 bool
 rp_http_conn_mgr_impl_active_stream_is_internally_destroyed(RpHttpConnMgrImplActiveStream* self)
 {
+    LOGD("(%p)", self);
     g_return_val_if_fail(RP_IS_HTTP_CONN_MGR_IMPL_ACTIVE_STREAM(self), false);
     return self->m_state.m_is_internally_destroyed;
 }
@@ -1228,6 +1225,7 @@ rp_http_conn_mgr_impl_active_stream_is_internally_destroyed(RpHttpConnMgrImplAct
 void
 rp_http_conn_mgr_impl_active_stream_set_is_zombie_stream(RpHttpConnMgrImplActiveStream* self, bool v)
 {
+    LOGD("(%p, %u)", self, v);
     g_return_if_fail(RP_IS_HTTP_CONN_MGR_IMPL_ACTIVE_STREAM(self));
     self->m_state.m_is_zombie_stream = v;
 }
@@ -1235,7 +1233,7 @@ rp_http_conn_mgr_impl_active_stream_set_is_zombie_stream(RpHttpConnMgrImplActive
 void
 rp_http_conn_mgr_impl_active_stream_complete_request(RpHttpConnMgrImplActiveStream* self)
 {
-    NOISY_MSG_("(%p)", self);
+    LOGD("(%p)", self);
     g_return_if_fail(RP_IS_HTTP_CONN_MGR_IMPL_ACTIVE_STREAM(self));
     rp_stream_info_on_request_complete(
         rp_filter_manager_stream_info(RP_FILTER_MANAGER(self->m_filter_manager)));

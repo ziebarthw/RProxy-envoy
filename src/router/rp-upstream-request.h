@@ -74,5 +74,7 @@ void rp_upstream_request_on_upstream_host_selected(RpUpstreamRequest* self,
 void rp_upstream_request_clear_request_encoder(RpUpstreamRequest* self);
 bool rp_upstream_request_encode_complete(RpUpstreamRequest* self);
 bool rp_upstream_request_awaiting_headers(RpUpstreamRequest* self);
+void rp_upstream_request_read_disable_or_defer(RpUpstreamRequest* self,
+                                                bool disable);
 
 G_END_DECLS

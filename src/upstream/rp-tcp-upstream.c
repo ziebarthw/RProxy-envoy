@@ -232,7 +232,6 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
     {
         case PROP_UPSTREAM_REQUEST:
             PRIV(obj)->m_upstream_request = g_value_get_object(value);
-NOISY_MSG_("upstream request %p", PRIV(obj)->m_upstream_request);
             break;
         case PROP_UPSTREAM:
             PRIV(obj)->m_upstream_conn_data = g_value_get_object(value);
