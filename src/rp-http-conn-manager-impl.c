@@ -69,7 +69,6 @@ reset_all_streams(RpHttpConnectionManagerImpl* self/*, response_flag*/, const ch
     while (self->m_streams)
     {
         RpHttpConnMgrImplActiveStream* stream = self->m_streams->data;
-        self->m_streams = g_slist_remove(self->m_streams, stream);
         rp_stream_remove_callbacks(
             rp_stream_encoder_get_stream(
                 RP_STREAM_ENCODER(rp_http_conn_mgr_impl_active_stream_response_encoder(stream))), RP_STREAM_CALLBACKS(stream));
@@ -455,8 +454,9 @@ rp_http_connection_manager_impl_do_deferred_stream_destroy(RpHttpConnectionManag
     RpResponseEncoder* response_encoder = rp_http_conn_mgr_impl_active_stream_response_encoder(stream);
     if (response_encoder)
     {
-        RpStream* stream_ = rp_stream_encoder_get_stream(RP_STREAM_ENCODER(response_encoder));
-        rp_stream_register_codec_event_callbacks(stream_, NULL);
+        NOISY_MSG_("resetting codec event callbacks");
+        rp_stream_register_codec_event_callbacks(
+            rp_stream_encoder_get_stream(RP_STREAM_ENCODER(response_encoder)), NULL);
     }
 
     NOISY_MSG_("calling rp_http_conn_mgr_impl_active_stream_complete_request(%p)", stream);
@@ -467,18 +467,12 @@ rp_http_connection_manager_impl_do_deferred_stream_destroy(RpHttpConnectionManag
 
     //TODO...http/3
 
-NOISY_MSG_("streams %p", self->m_streams);
-
     NOISY_MSG_("calling rp_filter_manager_destroy_filters(%p)", filter_manager);
     rp_filter_manager_destroy_filters(RP_FILTER_MANAGER(filter_manager));
 
-NOISY_MSG_("streams %p", self->m_streams);
     self->m_streams = g_slist_remove(self->m_streams, stream);
-NOISY_MSG_("streams %p", self->m_streams);
     RpNetworkConnection* connection = rp_network_filter_callbacks_connection(RP_NETWORK_FILTER_CALLBACKS(self->m_read_callbacks));
-NOISY_MSG_("connection %p", connection);
     RpDispatcher* dispatcher = rp_network_connection_dispatcher(connection);
-NOISY_MSG_("dispatcher %p", dispatcher);
     rp_dispatcher_deferred_delete(dispatcher, G_OBJECT(stream));
 
     if (response_encoder)
@@ -557,14 +551,13 @@ rp_http_connection_manager_impl_do_end_stream(RpHttpConnectionManagerImpl* self,
                 NOISY_MSG_("resetting stream %p", stream_);
                 rp_stream_reset_handler_reset_stream(RP_STREAM_RESET_HANDLER(stream_), RpStreamResetReason_LocalReset);
             }
-            reset_stream = true;
         }
+        reset_stream = true;
     }
 
-    //TODO...
     if (!reset_stream)
     {
-        NOISY_MSG_("reset_stream is false");
+        NOISY_MSG_("calling rp_http_connection_manager_impl_do_deferred_stream_destroy(%p, %p)", self, stream);
         rp_http_connection_manager_impl_do_deferred_stream_destroy(self, stream);
     }
 
