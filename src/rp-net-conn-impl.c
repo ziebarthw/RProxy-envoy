@@ -24,10 +24,11 @@
 typedef struct _RpNetworkConnectionImplPrivate RpNetworkConnectionImplPrivate;
 struct _RpNetworkConnectionImplPrivate {
 
-    RpNetworkTransportSocket* m_transport_socket;
-    RpConnectionSocket* m_socket;
-    RpStreamInfo* m_stream_info;
+    UNIQUE_PTR(RpNetworkTransportSocket) m_transport_socket;
+    UNIQUE_PTR(RpConnectionSocket) m_socket;
     UNIQUE_PTR(RpNetworkFilterManagerImpl) m_filter_manager;
+
+    SHARED_PTR(RpStreamInfo) m_stream_info;
 
     volatile gint m_next_global_id;//TODO...guint64?
 
@@ -100,7 +101,6 @@ static bool
 filter_chain_wants_data(RpNetworkConnectionImplPrivate* me)
 {
     NOISY_MSG_("(%p)", me);
-NOISY_MSG_("returning %s", me->m_read_disable_count == 0 || (me->m_read_disable_count == 1 && false) ? "true" : "false");
     return me->m_read_disable_count == 0 ||
         (me->m_read_disable_count == 1 /*TODO...&& read_buffer_->highWatermarkTriggered()*/ && false);
 }
@@ -119,6 +119,8 @@ close_socket(RpNetworkConnectionImpl* self, RpNetworkConnectionEvent_e close_typ
     //TODO...if (delayed_close_timer_)...
 
     rp_network_transport_socket_close_socket(me->m_transport_socket);
+
+    evbuffer_drain(me->m_write_buffer, evbuffer_get_length(me->m_write_buffer));
 
     rp_socket_close(RP_SOCKET(me->m_socket));
 
@@ -161,12 +163,9 @@ on_write_ready(RpNetworkConnectionImpl* self)
         }
     }
 
-NOISY_MSG_("\n\"%.*s\"", (int)evbuffer_get_length(me->m_write_buffer), (char*)evbuffer_pullup(me->m_write_buffer, -1));
-
     RpIoResult result = rp_network_transport_socket_do_write(me->m_transport_socket, me->m_write_buffer, me->m_write_end_stream);
     guint64 new_buffer_size G_GNUC_UNUSED = evbuffer_get_length(me->m_write_buffer);
     //TODO...updateWriteBufferStats(...)
-NOISY_MSG_("%zu bytes written, new buffer size %zu", result.m_bytes_processed, new_buffer_size);
 
     if (result.m_err_code == ECONNRESET)
     {
@@ -182,7 +181,8 @@ NOISY_MSG_("%zu bytes written, new buffer size %zu", result.m_bytes_processed, n
         close_socket(self, RpNetworkConnectionEvent_RemoteClose);
     }
     //TODO...
-NOISY_MSG_("done");
+
+    NOISY_MSG_("done");
 }
 
 static struct RpStreamBuffer
@@ -375,7 +375,6 @@ static RpStreamInfo*
 stream_info_i(RpNetworkConnection* self)
 {
     NOISY_MSG_("(%p)", self);
-NOISY_MSG_("stream info %p", PRIV(self)->m_stream_info);
     return PRIV(self)->m_stream_info;
 }
 
@@ -434,6 +433,9 @@ close_i(RpNetworkConnection* self, RpNetworkConnectionCloseType_e type)
         return;
     }
 
+    size_t data_to_write = evbuf_length(me->m_write_buffer);
+    NOISY_MSG_("closing data_to_write %zu type %d", data_to_write, type);
+
     if (type == RpNetworkConnectionCloseType_AbortReset)
     {
         LOGD("connection closing type=AbortReset, setting LocalReset to the detected close type");
@@ -442,11 +444,35 @@ close_i(RpNetworkConnection* self, RpNetworkConnectionCloseType_e type)
         return;
     }
 
-    if (type == RpNetworkConnectionCloseType_Abort || type == RpNetworkConnectionCloseType_NoFlush)
+    if (data_to_write == 0 ||
+        type == RpNetworkConnectionCloseType_Abort ||
+        type == RpNetworkConnectionCloseType_NoFlush ||
+        !rp_network_transport_socket_can_flush_close(me->m_transport_socket))
     {
-        close_internal(RP_NETWORK_CONNECTION_IMPL(self), type);
+        if (data_to_write > 0 && type != RpNetworkConnectionCloseType_Abort)
+        {
+            NOISY_MSG_("writing %zu bytes", data_to_write);
+            rp_network_transport_socket_do_write(me->m_transport_socket, me->m_write_buffer, true);
+        }
+
+        if (type != RpNetworkConnectionCloseType_FlushWriteAndDelay /*|| !delayed_close_timeout_set*/)
+        {
+            rp_network_connection_impl_base_close_connection_immediately(RP_NETWORK_CONNECTION_IMPL_BASE(self));
+            return;
+        }
+
+        //TODO...if (!inDelayedClose())...
+
+//        close_internal(RP_NETWORK_CONNECTION_IMPL(self), type);
         return;
     }
+
+    g_assert(type == RpNetworkConnectionCloseType_FlushWrite ||
+                type == RpNetworkConnectionCloseType_FlushWriteAndDelay);
+
+    //TODO...if (inDelayedClose()) {...}
+
+    //TODO...if (delayed_close_timeout_set) {...}
 
 NOISY_MSG_("calling rp_io_handle_enable_file_events(%p, %u)", me->m_socket, RpFileReadyType_Write | (me->m_enable_half_close ? 0 : RpFileReadyType_Closed));
     rp_io_handle_enable_file_events(rp_socket_io_handle(RP_SOCKET(me->m_socket)), RpFileReadyType_Write | (me->m_enable_half_close ? 0 : RpFileReadyType_Closed));
@@ -467,7 +493,6 @@ read_disable_i(RpNetworkConnection* self, bool disable)
     if (disable)
     {
         ++me->m_read_disable_count;
-NOISY_MSG_("read disable count %u", me->m_read_disable_count);
 
         if (rp_network_connection_state(self) != RpNetworkConnectionState_Open)
         {
@@ -500,7 +525,6 @@ NOISY_MSG_("read disable count %u", me->m_read_disable_count);
     {
         g_assert(me->m_read_disable_count != 0);
         --me->m_read_disable_count;
-NOISY_MSG_("read disable count %u", me->m_read_disable_count);
         if (rp_network_connection_state(self) != RpNetworkConnectionState_Open)
         {
             LOGD("called on closed connection");
@@ -830,7 +854,7 @@ on_read_ready(RpNetworkConnectionImpl* self)
         close_socket(self, RpNetworkConnectionEvent_RemoteClose);
     }
 
-NOISY_MSG_("done");
+    NOISY_MSG_("done");
 }
 
 static void
@@ -867,7 +891,7 @@ on_file_event(gpointer arg, guint32 events)
         on_read_ready(self);
     }
 
-NOISY_MSG_("done");
+    NOISY_MSG_("done");
 }
 
 OVERRIDE void
@@ -879,8 +903,6 @@ constructed(GObject* obj)
 
     RpNetworkConnectionImplPrivate* me = PRIV(obj);
     me->m_filter_manager = rp_network_filter_manager_impl_new(RP_FILTER_MANAGER_CONNECTION(obj), RP_SOCKET(me->m_socket));
-
-    g_object_ref(me->m_socket);
 
     if (!me->m_connected)
     {
@@ -911,7 +933,6 @@ dispose(GObject* obj)
     NOISY_MSG_("(%p)", obj);
 
     RpNetworkConnectionImplPrivate* me = PRIV(obj);
-NOISY_MSG_("clearing filter manager %p", me->m_filter_manager);
     g_clear_object(&me->m_filter_manager);
     g_clear_object(&me->m_socket);
     g_clear_pointer(&me->m_read_buffer, evbuffer_free);
@@ -941,7 +962,6 @@ OVERRIDE void
 on_connected(RpNetworkConnectionImpl* self)
 {
     NOISY_MSG_("(%p(fd %d))", self, SOCKFD(self));
-NOISY_MSG_("calling rp_network_transport_socket_on_connected(%p) on fd %d", PRIV(self)->m_transport_socket, SOCKFD(self));
     rp_network_transport_socket_on_connected(PRIV(self)->m_transport_socket);
 }
 

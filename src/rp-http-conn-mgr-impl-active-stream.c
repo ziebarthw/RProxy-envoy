@@ -265,7 +265,6 @@ on_reset_stream_i(RpStreamCallbacks* self, RpStreamResetReason_e reason, const c
     //TODO...response_encoder_->getStream().responseDetails();
     RpHttpConnMgrImplActiveStream* me = RP_HTTP_CONN_MGR_IMPL_ACTIVE_STREAM(self);
     struct state_s* state = &me->m_state;
-g_assert(!state->m_on_reset_stream_called);
     state->m_on_reset_stream_called = true;
 
     //TODO...
