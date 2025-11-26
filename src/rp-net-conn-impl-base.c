@@ -63,7 +63,7 @@ G_DEFINE_ABSTRACT_TYPE_WITH_CODE(RpNetworkConnectionImplBase, rp_network_connect
 static void
 raw_write_i(RpFilterManagerConnection* self, evbuf_t* data, bool end_stream)
 {
-    NOISY_MSG_("(%p, %p(%zu), %u)", self, data, data ? evbuffer_get_length(data) : 0, end_stream);
+    NOISY_MSG_("(%p, %p(%zu), %u)", self, data, evbuf_length(data), end_stream);
 }
 
 static void

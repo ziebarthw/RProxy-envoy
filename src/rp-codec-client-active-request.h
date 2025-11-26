@@ -25,9 +25,9 @@ RpCodecClientActiveRequest* rp_codec_client_active_request_new(RpCodecClient* pa
 void rp_codec_client_active_request_set_encoder(RpCodecClientActiveRequest* self,
                                                 RpRequestEncoder* encoder);
 void rp_codec_client_active_request_set_decode_complete(RpCodecClientActiveRequest* self);
-bool rp_codec_client_active_request_get_decode_complete(RpCodecClientActiveRequest* self);
+bool rp_codec_client_active_request_decode_complete_(RpCodecClientActiveRequest* self);
 void rp_codec_client_active_request_set_encode_complete(RpCodecClientActiveRequest* self);
-bool rp_codec_client_active_request_get_encode_complete(RpCodecClientActiveRequest* self);
+bool rp_codec_client_active_request_encode_complete_(RpCodecClientActiveRequest* self);
 bool rp_codec_client_active_request_get_wait_encode_complete(RpCodecClientActiveRequest* self);
 void rp_codec_client_active_request_remove_encoder_callbacks(RpCodecClientActiveRequest* self);
 

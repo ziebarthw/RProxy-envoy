@@ -60,11 +60,20 @@ on_below_write_buffer_low_watermark_i(RpStreamCallbacks* self G_GNUC_UNUSED)
 }
 
 static void
+on_reset_stream_i(RpStreamCallbacks* self, RpStreamResetReason_e reason, const char* reason_str G_GNUC_UNUSED)
+{
+    NOISY_MSG_("(%p, %d, %p(%s))", self, reason, reason_str, reason_str);
+    RpCodecClientActiveRequest* me = RP_CODEC_CLIENT_ACTIVE_REQUEST(self);
+    rp_codec_client_on_reset(me->m_parent, me, reason);
+}
+
+static void
 stream_callbacks_iface_init(RpStreamCallbacksInterface* iface)
 {
     LOGD("(%p)", iface);
     iface->on_above_write_buffer_high_watermark = on_above_write_buffer_high_watermark_i;
     iface->on_below_write_buffer_low_watermark = on_below_write_buffer_low_watermark_i;
+    iface->on_reset_stream = on_reset_stream_i;
 }
 
 static void
@@ -262,7 +271,7 @@ rp_codec_client_active_request_set_decode_complete(RpCodecClientActiveRequest* s
 }
 
 bool
-rp_codec_client_active_request_get_decode_complete(RpCodecClientActiveRequest* self)
+rp_codec_client_active_request_decode_complete_(RpCodecClientActiveRequest* self)
 {
     LOGD("(%p)", self);
     g_return_val_if_fail(RP_IS_CODEC_CLIENT_ACTIVE_REQUEST(self), false);
@@ -278,7 +287,7 @@ rp_codec_client_active_request_set_encode_complete(RpCodecClientActiveRequest* s
 }
 
 bool
-rp_codec_client_active_request_get_encode_complete(RpCodecClientActiveRequest* self)
+rp_codec_client_active_request_encode_complete_(RpCodecClientActiveRequest* self)
 {
     LOGD("(%p)", self);
     g_return_val_if_fail(RP_IS_CODEC_CLIENT_ACTIVE_REQUEST(self), false);

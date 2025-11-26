@@ -125,7 +125,7 @@ reset_all(RpRouterFilter* self)
         RpUpstreamRequestPtr request_ptr = RP_UPSTREAM_REQUEST(entry->data);
         self->m_upstream_requests = g_slist_delete_link(self->m_upstream_requests, entry);
         rp_upstream_request_reset_stream(request_ptr);
-        rp_dispatcher_deferred_delete(DISPATCHER(self), G_OBJECT(request_ptr));
+        rp_dispatcher_deferred_delete(DISPATCHER(self), G_OBJECT(g_steal_pointer(&request_ptr)));
     }
 }
 
@@ -174,6 +174,7 @@ on_upstream_complete(RpRouterFilter* self, RpUpstreamRequest* upstream_request)
             NOISY_MSG_("returning");
             return;
         }
+        rp_upstream_request_reset_stream(upstream_request);
     }
 //    RpDispatcher* dispatcher = rp_stream_filter_callbacks_dispatcher(self->m_callbacks);
     gint64 response_time = g_get_monotonic_time() - self->m_downstream_request_complete_time;
@@ -197,6 +198,8 @@ on_destroy_i(RpStreamFilterBase* self)
     reset_all(me);
 
     //TODO...
+
+    cleanup(me);
 }
 
 static RpLocalErrorStatus_e

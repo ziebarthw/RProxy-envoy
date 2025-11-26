@@ -16,19 +16,16 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
-#ifndef OVERRIDE
-#define OVERRIDE static
-#endif
-
 #include <stdio.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include "rproxy.h"
 #include "rp-io-handle.h"
 #include "network/rp-socket-impl.h"
 
 typedef struct _RpSocketImplPrivate RpSocketImplPrivate;
 struct _RpSocketImplPrivate {
-    RpIoHandle* m_io_handle;
+    UNIQUE_PTR(RpIoHandle) m_io_handle;
     struct sockaddr* m_local_address;
     struct sockaddr* m_remote_address;
     RpConnectionInfoSetterImpl* m_connection_info_provider;
@@ -69,8 +66,8 @@ close_i(RpSocket* self)
     RpSocketImplPrivate* me = PRIV(self);
     if (me->m_io_handle && rp_io_handle_is_open(me->m_io_handle))
     {
+        NOISY_MSG_("closing");
         rp_io_handle_close(me->m_io_handle);
-        g_clear_object(&me->m_io_handle);
     }
 }
 
@@ -172,8 +169,6 @@ constructed(GObject* obj)
     RpSocketImplPrivate* me = PRIV(obj);
     me->m_connection_info_provider = rp_connection_info_setter_impl_new(g_steal_pointer(&me->m_local_address),
                                                                         g_steal_pointer(&me->m_remote_address));
-    // Grab a reference to the io handle.
-    g_object_ref(me->m_io_handle);
 }
 
 OVERRIDE void

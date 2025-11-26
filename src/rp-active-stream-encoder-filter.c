@@ -194,7 +194,7 @@ rp_active_stream_encoder_filter_new(RpFilterManager* parent, RpStreamEncoderFilt
     g_return_val_if_fail(RP_IS_FILTER_MANAGER(parent), NULL);
     g_return_val_if_fail(RP_IS_STREAM_ENCODER_FILTER(filter), NULL);
     RpActiveStreamEncoderFilter* self = g_object_new(RP_TYPE_ACTIVE_STREAM_ENCODER_FILTER,
-                                                        "parent", RP_FILTER_MANAGER(parent),
+                                                        "parent", parent,
                                                         "filter-context", filter_context,
                                                         NULL);
     self->m_handle = filter;

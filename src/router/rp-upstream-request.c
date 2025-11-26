@@ -407,10 +407,10 @@ void
 rp_upstream_request_reset_stream(RpUpstreamRequest* self)
 {
     LOGD("(%p)", self);
-    RpUpstreamRequest* me = RP_UPSTREAM_REQUEST(self);
-    if (rp_generic_conn_pool_cancel_any_pending_stream(me->m_conn_pool))
+    if (rp_generic_conn_pool_cancel_any_pending_stream(self->m_conn_pool))
     {
         LOGD("cancelled pool request");
+        g_assert(!self->m_upstream);
     }
 
     if (rp_upstream_timing_last_upstream_tx_byte_sent(UPSTREAM_TIMING(self)) &&
@@ -420,13 +420,13 @@ rp_upstream_request_reset_stream(RpUpstreamRequest* self)
         return;
     }
 
-    if (me->m_upstream)
+    if (self->m_upstream)
     {
         LOGD("resetting pool request");
-        rp_generic_upstream_reset_stream(me->m_upstream);
-        rp_upstream_request_clear_request_encoder(me);
+        rp_generic_upstream_reset_stream(self->m_upstream);
+        rp_upstream_request_clear_request_encoder(self);
     }
-    me->m_reset_stream = true;
+    self->m_reset_stream = true;
 }
 
 void

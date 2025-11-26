@@ -33,7 +33,7 @@ rp_codec_client_callbacks_default_init(RpCodecClientCallbacksInterface* iface)
 typedef struct _RpCodecClientPrivate RpCodecClientPrivate;
 struct _RpCodecClientPrivate {
 
-    RpNetworkClientConnection* m_connection;
+    UNIQUE_PTR(RpNetworkClientConnection) m_connection;
     RpHttpClientConnection* m_codec;
     GSList* m_active_requests;
     RpHttpConnectionCallbacks* m_codec_callbacks;
@@ -124,6 +124,7 @@ on_event_i(RpNetworkConnectionCallbacks* self, RpNetworkConnectionEvent_e event)
     if (event == RpNetworkConnectionEvent_RemoteClose ||
         event == RpNetworkConnectionEvent_LocalClose)
     {
+        NOISY_MSG_("disconnect. Resetting %p, %u pending requests", me->m_connection, g_slist_length(me->m_active_requests));
         NOISY_MSG_("disconnect; %s close", event == RpNetworkConnectionEvent_RemoteClose ? "remote" : "local");
         //TODO...disableIdleTimer();
         //TODO...idle_timer_.reset();
@@ -142,8 +143,8 @@ on_event_i(RpNetworkConnectionCallbacks* self, RpNetworkConnectionEvent_e event)
         while (me->m_active_requests)
         {
             RpStream* active_request = me->m_active_requests->data;
-            RpStream* stream = rp_stream_encoder_get_stream(RP_STREAM_ENCODER(active_request));
-            rp_stream_reset_handler_reset_stream(RP_STREAM_RESET_HANDLER(stream), reason);
+            rp_stream_reset_handler_reset_stream(
+                RP_STREAM_RESET_HANDLER(rp_stream_encoder_get_stream(RP_STREAM_ENCODER(active_request))), reason);
         }
     }
 }
@@ -260,6 +261,11 @@ OVERRIDE void
 dispose(GObject* obj)
 {
     NOISY_MSG_("(%p)", obj);
+
+    RpCodecClientPrivate* me = PRIV(obj);
+NOISY_MSG_("clearing connection %p", me->m_connection);
+    g_clear_object(&me->m_connection);
+
     G_OBJECT_CLASS(rp_codec_client_parent_class)->dispose(obj);
 }
 
@@ -384,21 +390,20 @@ complete_request(RpCodecClient* self, RpCodecClientActiveRequest* request)
 }
 
 void
-rp_codec_client_response_pre_decode_complete(RpCodecClient* self, void* arg)
+rp_codec_client_response_pre_decode_complete(RpCodecClient* self, RpCodecClientActiveRequest* request)
 {
-    LOGD("(%p, %p)", self, arg);
+    LOGD("(%p, %p)", self, request);
     g_return_if_fail(RP_IS_CODEC_CLIENT(self));
-    g_return_if_fail(RP_IS_CODEC_CLIENT_ACTIVE_REQUEST(arg));
+    g_return_if_fail(RP_IS_CODEC_CLIENT_ACTIVE_REQUEST(request));
     RpCodecClientPrivate* me = PRIV(self);
-    RpCodecClientCallbacks* codec_client_callbacks = me->m_codec_client_callbacks;
-    if (codec_client_callbacks)
+    RpCodecClientCallbacks* codec_client_callbacks_ = me->m_codec_client_callbacks;
+    if (codec_client_callbacks_)
     {
-        rp_codec_client_callbacks_on_stream_pre_decode_complete(codec_client_callbacks);
+        rp_codec_client_callbacks_on_stream_pre_decode_complete(codec_client_callbacks_);
     }
 
-    RpCodecClientActiveRequest* request = RP_CODEC_CLIENT_ACTIVE_REQUEST(arg);
     rp_codec_client_active_request_set_decode_complete(request);
-    if (rp_codec_client_active_request_get_encode_complete(request) ||
+    if (rp_codec_client_active_request_encode_complete_(request) ||
         !rp_codec_client_active_request_get_wait_encode_complete(request))
     {
         complete_request(self, request);
@@ -410,14 +415,13 @@ rp_codec_client_response_pre_decode_complete(RpCodecClient* self, void* arg)
 }
 
 void
-rp_codec_client_request_encode_complete(RpCodecClient* self, void* arg)
+rp_codec_client_request_encode_complete(RpCodecClient* self, RpCodecClientActiveRequest* request)
 {
-    LOGD("(%p, %p)", self, arg);
+    LOGD("(%p, %p)", self, request);
     g_return_if_fail(RP_IS_CODEC_CLIENT(self));
-    g_return_if_fail(RP_IS_CODEC_CLIENT_ACTIVE_REQUEST(arg));
-    RpCodecClientActiveRequest* request = RP_CODEC_CLIENT_ACTIVE_REQUEST(arg);
+    g_return_if_fail(RP_IS_CODEC_CLIENT_ACTIVE_REQUEST(request));
     rp_codec_client_active_request_set_encode_complete(request);
-    if (rp_codec_client_active_request_get_decode_complete(request))
+    if (rp_codec_client_active_request_decode_complete_(request))
     {
         complete_request(self, request);
     }
@@ -432,9 +436,23 @@ rp_codec_client_num_active_requests(RpCodecClient* self)
 }
 
 void
+rp_codec_client_on_reset(RpCodecClient* self, RpCodecClientActiveRequest* request, RpStreamResetReason_e reason)
+{
+    LOGD("(%p, %p, %d)", self, request, reason);
+    g_return_if_fail(RP_IS_CODEC_CLIENT(self));
+    g_return_if_fail(RP_IS_CODEC_CLIENT_ACTIVE_REQUEST(request));
+    RpCodecClientCallbacks* codec_client_callbacks_ = PRIV(self)->m_codec_client_callbacks;
+    if (codec_client_callbacks_)
+    {
+        rp_codec_client_callbacks_on_stream_reset(codec_client_callbacks_, reason);
+    }
+    delete_request(self, request);
+}
+
+void
 rp_codec_client_on_data(RpCodecClient* self, evbuf_t* data)
 {
-    LOGD("(%p, %p(%zu))", self, data, evbuffer_get_length(data));
+    LOGD("(%p, %p(%zu))", self, data, evbuf_length(data));
 
     RpCodecClientPrivate* me = PRIV(self);
     RpStatusCode_e status = rp_http_connection_dispatch(RP_HTTP_CONNECTION(me->m_codec), data);

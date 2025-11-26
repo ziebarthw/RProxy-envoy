@@ -15,6 +15,8 @@
 
 G_BEGIN_DECLS
 
+typedef struct _RpCodecClientActiveRequest RpCodecClientActiveRequest;
+
 /**
  * Callbacks specific to a codec client.
  */
@@ -72,9 +74,14 @@ void rp_codec_client_go_away(RpCodecClient* self);
 evhtp_proto rp_codec_client_protocol(RpCodecClient* self);
 RpRequestEncoder* rp_codec_client_new_stream(RpCodecClient* self,
                                                 RpResponseDecoder* response_decoder);
-void rp_codec_client_response_pre_decode_complete(RpCodecClient* self, void* arg);
-void rp_codec_client_request_encode_complete(RpCodecClient* self, void* arg);
+void rp_codec_client_response_pre_decode_complete(RpCodecClient* self,
+                                                    RpCodecClientActiveRequest* request);
+void rp_codec_client_request_encode_complete(RpCodecClient* self,
+                                                RpCodecClientActiveRequest* request);
 gsize rp_codec_client_num_active_requests(RpCodecClient* self);
+void rp_codec_client_on_reset(RpCodecClient* self,
+                                RpCodecClientActiveRequest* request,
+                                RpStreamResetReason_e reason);
 void rp_codec_client_on_data(RpCodecClient* self, evbuf_t* data);
 bool rp_codec_client_is_half_close_enabled(RpCodecClient* self);
 void rp_codec_client_close(RpCodecClient* self, RpNetworkConnectionCloseType_e type);

@@ -66,6 +66,7 @@ static void
 reset_all_streams(RpHttpConnectionManagerImpl* self/*, response_flag*/, const char* details)
 {
     NOISY_MSG_("(%p, %p(%s))", self, details, details);
+NOISY_MSG_("%u streams", self->m_streams ? g_slist_length(self->m_streams) : 0);
     while (self->m_streams)
     {
         RpHttpConnMgrImplActiveStream* stream = self->m_streams->data;
@@ -95,11 +96,11 @@ do_connection_close(RpHttpConnectionManagerImpl* self, RpNetworkConnectionCloseT
         reset_all_streams(self, details);
     }
 
-    RpNetworkConnection* connection = rp_network_filter_callbacks_connection(RP_NETWORK_FILTER_CALLBACKS(self->m_read_callbacks));
     if (close_type != RpNetworkConnectionCloseType_None)
     {
         NOISY_MSG_("closing");
-        rp_network_connection_close(connection, close_type/*details*/);
+        rp_network_connection_close(
+            rp_network_filter_callbacks_connection(RP_NETWORK_FILTER_CALLBACKS(self->m_read_callbacks)), close_type/*details*/);
     }
 }
 
@@ -132,17 +133,18 @@ on_event_i(RpNetworkConnectionCallbacks* self, RpNetworkConnectionEvent_e event)
     if (event == RpNetworkConnectionEvent_RemoteClose ||
         event == RpNetworkConnectionEvent_LocalClose)
     {
-        NOISY_MSG_("%s", event == RpNetworkConnectionEvent_RemoteClose ? "RemoteClose" : "LocalClose");
         RpHttpConnectionManagerImpl* me = RP_HTTP_CONNECTION_MANAGER_IMPL(self);
         const char* details;
         if (event == RpNetworkConnectionEvent_RemoteClose)
         {
+            NOISY_MSG_("RemoteClose");
             me->m_remote_close = true;
             //TODO...stats_.
             details = "downstream_remote_disconnect";
         }
         else
         {
+            NOISY_MSG_("LocalClose");
 #if 0
             RpNetworkConnection* connection = rp_network_filter_callbacks_connection(RP_NETWORK_FILTER_CALLBACKS(me->m_read_callbacks));
             const char* local_close_reason = rp_network_connection_local_close_reason(connection);
@@ -418,9 +420,11 @@ static inline bool
 is_premature_rst_stream(RpHttpConnMgrImplActiveStream* stream)
 {
     NOISY_MSG_("(%p)", stream);
+    g_assert(!rp_http_conn_mgr_impl_active_stream_is_internally_destroyed(stream));
     //TODO...duration = ...
 
     //TODO...if (duration) ....
+return false;
 
     return !rp_stream_info_response_code(
                 rp_filter_manager_stream_info(RP_FILTER_MANAGER(
@@ -471,9 +475,9 @@ rp_http_connection_manager_impl_do_deferred_stream_destroy(RpHttpConnectionManag
     rp_filter_manager_destroy_filters(RP_FILTER_MANAGER(filter_manager));
 
     self->m_streams = g_slist_remove(self->m_streams, stream);
-    RpNetworkConnection* connection = rp_network_filter_callbacks_connection(RP_NETWORK_FILTER_CALLBACKS(self->m_read_callbacks));
-    RpDispatcher* dispatcher = rp_network_connection_dispatcher(connection);
-    rp_dispatcher_deferred_delete(dispatcher, G_OBJECT(stream));
+    rp_dispatcher_deferred_delete(
+        rp_network_connection_dispatcher(
+            rp_network_filter_callbacks_connection(RP_NETWORK_FILTER_CALLBACKS(self->m_read_callbacks))), G_OBJECT(stream));
 
     if (response_encoder)
     {

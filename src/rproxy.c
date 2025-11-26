@@ -388,7 +388,7 @@ downstream_post_accept(evhtp_connection_t* up_conn, void* arg)
                                 NULL);
     g_autoptr(RpNetworkServerConnectionImpl) connection =
         rp_network_server_connection_impl_new(rproxy->m_dispatcher,
-                                                RP_CONNECTION_SOCKET(socket),
+                                                RP_CONNECTION_SOCKET(g_steal_pointer(&socket)),
                                                 transport_socket,
                                                 RP_STREAM_INFO(stream_info));
     g_autoptr(RpHttpConnectionManagerImpl) hcm =

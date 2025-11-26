@@ -78,9 +78,9 @@ NOISY_MSG_("%zu bytes in output buffer for fd %d", evbuffer_get_length(buffereve
 }
 
 static inline void
-do_bufferevent_error(evbev_t* bev)
+do_bufferevent_error(evbev_t* bev, int errcode)
 {
-    NOISY_MSG_("(%p)", bev);
+    NOISY_MSG_("(%p, %d)", bev, errcode);
 
     int dns_err = bufferevent_socket_get_dns_error(bev);
     if (dns_err)
@@ -89,7 +89,6 @@ do_bufferevent_error(evbev_t* bev)
         return;
     }
 
-    int errcode = EVUTIL_SOCKET_ERROR();
     if (errcode)
     {
         const char* errmsg = evutil_socket_error_to_string(errcode);
@@ -111,6 +110,9 @@ do_bufferevent_error(evbev_t* bev)
 static void
 eventcb(evbev_t* bev, short events, void* arg)
 {
+    // Grab errno before anything else to prevent its pollution.
+    int errcode = EVUTIL_SOCKET_ERROR();
+
     NOISY_MSG_("(%p(fd %d), %x, %p)", bev, bufferevent_getfd(bev), events, arg);
 
     int sockfd G_GNUC_UNUSED = bufferevent_getfd(bev); // Grab sockfd in case bev is destroyed before end of func.
@@ -120,7 +122,7 @@ eventcb(evbev_t* bev, short events, void* arg)
     {
         if (events & BEV_EVENT_ERROR)
         {
-            do_bufferevent_error(bev);
+            do_bufferevent_error(bev, errcode);
         }
         else
         {
@@ -270,7 +272,6 @@ freecb(evbev_t* bev, void* arg)
     {
         RpIoBevSocketHandleImpl* self = RP_IO_BEV_SOCKET_HANDLE_IMPL(arg);
         g_clear_pointer(&self->m_bev, bufferevent_free);
-        g_object_unref(self);
     }
 }
 
@@ -290,7 +291,6 @@ close_i(RpIoHandle* self)
     else
     {
         g_clear_pointer(&me->m_bev, bufferevent_free);
-        g_object_unref(self);
     }
 }
 
