@@ -27,10 +27,10 @@ struct _RpRouterCfg {
 };
 
 static inline RpRouterCfg
-rp_router_cfg_ctor(bool suppress_rproxy_headers)
+rp_router_cfg_ctor(RpFactoryContext* context, bool suppress_rproxy_headers)
 {
     RpRouterCfg self = {
-        .config = rp_filter_config_base_ctor("router-filter-config"),
+        .config = rp_filter_config_base_ctor("router-filter-config", context),
         .suppress_rproxy_headers = suppress_rproxy_headers
     };
     return self;

@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_active_stream_decoder_filter_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_active_stream_decoder_filter_NOISY)
@@ -157,6 +154,14 @@ remove_downstream_watermark_callbacks_i(RpStreamDecoderFilterCallbacks* self, Rp
     *watermark_callbacks_ = g_slist_remove(*watermark_callbacks_, callbacks);
 }
 
+static RpOverrideHost
+upstream_override_host_i(RpStreamDecoderFilterCallbacks* self)
+{
+    NOISY_MSG_("(%p)", self);
+    RpActiveStreamDecoderFilter* me = RP_ACTIVE_STREAM_DECODER_FILTER(self);
+    return rp_filter_manager_upstream_override_host_(me->m_parent);
+}
+
 static void
 stream_decoder_filter_callbacks_iface_init(RpStreamDecoderFilterCallbacksInterface* iface)
 {
@@ -172,6 +177,7 @@ stream_decoder_filter_callbacks_iface_init(RpStreamDecoderFilterCallbacksInterfa
     iface->decoder_buffer_limit = decoder_buffer_limit_i;
     iface->add_downstream_watermark_callbacks = add_downstream_watermark_callbacks_i;
     iface->remove_downstream_watermark_callbacks = remove_downstream_watermark_callbacks_i;
+    iface->upstream_override_host = upstream_override_host_i;
 }
 
 OVERRIDE void

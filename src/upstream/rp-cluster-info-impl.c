@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_cluster_info_impl_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_cluster_info_impl_NOISY)
@@ -17,7 +14,7 @@
 #endif
 
 #include "upstream/rp-resource-manager-impl.h"
-#include "upstream/rp-cluster-info-impl.h"
+#include "upstream/rp-upstream-impl.h"
 
 struct _RpClusterInfoImpl {
     GObject parent_instance;
@@ -113,7 +110,36 @@ static RpDiscoveryType_e
 type_i(RpClusterInfo* self)
 {
     NOISY_MSG_("(%p)", self);
-    return RP_CLUSTER_INFO_IMPL(self)->m_config.cluster_discovery_type;
+    return RP_CLUSTER_INFO_IMPL(self)->m_config.type;
+}
+
+static RpTransportSocketFactoryContextPtr
+transport_socket_context_i(RpClusterInfo* self)
+{
+    NOISY_MSG_("(%p)", self);
+    return rp_server_factory_context_get_transport_socket_factory_context(
+            RP_CLUSTER_INFO_IMPL(self)->m_server_context);
+}
+
+static evhtp_proto*
+upstream_http_protocol_i(RpClusterInfo* self, evhtp_proto downstream_protocol)
+{
+    NOISY_MSG_("(%p, %d)", self, downstream_protocol);
+    evhtp_proto* rval = g_malloc0(sizeof(*rval));
+    //TODO...features_ & USE_DOWNSTREAM_PROTOCOL
+    if (downstream_protocol != EVHTP_PROTO_INVALID)
+    {
+        if (downstream_protocol == EVHTP_PROTO_10)
+        {
+            *rval = EVHTP_PROTO_11;
+            return rval;
+        }
+        *rval = downstream_protocol;
+        return rval;
+    }
+    //TODO...HTTP2, HTTP3, etc.
+    *rval = EVHTP_PROTO_11;
+    return rval;
 }
 
 static void
@@ -127,6 +153,8 @@ cluster_info_iface_init(RpClusterInfoInterface* iface)
     iface->get_upstream_local_address_selector = get_upstream_local_address_selector_i;
     iface->max_requests_per_connection = max_requests_per_connection_i;
     iface->type = type_i;
+    iface->transport_socket_context = transport_socket_context_i;
+    iface->upstream_http_protocol = upstream_http_protocol_i;
 }
 
 OVERRIDE void

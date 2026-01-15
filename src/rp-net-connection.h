@@ -307,6 +307,8 @@ struct _RpNetworkServerConnectionInterface {
     void (*set_transport_socket_connect_timeout)(RpNetworkServerConnection*, guint64);
 };
 
+typedef UNIQUE_PTR(RpNetworkServerConnection) RpNetworkServerConnectionPtr;
+
 static inline void
 rp_network_server_connection_set_transport_socket_connect_timeout(RpNetworkServerConnection* self, guint64 timeout_ms)
 {
@@ -328,6 +330,8 @@ struct _RpNetworkClientConnectionInterface {
 
     void (*connect)(RpNetworkClientConnection*);
 };
+
+typedef UNIQUE_PTR(RpNetworkClientConnection) RpNetworkClientConnectionPtr;
 
 static inline void
 rp_network_client_connection_connect(RpNetworkClientConnection* self)

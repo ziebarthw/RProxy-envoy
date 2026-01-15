@@ -7,9 +7,6 @@
 
 #include <stdio.h>
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_http_conn_manager_config_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_http_conn_manager_config_NOISY)
@@ -86,6 +83,7 @@ struct _RpHttpConnectionManagerConfig {
 
     RpLocalReply* m_local_reply;
     RpFactoryContext* m_context;
+    RpThreadLocalInstance* m_tls;
 
     RpRouteConfigProvider* m_route_config_provider;
 
@@ -315,17 +313,22 @@ constructed(RpHttpConnectionManagerConfig* self)
 
     self->m_route_config_provider = RP_ROUTE_CONFIG_PROVIDER(
         rp_static_route_config_provider_impl_new(&self->m_config.route_config,
-                                                    SERVER_FACTORY_CONTEXT(self)));
+                                                    SERVER_FACTORY_CONTEXT(self),
+                                                    self->m_tls));
     return self;
 }
 
 RpHttpConnectionManagerConfig*
-rp_http_connection_manager_config_new(RpHttpConnectionManagerCfg* config, RpFactoryContext* context)
+rp_http_connection_manager_config_new(RpHttpConnectionManagerCfg* config, RpFactoryContext* context, RpThreadLocalInstance* tls)
 {
-    LOGD("(%p, %p)", config, context);
+    LOGD("(%p, %p, %p)", config, context, tls);
+    g_return_val_if_fail(config != NULL, NULL);
+    g_return_val_if_fail(RP_IS_FACTORY_CONTEXT(context), NULL);
+    g_return_val_if_fail(RP_IS_THREAD_LOCAL_INSTANCE(tls), NULL);
     RpHttpConnectionManagerConfig* self = g_object_new(RP_TYPE_HTTP_CONNECTION_MANAGER_CONFIG, NULL);
     self->m_config = *config;
     self->m_context = context;
+    self->m_tls = tls;
     return constructed(self);
 }
 

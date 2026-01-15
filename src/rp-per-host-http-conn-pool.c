@@ -98,11 +98,11 @@ rp_per_host_http_conn_pool_init(RpPerHostHttpConnPool* self G_GNUC_UNUSED)
 }
 
 RpPerHostHttpConnPool*
-rp_per_host_http_conn_pool_new(RpHost* host, RpThreadLocalCluster* thread_local_cluster,
+rp_per_host_http_conn_pool_new(RpHostConstSharedPtr host, RpThreadLocalCluster* thread_local_cluster,
                                 RpResourcePriority_e priority, evhtp_proto downstream_protocol, RpLoadBalancerContext* context)
 {
     LOGD("(%p, %p, %d, %d, %p)", host, thread_local_cluster, priority, downstream_protocol, context);
-    g_return_val_if_fail(RP_IS_HOST(host), NULL);
+    g_return_val_if_fail(RP_IS_HOST((RpHost*)host), NULL);
     g_return_val_if_fail(RP_IS_THREAD_LOCAL_CLUSTER(thread_local_cluster), NULL);
     return g_object_new(RP_TYPE_PER_HOST_HTTP_CONN_POOL,
                         "host", host,

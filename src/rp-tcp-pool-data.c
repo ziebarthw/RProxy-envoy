@@ -23,7 +23,7 @@ struct _RpTcpPoolData {
 
     RpOnNewConnectionFn m_on_new_connection;
     RpTcpConnPoolInstance* m_pool;
-    void* m_arg;
+    gpointer m_arg;
 };
 
 enum
@@ -138,7 +138,7 @@ rp_tcp_pool_data_new_connection(RpTcpPoolData* self, RpTcpConnPoolCallbacks* cal
     LOGD("(%p, %p)", self, callbacks);
     g_return_val_if_fail(RP_IS_TCP_POOL_DATA(self), NULL);
     g_return_val_if_fail(RP_IS_TCP_CONN_POOL_CALLBACKS(callbacks), NULL);
-    self->m_on_new_connection(self->m_arg);
+    self->m_on_new_connection(self->m_arg, self->m_pool);
     return rp_tcp_conn_pool_instance_new_connection(self->m_pool, callbacks);
 }
 

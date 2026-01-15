@@ -28,14 +28,15 @@ struct _RpClientConnectionFactoryInterface {
 
     RpNetworkClientConnection* (*create_client_connection)(RpClientConnectionFactory*,
                                                             RpDispatcher*,
-                                                            struct sockaddr*,
-                                                            struct sockaddr*,
+                                                            RpNetworkAddressInstanceConstSharedPtr,
+                                                            RpNetworkAddressInstanceConstSharedPtr,
                                                             RpNetworkTransportSocket*);
 };
 
 static inline RpNetworkClientConnection*
 rp_client_connection_factory_create_client_connection(RpClientConnectionFactory* self, RpDispatcher* dispatcher,
-                                                        struct sockaddr* address, struct sockaddr* source_address,
+                                                        RpNetworkAddressInstanceConstSharedPtr address,
+                                                        RpNetworkAddressInstanceConstSharedPtr source_address,
                                                         RpNetworkTransportSocket* transport_socket)
 {
     return RP_IS_CLIENT_CONNECTION_FACTORY(self) ?

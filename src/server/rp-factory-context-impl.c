@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_factory_context_impl_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_factory_context_impl_NOISY)
@@ -26,10 +23,10 @@ struct _RpFactoryContextImpl {
 G_DEFINE_FINAL_TYPE(RpFactoryContextImpl, rp_factory_context_impl, RP_TYPE_FACTORY_CONTEXT_IMPL_BASE)
 
 OVERRIDE void
-dispose(GObject* object)
+dispose(GObject* obj)
 {
-    NOISY_MSG_("(%p)", object);
-    G_OBJECT_CLASS(rp_factory_context_impl_parent_class)->dispose(object);
+    NOISY_MSG_("(%p)", obj);
+    G_OBJECT_CLASS(rp_factory_context_impl_parent_class)->dispose(obj);
 }
 
 static void
@@ -48,10 +45,10 @@ rp_factory_context_impl_init(RpFactoryContextImpl* self G_GNUC_UNUSED)
 }
 
 RpFactoryContextImpl*
-rp_factory_context_impl_new(RpInstance* server)
+rp_factory_context_impl_new(RpServerInstance* server)
 {
     LOGD("(%p)", server);
-    g_return_val_if_fail(RP_IS_INSTANCE(server), NULL);
+    g_return_val_if_fail(RP_IS_SERVER_INSTANCE(server), NULL);
     return g_object_new(RP_TYPE_FACTORY_CONTEXT_IMPL,
                         "server", server,
                         NULL);

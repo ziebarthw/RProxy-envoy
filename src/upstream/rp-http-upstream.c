@@ -42,7 +42,7 @@ static void stream_callbacks_iface_init(RpStreamCallbacksInterface* iface);
 // https://github.com/envoyproxy/envoy/blob/main/source/extensions/upstreams/http/http/upstream_request.h
 // class HttpUpstream : public Router::GenericUpstream, public Envoy::Http::StreamCallbacks
 
-G_DEFINE_ABSTRACT_TYPE_WITH_CODE(RpHttpUpstream, rp_http_upstream, G_TYPE_OBJECT,
+G_DEFINE_TYPE_WITH_CODE(RpHttpUpstream, rp_http_upstream, G_TYPE_OBJECT,
     G_ADD_PRIVATE(RpHttpUpstream)
     G_IMPLEMENT_INTERFACE(RP_TYPE_GENERIC_UPSTREAM, generic_upstream_iface_init)
     G_IMPLEMENT_INTERFACE(RP_TYPE_STREAM_CALLBACKS, stream_callbacks_iface_init)
@@ -233,4 +233,14 @@ rp_http_upstream_upstream_request_(RpHttpUpstream* self)
     LOGD("(%p)", self);
     g_return_val_if_fail(RP_IS_HTTP_UPSTREAM(self), NULL);
     return PRIV(self)->m_upstream_request;
+}
+
+RpHttpUpstream*
+rp_http_upstream_new(RpUpstreamToDownstream* upstream_request, RpRequestEncoder* encoder)
+{
+    LOGD("(%p, %p)", upstream_request, encoder);
+    return g_object_new(RP_TYPE_HTTP_UPSTREAM,
+                        "upstream-request", upstream_request,
+                        "request-encoder", encoder,
+                        NULL);
 }

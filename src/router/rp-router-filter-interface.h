@@ -37,7 +37,7 @@ struct _RpRouterFilterInterfaceInterface {
     void (*on_per_try_idle_timeout)(RpRouterFilterInterface*, RpUpstreamRequest*);
     void (*on_stream_max_duration_reached)(RpRouterFilterInterface*, RpUpstreamRequest*);
     RpStreamDecoderFilterCallbacks* (*callbacks)(RpRouterFilterInterface*);
-    RpClusterInfo* (*cluster)(RpRouterFilterInterface*);
+    RpClusterInfoConstSharedPtr (*cluster)(RpRouterFilterInterface*);
     RpRouterFilterConfig* (*config)(RpRouterFilterInterface*);
     //TODO...
     evhtp_headers_t* (*downstream_headers)(RpRouterFilterInterface*);
@@ -128,7 +128,7 @@ rp_router_filter_interface_callbacks(RpRouterFilterInterface* self)
     return RP_IS_ROUTER_FILTER_INTERFACE(self) ?
         RP_ROUTER_FILTER_INTERFACE_GET_IFACE(self)->callbacks(self) : NULL;
 }
-static inline RpClusterInfo*
+static inline RpClusterInfoConstSharedPtr
 rp_router_filter_interface_cluster(RpRouterFilterInterface* self)
 {
     return RP_IS_ROUTER_FILTER_INTERFACE(self) ?

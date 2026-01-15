@@ -38,3 +38,17 @@ rp_load_balancer_default_init(RpLoadBalancerInterface* iface G_GNUC_UNUSED)
 {
     LOGD("(%p)", iface);
 }
+
+G_DEFINE_INTERFACE(RpLoadBalancerFactory, rp_load_balancer_factory, G_TYPE_OBJECT)
+static void
+rp_load_balancer_factory_default_init(RpLoadBalancerFactoryInterface* iface G_GNUC_UNUSED)
+{
+    LOGD("(%p)", iface);
+}
+
+G_DEFINE_INTERFACE(RpThreadAwareLoadBalancer, rp_thread_aware_load_balancer, G_TYPE_OBJECT)
+static void
+rp_thread_aware_load_balancer_default_init(RpThreadAwareLoadBalancerInterface* iface G_GNUC_UNUSED)
+{
+    LOGD("(%p)", iface);
+}

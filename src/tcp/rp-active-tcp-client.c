@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_active_tcp_client_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_active_tcp_client_NOISY)
@@ -33,7 +30,7 @@ struct _RpActiveTcpClient {
     RpConnPoolImplBase* m_parent;
     UNIQUE_PTR(RpNetworkClientConnection) m_connection;
     RpHost* m_host;
-    UNIQUE_PTR(RpTcpConnectionData) m_tcp_connection_data;
+    SHARED_PTR(RpTcpConnectionData) m_tcp_connection_data;
     RpTcpConnPoolUpstreamCallbacks* m_callbacks;
     RpConnReadFilter* m_read_filter_handle;
 
@@ -256,7 +253,7 @@ rp_active_tcp_client_set_tcp_connection_data_(RpActiveTcpClient* self, RpTcpConn
     LOGD("(%p, %p)", self, data);
     g_return_if_fail(RP_IS_ACTIVE_TCP_CLIENT(self));
     g_return_if_fail(RP_IS_TCP_CONNECTION_DATA(data));
-    self->m_tcp_connection_data = g_steal_pointer(&data);
+    self->m_tcp_connection_data = data;
 }
 
 RpNetworkClientConnection*
@@ -318,7 +315,7 @@ rp_active_tcp_client_clear_callbacks(RpActiveTcpClient* self)
         rp_conn_pool_impl_base_schedule_on_upstream_ready(self->m_parent);
     }
     self->m_callbacks = NULL;
-    g_clear_object(&self->m_tcp_connection_data);
+    self->m_tcp_connection_data = NULL;
     rp_conn_pool_impl_base_on_stream_closed(self->m_parent, RP_CONNECTION_POOL_ACTIVE_CLIENT(self), true);
     //TODO...setIdleTimer();
     rp_conn_pool_impl_base_check_for_idle_and_close_idle_conns_if_draining(self->m_parent);

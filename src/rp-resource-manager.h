@@ -9,7 +9,7 @@
 
 #include <stdbool.h>
 #include <glib-object.h>
-#include "common/rp-resource.h"
+#include "rp-resource.h"
 
 G_BEGIN_DECLS
 
@@ -21,6 +21,7 @@ typedef enum {
     RpResourcePriority_Default,
     RpResourcePriority_High
 } RpResourcePriority_e;
+extern const gsize RpNumResourcePriorities;
 
 
 /**

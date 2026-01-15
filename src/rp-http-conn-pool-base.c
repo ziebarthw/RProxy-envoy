@@ -47,7 +47,7 @@ G_DEFINE_ABSTRACT_TYPE_WITH_CODE(RpHttpConnPoolImplBase, rp_http_conn_pool_impl_
     ((RpHttpConnPoolImplBasePrivate*) rp_http_conn_pool_impl_base_get_instance_private(RP_HTTP_CONN_POOL_IMPL_BASE(obj)))
 
 static void
-add_idle_callback_i(RpConnectionPoolInstance* self, idle_cb cb)
+add_idle_callback_i(RpConnectionPoolInstance* self, RpIdleCb cb)
 {
     NOISY_MSG_("(%p, %p)", self, cb);
     rp_conn_pool_impl_base_add_idle_callback_impl(RP_CONN_POOL_IMPL_BASE(self), cb);

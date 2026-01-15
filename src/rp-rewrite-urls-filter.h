@@ -22,10 +22,10 @@ struct _RpRewriteUrlsCfg {
 };
 
 static inline RpRewriteUrlsCfg
-rp_rewrite_urls_cfg_ctor(void)
+rp_rewrite_urls_cfg_ctor(RpFactoryContext* context)
 {
     RpRewriteUrlsCfg self = {
-        .config = rp_filter_config_base_ctor("rewrite-urls-filter")
+        .config = rp_filter_config_base_ctor("rewrite-urls-filter", context)
     };
     return self;
 }

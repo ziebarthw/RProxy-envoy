@@ -7,9 +7,6 @@
 
 #include <stdio.h>
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_resource_manager_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_resource_manager_NOISY)
@@ -19,6 +16,8 @@
 #endif
 
 #include "rp-resource-manager.h"
+
+const gsize RpNumResourcePriorities = 2;
 
 G_DEFINE_INTERFACE(RpResourceManager, rp_resource_manager, G_TYPE_OBJECT)
 

@@ -10,6 +10,7 @@
 #include <stdbool.h>
 #include <glib-object.h>
 #include "rp-dispatcher.h"
+#include "rp-net-address.h"
 #include "rp-net-transport-socket.h"
 #include "rp-net-conn-impl.h"
 
@@ -22,8 +23,8 @@ G_BEGIN_DECLS
 G_DECLARE_FINAL_TYPE(RpNetworkClientConnectionImpl, rp_network_client_connection_impl, RP, NETWORK_CLIENT_CONNECTION_IMPL, RpNetworkConnectionImpl)
 
 RpNetworkClientConnectionImpl* rp_network_client_connection_impl_new(RpDispatcher* dispatcher,
-                                                                        struct sockaddr* address,
-                                                                        struct sockaddr* source_address,
+                                                                        RpNetworkAddressInstanceConstSharedPtr address,
+                                                                        RpNetworkAddressInstanceConstSharedPtr source_address,
                                                                         RpNetworkTransportSocket* transport_socket);
 
 G_END_DECLS

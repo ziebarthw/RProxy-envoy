@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_upstream_info_impl_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_upstream_info_impl_NOISY)
@@ -23,8 +20,8 @@ struct _RpUpstreamInfoImpl {
 
     RpHostDescription* m_upstream_host;
 
-    struct sockaddr* m_upstream_local_address;
-    struct sockaddr* m_upstream_remote_address;
+    RpNetworkAddressInstanceConstSharedPtr m_upstream_local_address;
+    RpNetworkAddressInstanceConstSharedPtr m_upstream_remote_address;
 
     const char* m_upstream_connection_interface_name;
     const char* m_upstream_transport_failure_reason;
@@ -74,10 +71,12 @@ set_upstream_interface_name_i(RpUpstreamInfo* self, const char* interface_name)
 }
 
 static void
-set_upstream_local_address_i(RpUpstreamInfo* self, struct sockaddr* local_address)
+set_upstream_local_address_i(RpUpstreamInfo* self, RpNetworkAddressInstanceConstSharedPtr local_address)
 {
     NOISY_MSG_("(%p, %p)", self, local_address);
-    RP_UPSTREAM_INFO_IMPL(self)->m_upstream_local_address = local_address;
+    RpUpstreamInfoImpl* me = RP_UPSTREAM_INFO_IMPL(self);
+    g_clear_object(&me->m_upstream_local_address);
+    if (local_address) me->m_upstream_local_address = g_object_ref(local_address);
 }
 
 static void
@@ -95,10 +94,12 @@ set_upstream_protocol_i(RpUpstreamInfo* self, evhtp_proto protocol)
 }
 
 static void
-set_upstream_remote_address_i(RpUpstreamInfo* self, struct sockaddr* remote_address)
+set_upstream_remote_address_i(RpUpstreamInfo* self, RpNetworkAddressInstanceConstSharedPtr remote_address)
 {
     NOISY_MSG_("(%p, %p)", self, remote_address);
-    RP_UPSTREAM_INFO_IMPL(self)->m_upstream_remote_address = remote_address;
+    RpUpstreamInfoImpl* me = RP_UPSTREAM_INFO_IMPL(self);
+    g_clear_object(&me->m_upstream_remote_address);
+    if (remote_address) me->m_upstream_remote_address = g_object_ref(remote_address);
 }
 
 static void
@@ -143,7 +144,7 @@ upstream_interface_name_i(RpUpstreamInfo* self)
     return RP_UPSTREAM_INFO_IMPL(self)->m_upstream_connection_interface_name;
 }
 
-static struct sockaddr*
+static RpNetworkAddressInstanceConstSharedPtr
 upstream_local_address_i(RpUpstreamInfo* self)
 {
     NOISY_MSG_("(%p)", self);
@@ -164,7 +165,7 @@ upstream_protocol_i(RpUpstreamInfo* self)
     return RP_UPSTREAM_INFO_IMPL(self)->m_upstream_protocol;
 }
 
-static struct sockaddr*
+static RpNetworkAddressInstanceConstSharedPtr
 upstream_remote_address_i(RpUpstreamInfo* self)
 {
     NOISY_MSG_("(%p)", self);
@@ -223,6 +224,11 @@ OVERRIDE void
 dispose(GObject* obj)
 {
     LOGD("(%p)", obj);
+
+    RpUpstreamInfoImpl* self = RP_UPSTREAM_INFO_IMPL(obj);
+    g_clear_object(&self->m_upstream_local_address);
+    g_clear_object(&self->m_upstream_remote_address);
+
     G_OBJECT_CLASS(rp_upstream_info_impl_parent_class)->dispose(obj);
 }
 

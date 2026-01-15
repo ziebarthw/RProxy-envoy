@@ -47,3 +47,17 @@ rp_upstream_local_address_selector_default_init(RpUpstreamLocalAddressSelectorIn
 {
     LOGD("(%p)", iface);
 }
+
+G_DEFINE_INTERFACE(RpPrioritySet, rp_priority_set, G_TYPE_OBJECT)
+static void
+rp_priority_set_default_init(RpPrioritySetInterface* iface G_GNUC_UNUSED)
+{
+    LOGD("(%p)", iface);
+}
+
+G_DEFINE_INTERFACE(RpHostSet, rp_host_set, G_TYPE_OBJECT)
+static void
+rp_host_set_default_init(RpHostSetInterface* iface G_GNUC_UNUSED)
+{
+    LOGD("(%p)", iface);
+}

@@ -21,13 +21,11 @@
 #include <stdbool.h>
 #include <errno.h>
 
-#include <glib.h>
-
 #include "lzlog.h"
 
 typedef struct lzlog_vtbl lzlog_vtbl;
 
-struct log {
+struct lzlog {
     lzlog_vtbl    * vtbl;
     char          * ident;
     int             opts;
@@ -130,8 +128,8 @@ lzlog_levelstr_to_level(const char * str) {
     return -1;
 }
 
-    void
-    lzlog_vprintf(lzlog * log, lzlog_level level, const char * fmt, va_list ap) {
+void
+lzlog_vprintf(lzlog * log, lzlog_level level, const char * fmt, va_list ap) {
     if (log == NULL) {
         return;
     }

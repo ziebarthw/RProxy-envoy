@@ -16,10 +16,7 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
-#ifndef OVERRIDE
-#define OVERRIDE static
-#endif
-
+#include "rproxy.h"
 #include "network/rp-connection-socket-impl.h"
 
 typedef struct _RpConnectionSocketImplPrivate RpConnectionSocketImplPrivate;
@@ -112,7 +109,7 @@ connection_socket_iface_init(RpConnectionSocketInterface* iface)
 OVERRIDE void
 dispose(GObject* obj)
 {
-    LOGD("(%p)", obj);
+    NOISY_MSG_("(%p)", obj);
 
     RpConnectionSocketImplPrivate* me = PRIV(obj);
     g_clear_pointer(&me->m_transport_protocol, g_free);

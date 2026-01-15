@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_fixed_http_conn_pool_impl_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_fixed_http_conn_pool_impl_NOISY)
@@ -16,7 +13,7 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
-#include "conn_pool/rp-conn-pool-base-active-client.h"
+#include "common/conn_pool/rp-conn-pool-base-active-client.h"
 #include "rp-http-utility.h"
 #include "rp-fixed-http-conn-pool-impl.h"
 
@@ -109,7 +106,7 @@ rp_fixed_http_conn_pool_impl_new(RpHost* host, RpResourcePriority_e priority, Rp
     LOGD("(%p, %d, %p, %p, %p, %p, %p)",
         host, priority, dispatcher, client_fn, codec_fn, protocols, origin);
     g_return_val_if_fail(RP_IS_HOST(host), NULL);
-    g_return_val_if_fail(dispatcher != NULL, NULL);
+    g_return_val_if_fail(RP_IS_DISPATCHER(dispatcher), NULL);
     g_return_val_if_fail(client_fn != NULL, NULL);
     g_return_val_if_fail(codec_fn != NULL, NULL);
     RpFixedHttpConnPoolImpl* self = g_object_new(RP_TYPE_FIXED_HTTP_CONN_POOL_IMPL,

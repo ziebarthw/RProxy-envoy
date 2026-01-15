@@ -63,5 +63,7 @@ G_DECLARE_FINAL_TYPE(RpLibeventScheduler, rp_libevent_scheduler, RP, LIBEVENT_SC
 
 RpLibeventScheduler* rp_libevent_scheduler_new(SHARED_PTR(evthr_t) thr);
 SHARED_PTR(evbase_t) rp_libevent_scheduler_base(RpLibeventScheduler* self);
+void rp_libevent_scheduler_run(RpLibeventScheduler* self, RpRunType_e mode);
+void rp_libevent_scheduler_loop_exit(RpLibeventScheduler* self);
 
 G_END_DECLS

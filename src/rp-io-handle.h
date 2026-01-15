@@ -10,7 +10,9 @@
 #include <stdbool.h>
 #include <glib-object.h>
 #include <evhtp.h>
+#include "rproxy.h"
 #include "rp-file-event.h"
+#include "rp-net-address.h"
 
 G_BEGIN_DECLS
 
@@ -31,9 +33,9 @@ struct _RpIoHandleInterface {
     bool (*was_connected)(RpIoHandle*);
     int (*read)(RpIoHandle*, evbuf_t*);
     int (*write)(RpIoHandle*, evbuf_t*);
-    int (*connect)(RpIoHandle*, struct sockaddr*, const char*);
-    struct sockaddr* (*local_address)(RpIoHandle*);
-    struct sockaddr* (*peer_address)(RpIoHandle*);
+    int (*connect)(RpIoHandle*, RpNetworkAddressInstanceConstSharedPtr, const char*);
+    RpNetworkAddressInstanceConstSharedPtr (*local_address)(RpIoHandle*);
+    RpNetworkAddressInstanceConstSharedPtr (*peer_address)(RpIoHandle*);
     void (*initialize_file_event)(RpIoHandle*,
                                     RpDispatcher*,
                                     RpFileReadyCb,
@@ -47,6 +49,8 @@ struct _RpIoHandleInterface {
     const char* (*interface_name)(RpIoHandle*);
 int (*sockfd)(RpIoHandle*);
 };
+
+typedef UNIQUE_PTR(RpIoHandle) RpIoHandlePtr;
 
 static inline void
 rp_io_handle_close(RpIoHandle* self)
@@ -79,19 +83,19 @@ rp_io_handle_write(RpIoHandle* self, evbuf_t* buffer)
         RP_IO_HANDLE_GET_IFACE(self)->write(self, buffer) : -1;
 }
 static inline int
-rp_io_handle_connect(RpIoHandle* self, struct sockaddr* address, const char* requested_server_name)
+rp_io_handle_connect(RpIoHandle* self, RpNetworkAddressInstanceConstSharedPtr address, const char* requested_server_name)
 {
     return RP_IS_IO_HANDLE(self) ?
         RP_IO_HANDLE_GET_IFACE(self)->connect(self, address, requested_server_name) :
         -1;
 }
-static inline struct sockaddr*
+static inline RpNetworkAddressInstanceConstSharedPtr
 rp_io_handle_local_address(RpIoHandle* self)
 {
     return RP_IS_IO_HANDLE(self) ?
         RP_IO_HANDLE_GET_IFACE(self)->local_address(self) : NULL;
 }
-static inline struct sockaddr*
+static inline RpNetworkAddressInstanceConstSharedPtr
 rp_io_handle_peer_address(RpIoHandle* self)
 {
     return RP_IS_IO_HANDLE(self) ?

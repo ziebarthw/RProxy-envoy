@@ -21,9 +21,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #include "rproxy.h"

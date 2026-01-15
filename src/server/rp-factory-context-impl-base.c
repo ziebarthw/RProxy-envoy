@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_factory_context_impl_base_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_factory_context_impl_base_NOISY)
@@ -17,12 +14,12 @@
 #endif
 
 #include "rp-factory-context.h"
-#include "rp-instance.h"
+#include "rp-server-instance.h"
 #include "server/rp-factory-context-impl-base.h"
 
 typedef struct _RpFactoryContextImplBasePrivate RpFactoryContextImplBasePrivate;
 struct _RpFactoryContextImplBasePrivate {
-    RpInstance* m_server;
+    RpServerInstance* m_server;
 };
 
 enum
@@ -51,7 +48,7 @@ static RpServerFactoryContext*
 server_factory_context_i(RpGenericFactoryContext* self)
 {
     NOISY_MSG_("(%p)", self);
-    return rp_instance_server_factory_context(PRIV(self)->m_server);
+    return rp_server_instance_server_factory_context(PRIV(self)->m_server);
 }
 
 static void
@@ -65,7 +62,7 @@ static RpTransportSocketFactoryContext*
 get_transport_socket_factory_context_i(RpFactoryContext* self)
 {
     NOISY_MSG_("(%p)", self);
-    return rp_instance_transport_socket_factory_context(PRIV(self)->m_server);
+    return rp_server_instance_transport_socket_factory_context(PRIV(self)->m_server);
 }
 
 static void
@@ -106,10 +103,10 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
 }
 
 OVERRIDE void
-dispose(GObject* object)
+dispose(GObject* obj)
 {
-    NOISY_MSG_("(%p)", object);
-    G_OBJECT_CLASS(rp_factory_context_impl_base_parent_class)->dispose(object);
+    NOISY_MSG_("(%p)", obj);
+    G_OBJECT_CLASS(rp_factory_context_impl_base_parent_class)->dispose(obj);
 }
 
 static void
@@ -125,7 +122,7 @@ rp_factory_context_impl_base_class_init(RpFactoryContextImplBaseClass* klass)
     obj_properties[PROP_SERVER] = g_param_spec_object("server",
                                                     "Server",
                                                     "Server Instance",
-                                                    RP_TYPE_INSTANCE,
+                                                    RP_TYPE_SERVER_INSTANCE,
                                                     G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
 
     g_object_class_install_properties(object_class, N_PROPERTIES, obj_properties);
@@ -134,5 +131,5 @@ rp_factory_context_impl_base_class_init(RpFactoryContextImplBaseClass* klass)
 static void
 rp_factory_context_impl_base_init(RpFactoryContextImplBase* self G_GNUC_UNUSED)
 {
-    LOGD("(%p)", self);
+    NOISY_MSG_("(%p)", self);
 }

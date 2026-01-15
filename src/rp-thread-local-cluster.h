@@ -30,25 +30,41 @@ G_DECLARE_INTERFACE(RpThreadLocalCluster, rp_thread_local_cluster, RP, THREAD_LO
 struct _RpThreadLocalClusterInterface {
     GTypeInterface parent_iface;
 
-    RpClusterInfo* (*info)(RpThreadLocalCluster*);
+    RpPrioritySet* (*priority_set)(RpThreadLocalCluster*);
+    RpClusterInfoConstSharedPtr (*info)(RpThreadLocalCluster*);
+    RpLoadBalancer* (*load_balancer)(RpThreadLocalCluster*);
     RpHostSelectionResponse (*choose_host)(RpThreadLocalCluster*,
                                             RpLoadBalancerContext*);
     RpHttpPoolData* (*http_conn_pool)(RpThreadLocalCluster*,
-                                        RpHost*,
+                                        RpHostConstSharedPtr,
                                         RpResourcePriority_e,
                                         evhtp_proto,
                                         RpLoadBalancerContext*);
     RpTcpPoolData* (*tcp_conn_pool)(RpThreadLocalCluster*,
-                                    RpHost*,
+                                    RpHostConstSharedPtr,
                                     RpResourcePriority_e,
                                     RpLoadBalancerContext*);
+    RpCreateConnectionData (*tcp_conn)(RpThreadLocalCluster*,
+                                        RpLoadBalancerContext*);
 };
 
-static inline RpClusterInfo*
+static inline RpPrioritySet*
+rp_thread_local_cluster_priority_set(RpThreadLocalCluster* self)
+{
+    return RP_IS_THREAD_LOCAL_CLUSTER(self) ?
+        RP_THREAD_LOCAL_CLUSTER_GET_IFACE(self)->priority_set(self) : NULL;
+}
+static inline RpClusterInfoConstSharedPtr
 rp_thread_local_cluster_info(RpThreadLocalCluster* self)
 {
     return RP_IS_THREAD_LOCAL_CLUSTER(self) ?
         RP_THREAD_LOCAL_CLUSTER_GET_IFACE(self)->info(self) : NULL;
+}
+static inline RpLoadBalancer*
+rp_thread_local_cluster_load_balancer(RpThreadLocalCluster* self)
+{
+    return RP_IS_THREAD_LOCAL_CLUSTER(self) ?
+        RP_THREAD_LOCAL_CLUSTER_GET_IFACE(self)->load_balancer(self) : NULL;
 }
 static inline RpHostSelectionResponse
 rp_thread_local_cluster_choose_host(RpThreadLocalCluster* self, RpLoadBalancerContext* context)
@@ -58,7 +74,7 @@ rp_thread_local_cluster_choose_host(RpThreadLocalCluster* self, RpLoadBalancerCo
         rp_host_selection_response_ctor(NULL, NULL, NULL);
 }
 static inline RpHttpPoolData*
-rp_thread_local_cluster_http_conn_pool(RpThreadLocalCluster* self, RpHost* host, RpResourcePriority_e priority,
+rp_thread_local_cluster_http_conn_pool(RpThreadLocalCluster* self, RpHostConstSharedPtr host, RpResourcePriority_e priority,
                                         evhtp_proto downstream_protocol, RpLoadBalancerContext* context)
 {
     return RP_IS_THREAD_LOCAL_CLUSTER(self) ?
@@ -66,11 +82,18 @@ rp_thread_local_cluster_http_conn_pool(RpThreadLocalCluster* self, RpHost* host,
         NULL;
 }
 static inline RpTcpPoolData*
-rp_thread_local_cluster_tcp_conn_pool(RpThreadLocalCluster* self, RpHost* host, RpResourcePriority_e priority, RpLoadBalancerContext* context)
+rp_thread_local_cluster_tcp_conn_pool(RpThreadLocalCluster* self, RpHostConstSharedPtr host, RpResourcePriority_e priority, RpLoadBalancerContext* context)
 {
     return RP_IS_THREAD_LOCAL_CLUSTER(self) ?
         RP_THREAD_LOCAL_CLUSTER_GET_IFACE(self)->tcp_conn_pool(self, host, priority, context) :
         NULL;
+}
+static inline RpCreateConnectionData
+rp_thread_local_cluster_tcp_conn(RpThreadLocalCluster* self, RpLoadBalancerContext* context)
+{
+    return RP_IS_THREAD_LOCAL_CLUSTER(self) ?
+        RP_THREAD_LOCAL_CLUSTER_GET_IFACE(self)->tcp_conn(self, context) :
+        rp_create_connection_data_ctor(NULL, NULL);
 }
 
 G_END_DECLS

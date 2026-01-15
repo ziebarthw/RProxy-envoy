@@ -103,3 +103,33 @@ rp_libevent_scheduler_base(RpLibeventScheduler* self)
     g_return_val_if_fail(RP_IS_LIBEVENT_SCHEDULER(self), NULL);
     return evthr_get_base(RP_LIBEVENT_SCHEDULER(self)->m_thr);
 }
+
+void
+rp_libevent_scheduler_run(RpLibeventScheduler* self, RpRunType_e mode)
+{
+    LOGD("(%p, %d)", self, mode);
+    g_return_if_fail(RP_IS_LIBEVENT_SCHEDULER(self));
+    int flag = 0;
+    switch (mode)
+    {
+        case RpRunType_NON_BLOCK:
+            flag = EVLOOP_NONBLOCK;
+            break;
+        case RpRunType_BLOCK:
+            break;
+        case RpRunType_RUN_UNTIL_EXIT:
+            flag = EVLOOP_NO_EXIT_ON_EMPTY;
+            break;
+        default:
+            break;
+    }
+    event_base_loop(evthr_get_base(self->m_thr), flag);
+}
+
+void
+rp_libevent_scheduler_loop_exit(RpLibeventScheduler* self)
+{
+    LOGD("(%p)", self);
+    g_return_if_fail(RP_IS_LIBEVENT_SCHEDULER(self));
+    event_base_loopexit(evthr_get_base(self->m_thr), NULL);
+}

@@ -297,6 +297,8 @@ struct _RpFilterManagerPrivate {
 
     struct RpFilterManagerState m_state;
 
+    RpOverrideHost m_upstream_override_host;
+
     guint32 m_buffer_limit;
     guint32 m_high_watermark_count;
 
@@ -1679,4 +1681,12 @@ rp_filter_manager_reset_stream(RpFilterManager* self, RpStreamResetReason_e reas
     }
 
     rp_filter_manager_callbacks_reset_stream(me->m_filter_manager_callbacks, reason, transport_failure_reason);
+}
+
+RpOverrideHost
+rp_filter_manager_upstream_override_host_(RpFilterManager* self)
+{
+    LOGD("(%p)", self);
+    g_return_val_if_fail(RP_IS_FILTER_MANAGER(self), RpOverrideHost_make(NULL, false));
+    return PRIV(self)->m_upstream_override_host;
 }

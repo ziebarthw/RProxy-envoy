@@ -9,9 +9,10 @@
 
 #include <stdbool.h>
 #include <glib-object.h>
-#include "upstream/rp-cluster-impl-base.h"
+#include "upstream/rp-upstream-impl.h"
 #include "rp-cluster-configuration.h"
 #include "rp-cluster-factory.h"
+#include "rp-load-balancer.h"
 
 G_BEGIN_DECLS
 
@@ -26,7 +27,16 @@ G_DECLARE_DERIVABLE_TYPE(RpClusterFactoryImplBase, rp_cluster_factory_impl_base,
 struct _RpClusterFactoryImplBaseClass {
     GObjectClass parent_class;
 
-    RpClusterImplBase* (*create_cluster_impl)(RpClusterFactoryImplBase*, RpClusterCfg*, RpClusterFactoryContext*);
+    PairClusterSharedPtrThreadAwareLoadBalancerPtr
+                                    (*create_cluster_impl)(RpClusterFactoryImplBase*,
+                                    const RpClusterCfg*,
+                                    RpClusterFactoryContext*);
 };
+
+PairClusterSharedPtrThreadAwareLoadBalancerPtr
+rp_cluster_factory_impl_base_create(const RpClusterCfg* cluster,
+                                    RpServerFactoryContext* server_context,
+                                    RpClusterManager* cm,
+                                    bool added_via_api);
 
 G_END_DECLS

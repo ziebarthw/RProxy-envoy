@@ -19,7 +19,7 @@ G_BEGIN_DECLS
 #define RP_TYPE_PER_HOST_HTTP_CONN_POOL rp_per_host_http_conn_pool_get_type()
 G_DECLARE_FINAL_TYPE(RpPerHostHttpConnPool, rp_per_host_http_conn_pool, RP, PER_HOST_HTTP_CONN_POOL, RpHttpConnPool)
 
-RpPerHostHttpConnPool* rp_per_host_http_conn_pool_new(RpHost* host,
+RpPerHostHttpConnPool* rp_per_host_http_conn_pool_new(RpHostConstSharedPtr host,
                                                         RpThreadLocalCluster* thread_local_cluster,
                                                         RpResourcePriority_e priority,
                                                         evhtp_proto downstream_protocol,

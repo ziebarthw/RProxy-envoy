@@ -9,9 +9,9 @@
 
 #include <stdbool.h>
 #include <glib-object.h>
-#include "common/rp-conn-pool.h"
-#include "conn_pool/rp-conn-pool-base.h"
-#include "conn_pool/rp-pending-stream.h"
+#include "rp-conn-pool.h"
+#include "common/conn_pool/rp-conn-pool-base.h"
+#include "common/conn_pool/rp-pending-stream.h"
 #include "rp-codec.h"
 #include "rp-http-conn-pool.h"
 #include "rp-net-connection.h"

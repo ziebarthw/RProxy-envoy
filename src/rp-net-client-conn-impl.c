@@ -5,19 +5,12 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_net_client_conn_impl_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_net_client_conn_impl_NOISY)
 #   define NOISY_MSG_ LOGD
 #else
 #   define NOISY_MSG_(x, ...)
-#endif
-
-#ifndef OVERRIDE
-#define OVERRIDE static
 #endif
 
 #include "network/rp-client-socket-impl.h"
@@ -29,7 +22,7 @@ struct _RpNetworkClientConnectionImpl {
     RpNetworkConnectionImpl parent_instance;
 
     RpStreamInfoImpl* m_stream_info;
-    struct sockaddr* m_source_address;
+    RpNetworkAddressInstanceConstSharedPtr m_source_address;
 };
 
 enum
@@ -88,7 +81,7 @@ get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
     switch (prop_id)
     {
         case PROP_SOURCE_ADDRESS:
-            g_value_set_pointer(value, RP_NETWORK_CLIENT_CONNECTION_IMPL(obj)->m_source_address);
+            g_value_set_object(value, RP_NETWORK_CLIENT_CONNECTION_IMPL(obj)->m_source_address);
             break;
         default:
             G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
@@ -103,8 +96,14 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
     switch (prop_id)
     {
         case PROP_SOURCE_ADDRESS:
-            RP_NETWORK_CLIENT_CONNECTION_IMPL(obj)->m_source_address = g_value_get_pointer(value);
+        {
+            RpNetworkAddressInstanceConstSharedPtr addr = g_value_get_object(value);
+            if (addr)
+            {
+                RP_NETWORK_CLIENT_CONNECTION_IMPL(obj)->m_source_address = g_object_ref(addr);
+            }
             break;
+        }
         default:
             G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
             break;
@@ -121,16 +120,14 @@ constructed(GObject* obj)
     RpNetworkClientConnectionImpl* self = RP_NETWORK_CLIENT_CONNECTION_IMPL(obj);
     RpSocket* socket_ = RP_SOCKET(rp_network_connection_impl_socket_(RP_NETWORK_CONNECTION_IMPL(self)));
     RpConnectionInfoProvider* provider = RP_CONNECTION_INFO_PROVIDER(rp_socket_connection_info_provider(socket_));
-NOISY_MSG_("calling rp_stream_info_impl_new()");
     self->m_stream_info = rp_stream_info_impl_new(EVHTP_PROTO_INVALID, provider, RpFilterStateLifeSpan_Connection, NULL);
-NOISY_MSG_("stream info %p", self->m_stream_info);
 
     rp_stream_info_set_upstream_info(RP_STREAM_INFO(self->m_stream_info),
                                         RP_UPSTREAM_INFO(rp_upstream_info_impl_new()));
 
-    struct sockaddr* source = self->m_source_address;
+    RpNetworkAddressInstanceConstSharedPtr source = self->m_source_address;
 
-    struct sockaddr* local_address = rp_connection_info_provider_local_address(provider);
+    RpNetworkAddressInstanceConstSharedPtr local_address = rp_connection_info_provider_local_address(provider);
     if (local_address)
     {
         NOISY_MSG_("setting to local");
@@ -144,10 +141,14 @@ NOISY_MSG_("stream info %p", self->m_stream_info);
 }
 
 OVERRIDE void
-dispose(GObject* object)
+dispose(GObject* obj)
 {
-    NOISY_MSG_("(%p)", object);
-    G_OBJECT_CLASS(rp_network_client_connection_impl_parent_class)->dispose(object);
+    NOISY_MSG_("(%p)", obj);
+
+    RpNetworkClientConnectionImpl* self = RP_NETWORK_CLIENT_CONNECTION_IMPL(obj);
+    g_clear_object(&self->m_source_address);
+
+    G_OBJECT_CLASS(rp_network_client_connection_impl_parent_class)->dispose(obj);
 }
 
 #define NETWORK_CONNECTION(s) RP_NETWORK_CONNECTION(s)
@@ -188,9 +189,10 @@ rp_network_client_connection_impl_class_init(RpNetworkClientConnectionImplClass*
 
     network_connection_impl_class_init(RP_NETWORK_CONNECTION_IMPL_CLASS(klass));
 
-    obj_properties[PROP_SOURCE_ADDRESS] = g_param_spec_pointer("source-address",
+    obj_properties[PROP_SOURCE_ADDRESS] = g_param_spec_object("source-address",
                                                     "Source address",
                                                     "Source Address",
+                                                    RP_TYPE_NETWORK_ADDRESS_INSTANCE,
                                                     G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
 
     g_object_class_install_properties(object_class, N_PROPERTIES, obj_properties);
@@ -203,7 +205,7 @@ rp_network_client_connection_impl_init(RpNetworkClientConnectionImpl* self G_GNU
 }
 
 static inline RpNetworkClientConnectionImpl*
-client_connection_impl_new(RpDispatcher* dispatcher, RpConnectionSocket* socket, struct sockaddr* source_address, RpNetworkTransportSocket* transport_socket)
+client_connection_impl_new(RpDispatcher* dispatcher, RpConnectionSocket* socket, RpNetworkAddressInstanceConstSharedPtr source_address, RpNetworkTransportSocket* transport_socket)
 {
     LOGD("(%p, %p, %p, %p)", dispatcher, socket, source_address, transport_socket);
     RpNetworkClientConnectionImpl* self = g_object_new(RP_TYPE_NETWORK_CLIENT_CONNECTION_IMPL,
@@ -217,7 +219,7 @@ client_connection_impl_new(RpDispatcher* dispatcher, RpConnectionSocket* socket,
 }
 
 static inline RpConnectionSocket*
-create_connection_socket(RpNetworkTransportSocket* transport_socket, struct sockaddr* addr)
+create_connection_socket(RpNetworkTransportSocket* transport_socket, RpNetworkAddressInstanceConstSharedPtr addr)
 {
     NOISY_MSG_("(%p, %p)", transport_socket, addr);
     RpIoHandle* io_handle = rp_network_transport_socket_create_io_handle(transport_socket);
@@ -226,12 +228,13 @@ create_connection_socket(RpNetworkTransportSocket* transport_socket, struct sock
 }
 
 RpNetworkClientConnectionImpl*
-rp_network_client_connection_impl_new(RpDispatcher* dispatcher, struct sockaddr* remote_address, struct sockaddr* source_address,
+rp_network_client_connection_impl_new(RpDispatcher* dispatcher, RpNetworkAddressInstanceConstSharedPtr remote_address,
+                                        RpNetworkAddressInstanceConstSharedPtr source_address,
                                         RpNetworkTransportSocket* transport_socket)
 {
     LOGD("(%p, %p, %p, %p)", dispatcher, remote_address, source_address, transport_socket);
-    g_return_val_if_fail(dispatcher != NULL, NULL);
-    g_return_val_if_fail(remote_address != NULL, NULL);
+    g_return_val_if_fail(RP_IS_DISPATCHER(dispatcher), NULL);
+    g_return_val_if_fail(RP_IS_NETWORK_ADDRESS_INSTANCE(remote_address), NULL);
     g_return_val_if_fail(RP_IS_NETWORK_TRANSPORT_SOCKET(transport_socket), NULL);
     RpConnectionSocket* connection_socket = create_connection_socket(transport_socket, remote_address);
     return client_connection_impl_new(dispatcher,

@@ -21,10 +21,9 @@
 
 typedef struct _RpStreamInfoImplPrivate RpStreamInfoImplPrivate;
 struct _RpStreamInfoImplPrivate {
-//    GObject parent_instance;
 
     RpFilterStateImpl* m_filter_state;
-    RpClusterInfo* m_upstream_cluster_info;
+    RpClusterInfoConstSharedPtr m_upstream_cluster_info;
     RpRoute* m_route;
 
     evhtp_headers_t* m_request_headers;
@@ -159,7 +158,7 @@ upstream_info_i(RpStreamInfo* self)
     return PRIV(self)->m_upstream_info;
 }
 
-static RpClusterInfo*
+static RpClusterInfoConstSharedPtr
 upstream_cluster_info_i(RpStreamInfo* self)
 {
     NOISY_MSG_("(%p)", self);
@@ -221,7 +220,7 @@ downstream_address_provider_i(RpStreamInfo* self)
 }
 
 static void
-set_upstream_cluster_info_i(RpStreamInfo* self, RpClusterInfo* upstream_cluster_info)
+set_upstream_cluster_info_i(RpStreamInfo* self, RpClusterInfoConstSharedPtr upstream_cluster_info)
 {
     NOISY_MSG_("(%p, %p)", self, upstream_cluster_info);
     PRIV(self)->m_upstream_cluster_info = upstream_cluster_info;

@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_priority_state_manager_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_priority_state_manager_NOISY)
@@ -16,13 +13,15 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
-#include "upstream/rp-priority-state-manager.h"
+#include "upstream/rp-upstream-impl.h"
 
 struct _RpPriorityStateManager {
+    GObject parent_instance;
 
     RpClusterImplBase* m_parent;
     RpLocalInfo* m_local_info;
-    GArray* m_priority_state;
+//    GPtrArray/*std::vector<std::pair<HostListPtr, LocalityWeightsMap>>*/* m_priority_state;
+    RpPriorityState m_priority_state;
 };
 
 enum
@@ -40,7 +39,7 @@ G_DEFINE_FINAL_TYPE(RpPriorityStateManager, rp_priority_state_manager, G_TYPE_OB
 OVERRIDE void
 get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
 {
-    LOGD("(%p, %u, %p, %p)", obj, prop_id, value, pspec);
+    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
     switch (prop_id)
     {
         case PROP_PARENT:
@@ -58,7 +57,7 @@ get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
 OVERRIDE void
 set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec)
 {
-    LOGD("(%p, %u, %p, %p)", obj, prop_id, value, pspec);
+    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
     switch (prop_id)
     {
         case PROP_PARENT:
@@ -74,10 +73,19 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
 }
 
 OVERRIDE void
-dispose(GObject* object)
+dispose(GObject* obj)
 {
-    LOGD("(%p)", object);
-    G_OBJECT_CLASS(rp_priority_state_manager_parent_class)->dispose(object);
+    NOISY_MSG_("(%p)", obj);
+
+    RpPriorityStateManager* self = RP_PRIORITY_STATE_MANAGER(obj);
+    for (guint i=0; i < self->m_priority_state->len; ++i)
+    {
+        RpHostVector* hosts = g_ptr_array_index(self->m_priority_state, i);
+        if (hosts) g_ptr_array_free(g_steal_pointer(&hosts), true);
+    }
+    g_ptr_array_free(g_steal_pointer(&self->m_priority_state), true);
+
+    G_OBJECT_CLASS(rp_priority_state_manager_parent_class)->dispose(obj);
 }
 
 static void
@@ -105,37 +113,24 @@ rp_priority_state_manager_class_init(RpPriorityStateManagerClass* klass)
 }
 
 static void
-rp_priority_state_manager_init(RpPriorityStateManager* self G_GNUC_UNUSED)
+rp_priority_state_manager_init(RpPriorityStateManager* self)
 {
     LOGD("(%p)", self);
+    self->m_priority_state = g_ptr_array_new_full(128, NULL); //REVISIT - max priority value.
 }
 
 RpPriorityStateManager*
-rp_priority_state_manager_new(RpClusterImplBase* cluster, RpLocalInfo* local_info/*, RpHostUpdateCb*/)
+rp_priority_state_manager_new(RpClusterImplBase* cluster, const RpLocalInfo* local_info/*, RpHostUpdateCb*/)
 {
     LOGD("(%p, %p)", cluster, local_info);
     g_return_val_if_fail(RP_IS_CLUSTER_IMPL_BASE(cluster), NULL);
-    g_return_val_if_fail(RP_IS_LOCAL_INFO(local_info), NULL);
     return g_object_new(RP_TYPE_PRIORITY_STATE_MANAGER,
                         "cluster", cluster,
                         "local-info", local_info,
                         NULL);
 }
 
-static inline GArray*
-ensure_priority_state(RpPriorityStateManager* self)
-{
-    NOISY_MSG_("(%p)", self);
-    if (self->m_priority_state)
-    {
-        NOISY_MSG_("pre-allocated priority state %p", self->m_priority_state);
-        return self->m_priority_state;
-    }
-    self->m_priority_state = g_array_sized_new(false, true, sizeof(GSList*), 128); //REVISIT - max priority value.
-    NOISY_MSG_("allocated priority state %p", self->m_priority_state);
-    return self->m_priority_state;
-}
-
+#if 0
 void
 rp_priority_state_manager_register_host_for_priority(RpPriorityStateManager* self,
                                                         RpUpstreamTransportSocketFactory* socket_factory,
@@ -151,11 +146,89 @@ rp_priority_state_manager_register_host_for_priority(RpPriorityStateManager* sel
     g_return_if_fail(RP_IS_PRIORITY_STATE_MANAGER(self));
     g_return_if_fail(address != NULL);
     RpClusterImplBase* parent = self->m_parent;
-    RpClusterInfo* info = rp_cluster_info(RP_CLUSTER(parent));
+    RpClusterInfoConstSharedPtr info = rp_cluster_info(RP_CLUSTER(parent));
     RpHostImpl* host = rp_host_impl_new(info, socket_factory, hostname, address, initial_weight, disable_health_check, priority, address_list);
     GArray* priority_state = ensure_priority_state(self);
     GSList* hosts = g_array_index(priority_state, GSList*, priority);
 
     hosts = g_slist_append(hosts, host);
     self->m_priority_state = g_array_insert_val(priority_state, priority, hosts);
+}
+#endif//0
+static void
+internal_register_host_for_priority(RpPriorityStateManager* self, RpHostSharedPtr host, const RpLocalityLbEndpointsCfg* locality_lb_endpoint)
+{
+    NOISY_MSG_("(%p, %p, %p)", self, host, locality_lb_endpoint);
+    guint32 priority = locality_lb_endpoint->priority;
+    g_assert(self->m_priority_state->pdata[priority]);
+    RpHostVector* host_vector = g_ptr_array_index(self->m_priority_state, priority);
+    g_ptr_array_add(host_vector, host);
+}
+#if 0
+const auto host = std::shared_ptr<HostImpl>((
+      HostImpl::create(parent_.info(), hostname, address, endpoint_metadata, locality_metadata,
+                       lb_endpoint.load_balancing_weight().value(), locality_lb_endpoint.locality(),
+                       lb_endpoint.endpoint().health_check_config(),
+                       locality_lb_endpoint.priority(), lb_endpoint.health_status(),
+                       time_source,
+                       address_list),
+      std::unique_ptr<HostImpl>));
+#endif//0
+void
+rp_priority_state_manager_register_host_for_priority(RpPriorityStateManager* self, const char* hostname,
+                                                        RpNetworkAddressInstanceConstSharedPtr address/*,std::vector<Network::Address::InstanceConstSharedPtr> address_list*/,
+                                                        const RpLocalityLbEndpointsCfg* locality_lb_endpoint, const RpLbEndpointCfg* lb_endpoint,
+                                                        RpTimeSource* time_source)
+{
+    LOGD("(%p, %p(%s), %p, %p, %p, %p)",
+        self, hostname, hostname, address, locality_lb_endpoint, lb_endpoint, time_source);
+
+    g_return_if_fail(RP_IS_PRIORITY_STATE_MANAGER(self));
+    g_return_if_fail(hostname != NULL);
+    g_return_if_fail(hostname[0]);
+    g_return_if_fail(locality_lb_endpoint != NULL);
+    g_return_if_fail(lb_endpoint != NULL);
+    g_return_if_fail(RP_IS_TIME_SOURCE(time_source));
+
+    RpHostImpl* host = rp_host_impl_create(rp_cluster_info(RP_CLUSTER(self->m_parent)),
+                                            hostname,
+                                            address,
+                                            lb_endpoint->metadata,
+                                            lb_endpoint->load_balancing_weight,
+                                            locality_lb_endpoint->priority,
+                                            time_source);
+    internal_register_host_for_priority(self, RP_HOST(host), locality_lb_endpoint);
+}
+
+static RpHostVector*
+rp_host_vector_new(void)
+{
+    return g_ptr_array_new();
+}
+
+void
+rp_priority_state_manager_initialize_priority_for(RpPriorityStateManager* self, const RpLocalityLbEndpointsCfg* locality_lb_endpoints)
+{
+    LOGD("(%p, %p)", self, locality_lb_endpoints);
+    g_return_if_fail(RP_IS_PRIORITY_STATE_MANAGER(self));
+    g_return_if_fail(locality_lb_endpoints != NULL);
+    guint32 priority = locality_lb_endpoints->priority;
+    if (self->m_priority_state->len <= priority)
+    {
+        NOISY_MSG_("expanding priority state array to %u", priority + 1);
+        g_ptr_array_set_size(self->m_priority_state, priority + 1);
+    }
+    if (!self->m_priority_state->pdata[priority])
+    {
+        NOISY_MSG_("allocating host vector");
+        self->m_priority_state->pdata[priority] = rp_host_vector_new();
+    }
+}
+
+RpPriorityState
+rp_priority_state_manager_priority_state(RpPriorityStateManager* self)
+{
+    LOGD("(%p)", self);
+    g_return_val_if_fail(RP_IS_PRIORITY_STATE_MANAGER(self), NULL);
+    return self->m_priority_state;
 }

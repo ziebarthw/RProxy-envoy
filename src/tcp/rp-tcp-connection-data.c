@@ -54,16 +54,6 @@ tcp_conn_pool_connection_data_iface_init(RpTcpConnPoolConnectionDataInterface* i
 }
 
 OVERRIDE void
-constructed(GObject* obj)
-{
-    NOISY_MSG_("(%p)", obj);
-    G_OBJECT_CLASS(rp_tcp_connection_data_parent_class)->constructed(obj);
-
-    RpTcpConnectionData* self = RP_TCP_CONNECTION_DATA(obj);
-    rp_active_tcp_client_set_tcp_connection_data_(self->m_parent, self);
-}
-
-OVERRIDE void
 dispose(GObject* obj)
 {
     LOGD("(%p)", obj);
@@ -84,7 +74,6 @@ rp_tcp_connection_data_class_init(RpTcpConnectionDataClass* klass)
     LOGD("(%p)", klass);
 
     GObjectClass* object_class = G_OBJECT_CLASS(klass);
-    object_class->constructed = constructed;
     object_class->dispose = dispose;
 }
 
@@ -92,6 +81,14 @@ static void
 rp_tcp_connection_data_init(RpTcpConnectionData* self G_GNUC_UNUSED)
 {
     NOISY_MSG_("(%p)", self);
+}
+
+static inline RpTcpConnectionData*
+constructed(RpTcpConnectionData* self)
+{
+    NOISY_MSG_("(%p)", self);
+    rp_active_tcp_client_set_tcp_connection_data_(self->m_parent, self);
+    return self;
 }
 
 RpTcpConnectionData*
@@ -103,7 +100,7 @@ rp_tcp_connection_data_new(RpActiveTcpClient* parent, RpNetworkClientConnection*
     RpTcpConnectionData* self = g_object_new(RP_TYPE_TCP_CONNECTION_DATA, NULL);
     self->m_parent = parent;
     self->m_connection = connection;
-    return self;
+    return constructed(self);
 }
 
 void

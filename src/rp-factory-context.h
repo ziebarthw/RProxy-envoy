@@ -12,6 +12,8 @@
 #include <evhtp.h>
 #include "rp-cluster-manager.h"
 #include "rp-local-info.h"
+#include "rp-singleton-manager.h"
+#include "rp-thread-local.h"
 #include "rp-transport-socket-config.h"
 
 G_BEGIN_DECLS
@@ -26,13 +28,23 @@ G_DECLARE_INTERFACE(RpCommonFactoryContext, rp_common_factory_context, RP, COMMO
 struct _RpCommonFactoryContextInterface {
     GTypeInterface parent_iface;
 
-    evhtp_t* (*main_thread_dispatcher)(RpCommonFactoryContext*);
+    //TODO...const Options& options() PURE;
+    RpDispatcher* (*main_thread_dispatcher)(RpCommonFactoryContext*);
+    //TODO...Api::Api& api() PURE;
     RpLocalInfo* (*local_info)(RpCommonFactoryContext*);
-    //TODO...Regex::Engine regexEngine() PURE;
+    //TODO...OptRef<Server::Admin> admin() PURE;
+    //TODO...Envoy::Runtime::Loader& runtime() PURE;
+    RpSingletonManager* (*singleton_manager)(RpCommonFactoryContext*);
+    //TODO...ProtobufMessage::ValidationContext& messageValidationContext() PURE;
+    //TODO...
+    RpSlotAllocator* (*thread_local)(RpCommonFactoryContext*);
     RpClusterManager* (*cluster_manager)(RpCommonFactoryContext*);
+    //TODO...TimeSource& timeSource() PURE;
+    //TODO...
+    //TODO...Regex::Engine regexEngine() PURE;
 };
 
-static inline evhtp_t*
+static inline RpDispatcher*
 rp_common_factory_context_main_thread_dispatcher(RpCommonFactoryContext* self)
 {
     return RP_IS_COMMON_FACTORY_CONTEXT(self) ?
@@ -43,15 +55,26 @@ static inline RpLocalInfo*
 rp_common_factory_context_local_info(RpCommonFactoryContext* self)
 {
     return RP_IS_COMMON_FACTORY_CONTEXT(self) ?
-        RP_COMMON_FACTORY_CONTEXT_GET_IFACE(self)->local_info(self) :
+        RP_COMMON_FACTORY_CONTEXT_GET_IFACE(self)->local_info(self) : NULL;
+}
+static inline RpSingletonManager*
+rp_common_factory_context_singleton_manager(RpCommonFactoryContext* self)
+{
+    return RP_IS_COMMON_FACTORY_CONTEXT(self) ?
+        RP_COMMON_FACTORY_CONTEXT_GET_IFACE(self)->singleton_manager(self) :
         NULL;
+}
+static inline RpSlotAllocator*
+rp_common_factory_context_thread_local(RpCommonFactoryContext* self)
+{
+    return RP_IS_COMMON_FACTORY_CONTEXT(self) ?
+        RP_COMMON_FACTORY_CONTEXT_GET_IFACE(self)->thread_local(self) : NULL;
 }
 static inline RpClusterManager*
 rp_common_factory_context_cluster_manager(RpCommonFactoryContext* self)
 {
     return RP_IS_COMMON_FACTORY_CONTEXT(self) ?
-        RP_COMMON_FACTORY_CONTEXT_GET_IFACE(self)->cluster_manager(self) :
-        NULL;
+        RP_COMMON_FACTORY_CONTEXT_GET_IFACE(self)->cluster_manager(self) : NULL;
 }
 
 
@@ -66,7 +89,21 @@ G_DECLARE_INTERFACE(RpServerFactoryContext, rp_server_factory_context, RP, SERVE
 struct _RpServerFactoryContextInterface {
     RpCommonFactoryContextInterface parent_iface;
 
+//TODO...virtual Http::Context& httpContext() PURE;
+//TODO...
+//TODO...virtual Router::Context& routerContext() PURE;
+//TODO...virtual Process::ContextOptRef processContext() PURE;
     RpTransportSocketFactoryContext* (*get_transport_socket_factory_context)(RpServerFactoryContext*);
+//TODO...virtual Init::Manager& initManager() PURE;
+//TODO...virtual Envoy::Server::DrainManager* drainManager() PURE;
+//TODO...virtual StatsConfig& statsConfig() PURE;
+    rproxy_t* (*bootstrap)(RpServerFactoryContext*);
+//TODO...virtual OverloadManager& overloadManager() PURE;
+//TODO...virtual OverloadManager& nullOverloadManager() PURE;
+//TODO...virtual bool healthCheckFailed() PURE;
+
+    // Custom.
+    GMutex* (*lock)(RpServerFactoryContext*);
 };
 
 static inline RpTransportSocketFactoryContext*
@@ -75,6 +112,18 @@ rp_server_factory_context_get_transport_socket_factory_context(RpServerFactoryCo
     return RP_IS_SERVER_FACTORY_CONTEXT(self) ?
         RP_SERVER_FACTORY_CONTEXT_GET_IFACE(self)->get_transport_socket_factory_context(self) :
         NULL;
+}
+static inline rproxy_t*
+rp_server_factory_context_bootstrap(RpServerFactoryContext* self)
+{
+    return RP_IS_SERVER_FACTORY_CONTEXT(self) ?
+        RP_SERVER_FACTORY_CONTEXT_GET_IFACE(self)->bootstrap(self) : NULL;
+}
+static inline GMutex*
+rp_server_factory_context_lock(RpServerFactoryContext* self)
+{
+    return RP_IS_SERVER_FACTORY_CONTEXT(self) ?
+        RP_SERVER_FACTORY_CONTEXT_GET_IFACE(self)->lock(self) : NULL;
 }
 
 
@@ -139,6 +188,8 @@ struct _RpFilterChainFactoryContextInterface {
     void (*start_draining)(RpFilterChainFactoryContext*);
 };
 
+typedef UNIQUE_PTR(RpFilterChainFactoryContext) RpFilterChainFactoryContextPtr;
+
 static inline void
 rp_filter_chain_factory_context_start_draining(RpFilterChainFactoryContext* self)
 {
@@ -147,6 +198,19 @@ rp_filter_chain_factory_context_start_draining(RpFilterChainFactoryContext* self
         RP_FILTER_CHAIN_FACTORY_CONTEXT_GET_IFACE(self)->start_draining(self);
     }
 }
+
+
+/**
+ * An implementation of FactoryContext. The life time should cover the lifetime of the filter chains
+ * and connections. It can be used to create ListenerFilterChain.
+ */
+#define RP_TYPE_LISTENER_FACTORY_CONTEXT rp_listener_factory_context_get_type()
+G_DECLARE_INTERFACE(RpListenerFactoryContext, rp_listener_factory_context, RP, LISTENER_FACTORY_CONTEXT, RpFactoryContext)
+
+struct _RpListenerFactoryContextInterface {
+    RpFactoryContextInterface parent_iface;
+
+};
 
 
 /**

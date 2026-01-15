@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_http_conn_pool_base_active_client_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_http_conn_pool_base_active_client_NOISY)

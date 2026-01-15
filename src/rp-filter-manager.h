@@ -66,7 +66,7 @@ struct _RpFilterManagerCallbacksInterface {
     void (*reset_stream)(RpFilterManagerCallbacks*,
                             RpStreamResetReason_e,
                             const char*);
-    RpClusterInfo* (*cluster_info)(RpFilterManagerCallbacks*);
+    RpClusterInfoConstSharedPtr (*cluster_info)(RpFilterManagerCallbacks*);
     RpUpstreamStreamFilterCallbacks* (*upstream_callbacks)(RpFilterManagerCallbacks*);
     RpDownstreamStreamFilterCallbacks* (*downstream_callbacks)(RpFilterManagerCallbacks*);
     void (*on_local_reply)(RpFilterManagerCallbacks*, evhtp_res);
@@ -160,7 +160,7 @@ rp_filter_manager_callbacks_reset_stream(RpFilterManagerCallbacks* self, RpStrea
                                                                     reason,
                                                                     transport_failure_reason);
 }
-static inline RpClusterInfo*
+static inline RpClusterInfoConstSharedPtr
 rp_filter_manager_callbacks_cluster_info(RpFilterManagerCallbacks* self)
 {
     return RP_IS_FILTER_MANAGER_CALLBACKS(self) ?
@@ -379,5 +379,6 @@ rp_filter_manager_filter_manager_callbacks(RpFilterManager* self)
         RP_FILTER_MANAGER_GET_CLASS(self)->filter_manager_callbacks(self) :
         NULL;
 }
+RpOverrideHost rp_filter_manager_upstream_override_host_(RpFilterManager* self);
 
 G_END_DECLS
