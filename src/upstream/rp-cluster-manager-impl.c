@@ -9,7 +9,7 @@
 
 #if (defined(rp_cluster_manager_impl_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_cluster_manager_impl_NOISY)
 #   define NOISY_MSG_ LOGD
-#   define IF_NOISY_
+#   define IF_NOISY_(x, ...) x##__VA_ARGS__
 #else
 #   define NOISY_MSG_(x, ...)
 #   define IF_NOISY_(x, ...)

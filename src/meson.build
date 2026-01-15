@@ -241,14 +241,16 @@ librproxy = static_library('rproxy',
     c_args: [
         '-DG_LOG_DOMAIN="rproxy"',
         '-D_GNU_SOURCE',
-        '-DML_LOG_LEVEL=INFO_LEVEL',
+        '-DML_LOG_LEVEL=DEBUG_LEVEL',
+        '-DALL_NOISY',
         '-O0',
         '-g3',
         '-I /usr/include'
     ],
     cpp_args: [
         '-DG_LOG_DOMAIN="rproxy"',
-        '-DML_LOG_LEVEL=INFO_LEVEL',
+        '-DML_LOG_LEVEL=DEBUG_LEVEL',
+        '-DALL_NOISY',
         '-O0',
         '-g3',
         '-flto'

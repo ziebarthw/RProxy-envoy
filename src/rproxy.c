@@ -40,7 +40,7 @@
 
 #if (defined(rproxy_NOISY) || defined(ALL_NOISY)) && !defined(NO_rproxy_NOISY)
 #   define NOISY_MSG_ LOGD
-#   define IF_NOISY_
+#   define IF_NOISY_(x, ...) x##__VA_ARGS__
 #else
 #   define NOISY_MSG_(x, ...)
 #   define IF_NOISY_(x, ...)
