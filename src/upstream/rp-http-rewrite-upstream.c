@@ -33,9 +33,6 @@
 #define UPSTREAM_HOST(s) rp_upstream_info_upstream_host(UPSTREAM_INFO(s))
 #define UPSTREAM_SSL_CONNECTION(s) \
     rp_upstream_info_upstream_ssl_connection(UPSTREAM_INFO(s))
-#define RULE(s) \
-    ((rule_t*)rp_filter_state_get_data(FILTER_STATE(s), rule_key))
-#define RPROXY(s) (RULE(s))->rproxy
 #define REWRITE_URLS(s) \
     rp_filter_state_get_data(FILTER_STATE(s), rewrite_urls_key)
 #define ORIGINAL_URI(s) \

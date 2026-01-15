@@ -15,6 +15,8 @@
 
 #pragma once
 
+#include <stdatomic.h>
+#include <stdint.h>
 #include <stdbool.h>
 #include <syslog.h>
 #include <float.h>
@@ -33,6 +35,8 @@
 #include "lzq.h"
 #include "lzlog.h"
 
+G_BEGIN_DECLS
+
 #define RPROXY_VERSION "2.0.17"
 
 #if EVHTP_VERSION_MAJOR <= 1
@@ -50,13 +54,28 @@
 #define evbuf_length(b) ((b) ? evbuffer_get_length(b) : 0)
 
 // Identifies "owned" pointers that are to be freed by said owner.
+// Because this is standard C, this is for coder reference only - i.e. a guide
+// to implementation semantics.
 #ifndef UNIQUE_PTR
 #define UNIQUE_PTR(p) p*
 #endif
 
-// Identifies a shared pointer that is freed by some other owner.
+// Identifies a shared pointer that is intended to be destroyed when its
+// reference count goes to zero.
+// Because this is standard C, this is for coder reference only - i.e. a guide
+// to implementation semantics.
 #ifndef SHARED_PTR
 #define SHARED_PTR(p) p*
+#endif
+
+// Identifies a weak pointer that is intended to indicate the holder does not
+// know (or care) if the instance object pointed - typically declared as a
+// SHARED_PTR - is detroyed when all references are gone (reference count
+// goes to zero).
+// Because this is standard C, this is for coder reference only - i.e. a guide
+// to implementation semantics.
+#ifndef WEAK_PTR
+#define WEAK_PTR(p) p*
 #endif
 
 // Simple way to indicate a private function overrides a parent instance
@@ -118,10 +137,11 @@ enum discovery_type {
 typedef struct evdns_base evdns_base_t;
 
 typedef struct _RpHttpConnectionManagerConfig RpHttpConnectionManagerConfig;
-typedef struct _RpClusterManager RpClusterManager;
-typedef struct _RpServerFactoryContext RpServerFactoryContext;
 typedef struct _RpDispatcher RpDispatcher;
+typedef UNIQUE_PTR(RpDispatcher) RpDispatcherPtr;
+typedef struct _RpThreadLocalInstance RpThreadLocalInstance;
 
+typedef struct rproxy         rproxy_t;
 typedef struct rproxy_rusage  rproxy_rusage_t;
 typedef struct rproxy_cfg     rproxy_cfg_t;
 typedef struct rule_cfg       rule_cfg_t;
@@ -228,6 +248,7 @@ struct vhost_cfg {
     logger_cfg_t    * req_log;          /**< request logging configuration */
     logger_cfg_t    * err_log;          /**< error logging configuration */
     headers_cfg_t   * headers;          /**< headers which are added to the backend request */
+    server_cfg_t    * server_cfg;       /**< parent server configuration */
 };
 
 /**
@@ -250,7 +271,7 @@ struct server_cfg {
 
     rproxy_cfg_t    * rproxy_cfg;       /**< parent rproxy configuration */
     evhtp_ssl_cfg_t * ssl_cfg;          /**< if enabled, the ssl configuration */
-    lztq            * upstreams;      /**< list of upstream_cfg_t's */
+    lztq            * upstreams;        /**< list of upstream_cfg_t's */
     lztq            * vhosts;           /**< list of vhost_cfg_t's */
     logger_cfg_t    * req_log_cfg;
     logger_cfg_t    * err_log_cfg;
@@ -304,8 +325,6 @@ struct rproxy_cfg {
     const char    * filename;           /**< config file name */
     logger_cfg_t  * log;                /**< generic log configuration */
     rproxy_rusage_t rusage;             /**< the needed resource totals */
-
-    evbase_t* evbase;
 };
 
 /********************************************
@@ -332,8 +351,8 @@ enum logger_argtype {
     logger_argtype_printable
 };
 
-typedef struct thread_ctx        thread_ctx_t;
-typedef struct rproxy            rproxy_t;
+typedef struct traffic_stats     traffic_stats_t;
+typedef struct tpool_ctx        tpool_ctx_t;
 typedef struct upstream          upstream_t;
 typedef struct upstream_c        upstream_c_t;
 typedef struct vhost             vhost_t;
@@ -345,10 +364,40 @@ typedef struct ssl_crl_ent       ssl_crl_ent_t;
 typedef struct request_hooks     request_hooks_t;
 
 typedef enum logger_argtype      logger_argtype;
-typedef enum request_hook_status request_hook_status;
-typedef enum request_hook_type   request_hook_type;
 
-#define REQUEST_HAS_ERROR(req) (req->error ? 1 : req->upstream_err ? 1 : 0)
+struct traffic_stats {
+    guint64 downstream_cx_total;
+    guint64 downstream_cx_active;
+    guint64 downstream_cx_destroy;
+    guint64 downstream_rq_total;
+    guint64 downstream_rq_active;
+    guint64 upstream_cx_total;
+    guint64 upstream_cx_active;
+    guint64 upstream_rq_total;
+    guint64 upstream_rq_active;
+};
+
+static inline traffic_stats_t
+traffic_stats_ctor(void)
+{
+    traffic_stats_t self = {
+        .downstream_cx_total = 0,
+        .downstream_cx_active = 0,
+        .downstream_cx_destroy = 0,
+        .downstream_rq_total  = 0,
+        .downstream_rq_active = 0,
+        .upstream_cx_total   = 0,
+        .upstream_cx_active  = 0,
+        .upstream_rq_total    = 0,
+        .upstream_rq_active   = 0
+    };
+    return self;
+}
+extern traffic_stats_t g_traffic_stats;
+
+#define stats_inc(x) __atomic_add_fetch(&(x), 1, __ATOMIC_RELAXED)
+#define stats_dec(x) __atomic_sub_fetch(&(x), 1, __ATOMIC_RELAXED)
+#define stats_read(x) __atomic_load_n(&(x), __ATOMIC_ACQUIRE)
 
 struct logger_arg {
     logger_argtype type;
@@ -402,8 +451,6 @@ struct upstream_c {
 #endif//WITH_RETRY_TIMER
     double            rtt;             /**< the last RTT for a request made to the connection */
     uint16_t          sport;           /**< the source port of the connected socket */
-
-    TAILQ_ENTRY(upstream_c) next;
 };
 
 /**
@@ -412,18 +459,13 @@ struct upstream_c {
 struct upstream {
     upstream_cfg_t   * config;         /**< this upstreams configuration */
     evbase_t         * evbase;
-    rproxy_t         * rproxy;
     evhtp_ssl_ctx_t  * ssl_ctx;
     uint16_t           num_idle;       /**< number of ents in the idle list */
 
     double             m_rtt;          /**< the last RTT for a request made to the host */
-
-    TAILQ_HEAD(, upstream_c) active; /**< list of active connections */
-    TAILQ_HEAD(, upstream_c) idle;   /**< list of idle and ready connections */
 };
 
 struct rule {
-    rproxy_t   * rproxy;
     rule_cfg_t * config;
     vhost_t    * parent_vhost;         /**< the vhost this rule is under */
     lztq       * upstreams;            /**< list of upstream_t's configured for this rule */
@@ -434,13 +476,17 @@ struct rule {
 #endif//WITH_LOGGER
 };
 
+typedef enum
+{
+    RpWorkerContinue_CONN_MANAGER,
+    RpWorkerContinue_DONE
+} RpWorkerContinue_e;
+
 struct rproxy {
-    thread_ctx_t      * m_thread_ctx;
+    rproxy_t          * m_parent;
+    tpool_ctx_t      * m_tpool_ctx;
     rproxy_cfg_t      * config;
     evhtp_t           * htp;
-    evthr_t           * thr;
-    evbase_t          * evbase;
-    struct evdns_base * dns_base;
     server_cfg_t      * server_cfg;
 #ifdef WITH_LOGGER
     logger_t          * request_log;              /* server specific request logging */
@@ -457,11 +503,14 @@ struct rproxy {
 #endif//WITH_LOGGER
 
     RpHttpConnectionManagerConfig* m_filter_config;
-    RpClusterManager* m_cluster_manager;
-    RpServerFactoryContext* m_context;
-    RpDispatcher* m_dispatcher;
+    RpDispatcherPtr m_dispatcher;
     GList* m_active_connections;
+
+    RpWorkerContinue_e m_state;
 };
+rproxy_t* rproxy_new(rproxy_t* parent, rproxy_cfg_t* config);
+void rproxy_free(rproxy_t* self);
+G_DEFINE_AUTOPTR_CLEANUP_FUNC(rproxy_t, rproxy_free)
 
 /************************************************
 * Configuration parsing function definitions.
@@ -476,7 +525,7 @@ server_cfg_t* server_cfg_parse(cfg_t* cfg);
 /***********************************************
 * upstream handling functions
 ***********************************************/
-upstream_t     * upstream_new(rproxy_t *, upstream_cfg_t *);
+upstream_t     * upstream_new(upstream_cfg_t *);
 void             upstream_free(void *);
 
 upstream_c_t   * upstream_conn_new(evbase_t *, upstream_t *);
@@ -554,10 +603,10 @@ util_htp_proto_to_modsec_version(evhtp_proto proto)
 
 typedef struct rproxy_hooks rproxy_hooks_t;
 struct rproxy_hooks {
-    bool (* on_cfg_init)(rproxy_cfg_t*, void*);
+    bool (* on_cfg_init)(rproxy_t*, void*);
     void (* on_thread_init)(rproxy_t*, void*);
     void (* on_thread_exit)(rproxy_t*, void*);
-    void (* on_sigint)(rproxy_cfg_t*, void*);
+    void (* on_sigint)(rproxy_t*, void*);
 
     void* on_cfg_init_arg;
     void* on_thread_init_arg;
@@ -565,10 +614,10 @@ struct rproxy_hooks {
     void* on_sigint_arg;
 };
 static inline rproxy_hooks_t
-rproxy_hooks_ctor(bool (* cfg_init)(rproxy_cfg_t*, void*), void* cfg_init_arg,
+rproxy_hooks_ctor(bool (* cfg_init)(rproxy_t*, void*), void* cfg_init_arg,
                     void (* thread_init)(rproxy_t*, void*), void* thread_init_arg,
                     void (* thread_exit)(rproxy_t*, void*), void* thread_exit_arg,
-                    void (* sigint)(rproxy_cfg_t*, void*), void* sigint_arg)
+                    void (* sigint)(rproxy_t*, void*), void* sigint_arg)
 {
     rproxy_hooks_t hooks = {
         .on_cfg_init = cfg_init,
@@ -583,11 +632,72 @@ rproxy_hooks_ctor(bool (* cfg_init)(rproxy_cfg_t*, void*), void* cfg_init_arg,
     return hooks;
 }
 int rproxy_main(int argc, char** argv, const rproxy_hooks_t* hooks);
-bool rproxy_add_server_cfg(rproxy_cfg_t* rproxy_cfg, const char* server_cfg_buf);
+bool rproxy_add_server_cfg(rproxy_t* rproxy, const char* server_cfg_buf);
 
-struct thread_ctx {
-    rproxy_cfg_t* m_rproxy_cfg;
+
+
+typedef struct _RpCond RpCond;
+struct _RpCond {
+    GMutex m_mutex;
+    GCond m_cond;
+    guint m_signaled;
+};
+static inline RpCond*
+rp_cond_init(RpCond* self)
+{
+    g_return_val_if_fail(self != NULL, NULL);
+    g_mutex_init(&self->m_mutex);
+    g_cond_init(&self->m_cond);
+    self->m_signaled = 0;
+    return self;
+}
+static inline void
+rp_cond_clear(RpCond* self)
+{
+    g_return_if_fail(self != NULL);
+    g_mutex_clear(&self->m_mutex);
+    g_cond_clear(&self->m_cond);
+}
+static inline void
+rp_cond_signal(RpCond* self)
+{
+    g_return_if_fail(self != NULL);
+    g_mutex_lock(&self->m_mutex);
+    ++self->m_signaled;
+    g_cond_signal(&self->m_cond);
+    g_mutex_unlock(&self->m_mutex);
+}
+static inline void
+rp_cond_wait(RpCond* self)
+{
+    g_return_if_fail(self != NULL);
+    g_mutex_lock(&self->m_mutex);
+    while (!self->m_signaled)
+    {
+        g_cond_wait(&self->m_cond, &self->m_mutex);
+    }
+    --self->m_signaled;
+    g_mutex_unlock(&self->m_mutex);
+}
+
+struct tpool_ctx {
+    rproxy_t* m_parent;
     server_cfg_t* m_server_cfg;
     const rproxy_hooks_t* m_hooks;
+    RpThreadLocalInstance* m_tls;
     volatile gint n_processing;     /**< number of in-flight requests */
 };
+
+#define RP_DEFINE_PAIR_STRICT(Name, T1, T2) \
+  typedef struct {                          \
+    T1 first;                               \
+    T2 second;                              \
+  } Name
+#define RP_DECLARE_PAIR_CTOR(Name, T1, T2) \
+  static inline Name                       \
+  Name##_make(T1 a, T2 b)                  \
+  {                                        \
+    return (Name){ a, b };                 \
+  }
+
+G_END_DECLS

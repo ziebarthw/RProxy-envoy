@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_socket_impl_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_socket_impl_NOISY)
@@ -26,8 +23,8 @@
 typedef struct _RpSocketImplPrivate RpSocketImplPrivate;
 struct _RpSocketImplPrivate {
     UNIQUE_PTR(RpIoHandle) m_io_handle;
-    struct sockaddr* m_local_address;
-    struct sockaddr* m_remote_address;
+    RpNetworkAddressInstanceConstSharedPtr m_local_address;
+    RpNetworkAddressInstanceConstSharedPtr m_remote_address;
     RpConnectionInfoSetterImpl* m_connection_info_provider;
 };
 
@@ -87,7 +84,7 @@ io_handle_i(RpSocket* self)
 }
 
 static int
-connect_i(RpSocket* self, struct sockaddr* address, const char* requested_server_name)
+connect_i(RpSocket* self, RpNetworkAddressInstanceConstSharedPtr address, const char* requested_server_name)
 {
     NOISY_MSG_("(%p, %p, %p(%s))", self, address, requested_server_name, requested_server_name);
     RpSocketImplPrivate* me = PRIV(self);
@@ -126,10 +123,10 @@ get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
             g_value_set_object(value, PRIV(obj)->m_io_handle);
             break;
         case PROP_LOCAL_ADDRESS:
-            g_value_set_pointer(value, PRIV(obj)->m_local_address);
+            g_value_set_object(value, PRIV(obj)->m_local_address);
             break;
         case PROP_REMOTE_ADDRESS:
-            g_value_set_pointer(value, PRIV(obj)->m_remote_address);
+            g_value_set_object(value, PRIV(obj)->m_remote_address);
             break;
         default:
             G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
@@ -147,11 +144,13 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
             PRIV(obj)->m_io_handle = g_value_get_object(value);
             break;
         case PROP_LOCAL_ADDRESS:
-            PRIV(obj)->m_local_address = g_value_get_pointer(value);
+        {
+            RpNetworkAddressInstanceConstSharedPtr local_address = g_value_get_object(value);
+            if (local_address) PRIV(obj)->m_local_address = g_object_ref(local_address);
             break;
+        }
         case PROP_REMOTE_ADDRESS:
-            PRIV(obj)->m_remote_address = g_value_get_pointer(value);
-NOISY_MSG_("remote address %p", PRIV(obj)->m_remote_address);
+            PRIV(obj)->m_remote_address =  g_object_ref(g_value_get_object(value));
             break;
         default:
             G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
@@ -179,6 +178,8 @@ dispose(GObject* obj)
     RpSocketImplPrivate* me = PRIV(obj);
     g_clear_object(&me->m_connection_info_provider);
     g_clear_object(&me->m_io_handle);
+    g_clear_object(&me->m_local_address);
+    g_clear_object(&me->m_remote_address);
 
     G_OBJECT_CLASS(rp_socket_impl_parent_class)->dispose(obj);
 }
@@ -199,13 +200,15 @@ rp_socket_impl_class_init(RpSocketImplClass* klass)
                                                     "I/O Handle Instance",
                                                     RP_TYPE_IO_HANDLE,
                                                     G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-    obj_properties[PROP_LOCAL_ADDRESS] = g_param_spec_pointer("local-address",
+    obj_properties[PROP_LOCAL_ADDRESS] = g_param_spec_object("local-address",
                                                     "Local address",
                                                     "Local Socket Address (sockaddr)",
+                                                    RP_TYPE_NETWORK_ADDRESS_INSTANCE,
                                                     G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-    obj_properties[PROP_REMOTE_ADDRESS] = g_param_spec_pointer("remote-address",
+    obj_properties[PROP_REMOTE_ADDRESS] = g_param_spec_object("remote-address",
                                                     "Remote address",
                                                     "Remote Socket Address (sockaddr)",
+                                                    RP_TYPE_NETWORK_ADDRESS_INSTANCE,
                                                     G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
 
     g_object_class_install_properties(object_class, N_PROPERTIES, obj_properties);

@@ -9,7 +9,7 @@
 
 #include <stdbool.h>
 #include <glib-object.h>
-#include "common/rp-conn-pool.h"
+#include "rp-conn-pool.h"
 #include "rp-codec.h"
 #include "rp-upstream.h"
 

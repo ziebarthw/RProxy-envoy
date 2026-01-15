@@ -12,6 +12,7 @@
 #include <glib-object.h>
 #include <evhtp.h>
 #include "rp-dispatcher.h"
+#include "rp-load-balancer.h"
 #include "rp-net-connection.h"
 #include "rp-router.h"
 #include "rp-stream-reset-handler.h"
@@ -257,7 +258,7 @@ struct _RpStreamFilterCallbacksInterface {
                             RpStreamResetReason_e,
                             const char*);
     RpRoute* (*route)(RpStreamFilterCallbacks*);
-    RpClusterInfo* (*cluster_info)(RpStreamFilterCallbacks*);
+    RpClusterInfoConstSharedPtr (*cluster_info)(RpStreamFilterCallbacks*);
     guint64 (*stream_id)(RpStreamFilterCallbacks*);
     RpStreamInfo* (*stream_info)(RpStreamFilterCallbacks*);
     void (*reset_idle_timer)(RpStreamFilterCallbacks*);
@@ -295,7 +296,7 @@ rp_stream_filter_callbacks_route(RpStreamFilterCallbacks* self)
     return RP_IS_STREAM_FILTER_CALLBACKS(self) ?
         RP_STREAM_FILTER_CALLBACKS_GET_IFACE(self)->route(self) : NULL;
 }
-static inline RpClusterInfo*
+static inline RpClusterInfoConstSharedPtr
 rp_stream_filter_callbacks_cluster_info(RpStreamFilterCallbacks* self)
 {
     return RP_IS_STREAM_FILTER_CALLBACKS(self) ?
@@ -383,6 +384,8 @@ struct _RpStreamDecoderFilterCallbacksInterface {
     void (*remove_downstream_watermark_callbacks)(RpStreamDecoderFilterCallbacks*, RpDownstreamWatermarkCallbacks*);
     void (*set_decoder_buffer_limit)(RpStreamDecoderFilterCallbacks*, guint32);
     guint32 (*decoder_buffer_limit)(RpStreamDecoderFilterCallbacks*);
+    //TODO...
+    RpOverrideHost (*upstream_override_host)(RpStreamDecoderFilterCallbacks*);
 };
 
 void rp_stream_decoder_filter_callbacks_continue_decoding(RpStreamDecoderFilterCallbacks* self);
@@ -474,6 +477,13 @@ rp_stream_decoder_filter_callbacks_decoder_buffer_limit(RpStreamDecoderFilterCal
     return RP_IS_STREAM_DECODER_FILTER_CALLBACKS(self) ?
         RP_STREAM_DECODER_FILTER_CALLBACKS_GET_IFACE(self)->decoder_buffer_limit(self) :
         0;
+}
+static inline RpOverrideHost
+rp_stream_decoder_filter_callbacks_upstream_override_host(RpStreamDecoderFilterCallbacks* self)
+{
+    return RP_IS_STREAM_DECODER_FILTER_CALLBACKS(self) ?
+        RP_STREAM_DECODER_FILTER_CALLBACKS_GET_IFACE(self)->upstream_override_host(self) :
+        RpOverrideHost_make(NULL, false);
 }
 
 

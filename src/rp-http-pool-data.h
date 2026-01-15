@@ -13,7 +13,7 @@
 
 G_BEGIN_DECLS
 
-typedef void (*RpOnNewStreamFn)(void*);
+typedef void (*RpOnNewStreamFn)(RpHttpConnectionPoolInstance*, gconstpointer);
 
 /*
  * HttpPoolData returns information about a given pool as well as a function
@@ -30,7 +30,7 @@ RpCancellable* rp_http_pool_data_new_stream(RpHttpPoolData* self,
                                             RpHttpConnPoolCallbacks* callbacks,
                                             RpHttpConnPoolInstStreamOptionsPtr stream_options);
 bool rp_http_pool_data_has_active_connections(RpHttpPoolData* self);
-void rp_http_pool_data_add_idle_callbacks(RpHttpPoolData* self, idle_cb cb);
+void rp_http_pool_data_add_idle_callbacks(RpHttpPoolData* self, RpIdleCb cb);
 void rp_http_pool_data_drain_connections(RpHttpPoolData* self,
                                             RpDrainBehavior_e drain_behavior);
 RpHostDescription* rp_http_pool_data_host(RpHttpPoolData* self);

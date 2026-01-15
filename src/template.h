@@ -1,6 +1,6 @@
 /*
  * template.h
- * Copyright (C) 2025 Wayne Ziebarth <ziebarthw@webscurity.com>
+ * Copyright (C) 2026 Wayne Ziebarth <ziebarthw@webscurity.com>
  *
  * SPDX-License-Identifier: MIT
  */

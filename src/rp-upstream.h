@@ -18,12 +18,15 @@
 
 G_BEGIN_DECLS
 
+typedef struct _RpTransportSocketFactoryContext RpTransportSocketFactoryContext;
+typedef SHARED_PTR(RpTransportSocketFactoryContext) RpTransportSocketFactoryContextPtr;
+
 typedef struct Http1Settings_s * Http1SettingsPtr;
 
 typedef enum {
-    RpInitializationPhase_Primary,
-    RpInitializationPhase_Secondary
-} RpInitializationPhase_e;
+    RpInitializePhase_Primary,
+    RpInitializePhase_Secondary
+} RpInitializePhase_e;
 
 
 /**
@@ -31,12 +34,12 @@ typedef enum {
  */
 typedef struct _RpUpstreamLocalAddress RpUpstreamLocalAddress;
 struct _RpUpstreamLocalAddress {
-    struct sockaddr* m_address;
+    RpNetworkAddressInstanceConstSharedPtr m_address;
 //TODO...Network::Connection::OptionsSharedPtr socket_options_;
 };
 
 static inline RpUpstreamLocalAddress
-rp_upstream_local_address_ctor(struct sockaddr* address)
+rp_upstream_local_address_ctor(RpNetworkAddressInstanceConstSharedPtr address)
 {
     RpUpstreamLocalAddress self = {
         .m_address = address
@@ -44,6 +47,86 @@ rp_upstream_local_address_ctor(struct sockaddr* address)
     return self;
 }
 
+
+typedef struct _RpCreateConnectionData RpCreateConnectionData;
+typedef RpCreateConnectionData * RpCreateConnectionDataPtr;
+struct _RpCreateConnectionData {
+    RpNetworkClientConnection* m_connection;
+    RpHostDescription* m_host_description;
+};
+
+static inline RpCreateConnectionData
+rp_create_connection_data_ctor(RpNetworkClientConnection* connection, RpHostDescription* host_description)
+{
+    RpCreateConnectionData self = {
+        .m_connection = connection,
+        .m_host_description = host_description
+    };
+    return self;
+}
+
+
+
+/**
+ * An upstream host.
+ */
+#define RP_TYPE_HOST rp_host_get_type()
+G_DECLARE_INTERFACE(RpHost, rp_host, RP, HOST, GObject)
+
+struct _RpHostInterface {
+    GTypeInterface/*virtual RpHostDescription*/ parent_iface;
+
+    //TODO...
+    RpCreateConnectionData (*create_connection)(RpHost*,
+                                                RpDispatcher*
+                                                /*Network::TransportSocketOptions,*/
+                                                /*Metadata*/);
+    //TODO...
+    guint32 (*weight)(RpHost*);
+    void (*set_wieght)(RpHost*, guint32);
+    bool (*used)(RpHost*);
+    //TODO...
+};
+
+static inline RpCreateConnectionData
+rp_host_create_connection(RpHost* self, RpDispatcher* dispatcher)
+{
+    return RP_IS_HOST(self) ?
+        RP_HOST_GET_IFACE(self)->create_connection(self, dispatcher) :
+        rp_create_connection_data_ctor(NULL, NULL);
+}
+static inline guint32
+rp_host_weight(RpHost* self)
+{
+    return RP_IS_HOST(self) ? RP_HOST_GET_IFACE(self)->weight(self) : 1;
+}
+static inline void
+rp_host_set_wieght(RpHost* self, guint32 new_weight)
+{
+    if (RP_IS_HOST(self))
+    {
+        RP_HOST_GET_IFACE(self)->set_wieght(self, new_weight);
+    }
+}
+static inline bool
+rp_host_used(RpHost* self)
+{
+    return RP_IS_HOST(self) ? RP_HOST_GET_IFACE(self)->used(self) : false;
+}
+
+typedef SHARED_PTR(RpHost) RpHostSharedPtr;
+typedef SHARED_PTR(RpHost) RpHostConstSharedPtr;
+
+typedef GPtrArray RpHostVector;
+typedef SHARED_PTR(GPtrArray) RpHostVectorSharedPtr;
+typedef SHARED_PTR(GPtrArray) RpHostVectorConstSharedPtr;
+
+typedef UNIQUE_PTR(RpHostVector) RpHostListPtr;
+typedef UNIQUE_PTR(GHashTable) RpLocalityWeightsMap;
+// std::pair<HostListsPtr, LocalityWeightsMap>
+//RP_DEFINE_PAIR_STRICT(PairHostListsPtrLocalityWeightsMap, RpHostListPtr, RpLocalityWeightsMap);
+//RP_DECLARE_PAIR_CTOR(PairHostListsPtrLocalityWeightsMap, RpHostListPtr, RpLocalityWeightsMap);
+typedef UNIQUE_PTR(GPtrArray) RpPriorityState;
 
 /**
  * Interface to select upstream local address based on the endpoint address.
@@ -97,6 +180,7 @@ struct _RpClusterInfoInterface {
     const char* (*name)(RpClusterInfo*);
     const char* (*observability_name)(RpClusterInfo*);
     RpResourceManager* (*resource_manager)(RpClusterInfo*, RpResourcePriority_e);
+    RpTransportSocketFactoryContextPtr (*transport_socket_context)(RpClusterInfo*);
     //TODO...
     RpUpstreamLocalAddressSelector* (*get_upstream_local_address_selector)(RpClusterInfo*);
     //TODO...
@@ -106,8 +190,16 @@ struct _RpClusterInfoInterface {
     bool (*set_local_interface_name_on_upstream_connection)(RpClusterInfo*);
     const char* (*eds_service_name)(RpClusterInfo*);
     void (*create_network_filter_chain)(RpClusterInfo*, RpNetworkConnection*);
+    evhtp_proto* (*upstream_http_protocol)(RpClusterInfo*, evhtp_proto);
     //TODO...
 };
+
+/*
+ * RpClusterInfoConstSharedPtr: Named for intent, not enforcement.
+ * Treat as read-only in most contexts. Setters will explicitly
+ * indicate when modification occurs.
+ */
+typedef /*const*/ SHARED_PTR(RpClusterInfo) RpClusterInfoConstSharedPtr;
 
 static inline float
 rp_cluster_info_per_upstream_preconnect_ratio(RpClusterInfo* self)
@@ -127,6 +219,13 @@ rp_cluster_info_resource_manager(RpClusterInfo* self, RpResourcePriority_e prior
 {
     return RP_IS_CLUSTER_INFO(self) ?
         RP_CLUSTER_INFO_GET_IFACE(self)->resource_manager(self, priority) : NULL;
+}
+static inline RpTransportSocketFactoryContextPtr
+rp_cluster_info_transport_socket_context(RpClusterInfo* self)
+{
+    return RP_IS_CLUSTER_INFO(self) ?
+        RP_CLUSTER_INFO_GET_IFACE(self)->transport_socket_context(self) :
+        NULL;
 }
 static inline RpUpstreamLocalAddressSelector*
 rp_cluster_info_get_upstream_local_address_selector(RpClusterInfo* self)
@@ -155,77 +254,13 @@ rp_cluster_info_max_requests_per_connection(RpClusterInfo* self)
     return RP_IS_CLUSTER_INFO(self) ?
         RP_CLUSTER_INFO_GET_IFACE(self)->max_requests_per_connection(self) : 0;
 }
-
-
-typedef struct _RpCreateConnectionData RpCreateConnectionData;
-typedef RpCreateConnectionData * RpCreateConnectionDataPtr;
-struct _RpCreateConnectionData {
-    RpNetworkClientConnection* m_connection;
-    RpHostDescription* m_host_description;
-};
-
-static inline RpCreateConnectionData
-rp_create_connection_data_ctor(RpNetworkClientConnection* connection, RpHostDescription* host_description)
+static inline evhtp_proto*
+rp_cluster_info_upstream_http_protocol(RpClusterInfo* self, evhtp_proto downstream_protocol)
 {
-    RpCreateConnectionData self = {
-        .m_connection = connection,
-        .m_host_description = host_description
-    };
-    return self;
+    return RP_IS_CLUSTER_INFO(self) ?
+        RP_CLUSTER_INFO_GET_IFACE(self)->upstream_http_protocol(self, downstream_protocol) :
+        NULL;
 }
-
-/**
- * An upstream host.
- */
-#define RP_TYPE_HOST rp_host_get_type()
-G_DECLARE_INTERFACE(RpHost, rp_host, RP, HOST, GObject)
-
-struct _RpHostInterface {
-    GTypeInterface/*virtual RpHostDescription*/ parent_iface;
-
-    //TODO...
-    RpCreateConnectionData (*create_connection)(RpHost*,
-                                                RpDispatcher*
-                                                /*Network::TransportSocketOptions,*/
-                                                /*Metadata*/);
-    //TODO...
-    guint32 (*weight)(RpHost*);
-    void (*set_wieght)(RpHost*, guint32);
-    bool (*used)(RpHost*);
-    //TODO...
-};
-
-static inline RpCreateConnectionData
-rp_host_create_connection(RpHost* self, RpDispatcher* dispatcher)
-{
-    return RP_IS_HOST(self) ?
-        RP_HOST_GET_IFACE(self)->create_connection(self, dispatcher) :
-        rp_create_connection_data_ctor(NULL, NULL);
-}
-static inline guint32
-rp_host_weight(RpHost* self)
-{
-    return RP_IS_HOST(self) ? RP_HOST_GET_IFACE(self)->weight(self) : 1;
-}
-static inline void
-rp_host_set_wieght(RpHost* self, guint32 new_weight)
-{
-    if (RP_IS_HOST(self))
-    {
-        RP_HOST_GET_IFACE(self)->set_wieght(self, new_weight);
-    }
-}
-static inline bool
-rp_host_used(RpHost* self)
-{
-    return RP_IS_HOST(self) ? RP_HOST_GET_IFACE(self)->used(self) : false;
-}
-
-
-typedef GArray* RpHostVector;
-typedef GHashTable* RpHostMap;
-
-typedef GArray* RpLocalityWeights;
 
 
 /**
@@ -250,13 +285,18 @@ struct _RpHostsPerLocalityInterface {
 #define RP_TYPE_HOST_SET rp_host_set_get_type()
 G_DECLARE_INTERFACE(RpHostSet, rp_host_set, RP, HOST_SET, GObject)
 
+typedef GArray RpLocalityWeights;
+typedef SHARED_PTR(RpLocalityWeights) RpLocalityWeightsSharedPtr;
+typedef SHARED_PTR(RpLocalityWeights) RpLocalityWeightsConstSharedPtr;
+
 struct _RpHostSetInterface {
     GTypeInterface parent_iface;
 
-    RpHostVector (*hosts)(RpHostSet*);
-    RpHostVector (*healthy_hosts)(RpHostSet*);
-    RpHostVector (*degraded_hosts)(RpHostSet*);
-    RpHostVector (*excluded_hosts)(RpHostSet*);
+    RpHostVector* (*hosts)(RpHostSet*);
+    RpHostVectorConstSharedPtr (*hosts_ptr)(RpHostSet*);
+    RpHostVector* (*healthy_hosts)(RpHostSet*);
+    RpHostVector* (*degraded_hosts)(RpHostSet*);
+    RpHostVector* (*excluded_hosts)(RpHostSet*);
     RpHostsPerLocality* (*hosts_per_locality)(RpHostSet*);
     RpHostsPerLocality* (*healthy_hosts_per_locality)(RpHostSet*);
     RpHostsPerLocality* (*degraded_hosts_per_locality)(RpHostSet*);
@@ -268,6 +308,18 @@ struct _RpHostSetInterface {
     guint32 (*overprovisioning_factor)(RpHostSet*);
     bool (*weighted_priority_health)(RpHostSet*);
 };
+static inline RpHostVector*
+rp_host_set_hosts(RpHostSet* self)
+{
+    return RP_IS_HOST_SET(self) ?
+        RP_HOST_SET_GET_IFACE(self)->hosts(self) : NULL;
+}
+static inline RpHostVectorConstSharedPtr
+rp_host_set_hosts_ptr(RpHostSet* self)
+{
+    return RP_IS_HOST_SET(self) ?
+        RP_HOST_SET_GET_IFACE(self)->hosts_ptr(self) : NULL;
+}
 
 
 /**
@@ -277,15 +329,32 @@ struct _RpHostSetInterface {
 #define RP_TYPE_PRIORITY_SET rp_priority_set_get_type()
 G_DECLARE_INTERFACE(RpPrioritySet, rp_priority_set, RP, PRIORITY_SET, GObject)
 
+typedef GHashTable RpHostMap;
+typedef SHARED_PTR(RpHostMap) RpHostMapSharedPtr;
+typedef SHARED_PTR(RpHostMap) RpHostMapConstSharedPtr;
+typedef UNIQUE_PTR(RpHostSet) RpHostSetPtr;
+typedef GPtrArray* RpHostSetPtrVector;
+
 struct _RpPrioritySetInterface {
     GTypeInterface parent_iface;
 
     //TODO...
-    GArray* (*host_sets_per_priority)(RpPrioritySet*);
-    RpHostMap (*cross_priority_host_map)(RpPrioritySet*);
+    const RpHostSetPtrVector (*host_sets_per_priority)(RpPrioritySet*);
+    RpHostMapConstSharedPtr (*cross_priority_host_map)(RpPrioritySet*);
     //TODO...
 };
-
+static inline const RpHostSetPtrVector
+rp_priority_set_host_sets_per_priority(RpPrioritySet* self)
+{
+    return RP_IS_PRIORITY_SET(self) ?
+        RP_PRIORITY_SET_GET_IFACE(self)->host_sets_per_priority(self) : NULL;
+}
+static inline RpHostMapConstSharedPtr
+rp_priority_set_cross_priority_host_map(RpPrioritySet* self)
+{
+    return RP_IS_PRIORITY_SET(self) ?
+        RP_PRIORITY_SET_GET_IFACE(self)->cross_priority_host_map(self) : NULL;
+}
 
 /**
  * An upstream cluster (group of hosts). This class is the "primary" singleton cluster used amongst
@@ -294,33 +363,37 @@ struct _RpPrioritySetInterface {
 #define RP_TYPE_CLUSTER rp_cluster_get_type()
 G_DECLARE_INTERFACE(RpCluster, rp_cluster, RP, CLUSTER, GObject)
 
+typedef RpStatusCode_e (*RpClusterInitializeCb)(gpointer);
+
 struct _RpClusterInterface {
     GTypeInterface parent_iface;
 
     //TODO...
-    RpClusterInfo* (*info)(RpCluster*);
+    RpClusterInfoConstSharedPtr (*info)(RpCluster*);
     //TODO...
-    void (*initialize)(RpCluster*, RpStatusCode_e (*)(RpCluster*));
-    RpInitializationPhase_e (*initialize_phase)(RpCluster*);
+    void (*initialize)(RpCluster*, RpClusterInitializeCb, gpointer);
+    RpInitializePhase_e (*initialize_phase)(RpCluster*);
     RpPrioritySet* (*priority_set)(RpCluster*);
 };
 
-static inline RpClusterInfo*
+typedef SHARED_PTR(RpCluster) RpClusterSharedPtr;
+
+static inline RpClusterInfoConstSharedPtr
 rp_cluster_info(RpCluster* self)
 {
     return RP_IS_CLUSTER(self) ? RP_CLUSTER_GET_IFACE(self)->info(self) : NULL;
 }
 static inline void
-rp_cluster_initialize(RpCluster* self, RpStatusCode_e (*callback)(RpCluster*))
+rp_cluster_initialize(RpCluster* self, RpClusterInitializeCb callback, gpointer arg)
 {
     if (RP_IS_CLUSTER(self)) \
-        RP_CLUSTER_GET_IFACE(self)->initialize(self, callback);
+        RP_CLUSTER_GET_IFACE(self)->initialize(self, callback, arg);
 }
-static inline RpInitializationPhase_e
+static inline RpInitializePhase_e
 rp_cluster_initialize_phase(RpCluster* self)
 {
     return RP_IS_CLUSTER(self) ?
-        RP_CLUSTER_GET_IFACE(self)->initialize_phase(self) : RpInitializationPhase_Primary;
+        RP_CLUSTER_GET_IFACE(self)->initialize_phase(self) : RpInitializePhase_Primary;
 }
 static inline RpPrioritySet*
 rp_cluster_priority_set(RpCluster* self)

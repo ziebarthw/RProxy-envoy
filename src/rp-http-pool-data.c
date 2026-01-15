@@ -140,7 +140,7 @@ rp_http_pool_data_new_stream(RpHttpPoolData* self, RpResponseDecoder* response_d
     g_return_val_if_fail(RP_IS_HTTP_POOL_DATA(self), NULL);
     g_return_val_if_fail(RP_IS_RESPONSE_DECODER(response_decoder), NULL);
     g_return_val_if_fail(RP_IS_HTTP_CONN_POOL_CALLBACKS(callbacks), NULL);
-    self->m_on_new_stream(self->m_arg);
+    self->m_on_new_stream(self->m_pool, self->m_arg);
     return rp_http_connection_pool_instance_new_stream(self->m_pool, response_decoder, callbacks, stream_options);
 }
 
@@ -153,7 +153,7 @@ rp_http_pool_data_has_active_connections(RpHttpPoolData* self)
 }
 
 void
-rp_http_pool_data_add_idle_callbacks(RpHttpPoolData* self, idle_cb cb)
+rp_http_pool_data_add_idle_callbacks(RpHttpPoolData* self, RpIdleCb cb)
 {
     LOGD("(%p, %p)", self, cb);
     g_return_if_fail(RP_IS_HTTP_POOL_DATA(self));

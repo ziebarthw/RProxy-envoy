@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_request_rewrite_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_request_rewrite_NOISY)
@@ -85,9 +82,10 @@ create_replacement(RpRequestRewrite* self, lztq* rewrite_urls)
         }
     }
 
-    struct sockaddr* addr = rp_host_description_address(self->m_host_description);
-    char buf[256];
-    const char* host_str = util_format_sockaddr_port(addr, buf, sizeof(buf));
+    RpNetworkAddressInstanceConstSharedPtr addr = rp_host_description_address(self->m_host_description);
+//    char buf[256];
+//    const char* host_str = util_format_sockaddr_port(addr, buf, sizeof(buf));
+const char* host_str = rp_network_address_instance_as_string(addr);
     const char* scheme = self->m_ssl_connection ? "https" : "http";
     return g_strdup_printf("%s://%s/", scheme, host_str);
 }

@@ -24,3 +24,17 @@ rp_transport_socket_factory_context_default_init(RpTransportSocketFactoryContext
 {
     LOGD("(%p)", iface);
 }
+
+G_DEFINE_INTERFACE(RpUpstreamTransportSocketConfigFactory, rp_upstream_transport_socket_config_factory, G_TYPE_OBJECT)
+static void
+rp_upstream_transport_socket_config_factory_default_init(RpUpstreamTransportSocketConfigFactoryInterface* iface G_GNUC_UNUSED)
+{
+    LOGD("(%p)", iface);
+}
+
+G_DEFINE_INTERFACE(RpDownstreamTransportSocketConfigFactory, rp_downstream_transport_socket_config_factory, G_TYPE_OBJECT)
+static void
+rp_downstream_transport_socket_config_factory_default_init(RpDownstreamTransportSocketConfigFactoryInterface* iface G_GNUC_UNUSED)
+{
+    LOGD("(%p)", iface);
+}

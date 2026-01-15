@@ -13,8 +13,7 @@
  * limitations under the License.
  */
 
-#ifndef __LZLOG_H__
-#define __LZLOG_H__
+#pragma once
 
 #include <stdlib.h>
 #include <stdarg.h>
@@ -23,6 +22,9 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <glib-object.h>
+
+G_BEGIN_DECLS
 
 #define LZLOG_OPT_NONE         (1 << 0)
 #define LZLOG_OPT_WDATE        (1 << 1)
@@ -55,7 +57,7 @@ enum lzlog_level {
 
 typedef enum lzlog_level lzlog_level;
 typedef enum lzlog_type  lzlog_type;
-typedef struct log       lzlog;
+typedef struct lzlog     lzlog;
 
 void    lzlog_write(lzlog * log, lzlog_level level, const char * fmt, ...);
 void    lzlog_vprintf(lzlog * log, lzlog_level level, const char * fmt, va_list ap);
@@ -73,4 +75,4 @@ int         lzlog_facilitystr_to_facility(const char * str);
 lzlog_level lzlog_levelstr_to_level(const char * str);
 lzlog_type  lzlog_get_type(lzlog * log);
 
-#endif
+G_END_DECLS

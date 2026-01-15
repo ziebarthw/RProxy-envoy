@@ -9,6 +9,7 @@
 
 #include <stdbool.h>
 #include <glib-object.h>
+#include "rproxy.h"
 #include "rp-socket.h"
 
 G_BEGIN_DECLS

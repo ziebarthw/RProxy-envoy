@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_cluster_factory_impl_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_cluster_factory_impl_NOISY)
@@ -16,6 +13,7 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
+#include "upstream/rp-cluster-factory-context-impl.h"
 #include "upstream/rp-cluster-factory-impl.h"
 
 typedef struct _RpClusterFactoryImplBasePrivate RpClusterFactoryImplBasePrivate;
@@ -44,16 +42,13 @@ G_DEFINE_ABSTRACT_TYPE_WITH_CODE(RpClusterFactoryImplBase, rp_cluster_factory_im
 #define PRIV(obj) \
     ((RpClusterFactoryImplBasePrivate*) rp_cluster_factory_impl_base_get_instance_private(RP_CLUSTER_FACTORY_IMPL_BASE(obj)))
 
-static RpCluster*
-create_i(RpClusterFactory* self, RpClusterCfg* cluster, RpClusterFactoryContext* context)
+static PairClusterSharedPtrThreadAwareLoadBalancerPtr
+create_i(RpClusterFactory* self, const RpClusterCfg* cluster, RpClusterFactoryContext* context)
 {
     NOISY_MSG_("(%p, %p, %p)", self, cluster, context);
 
-NOISY_MSG_("name \"%s\"", cluster->name);
-
     RpClusterFactoryImplBase* me = RP_CLUSTER_FACTORY_IMPL_BASE(self);
-    RpClusterImplBase* cluster_ = RP_CLUSTER_FACTORY_IMPL_BASE_GET_CLASS(me)->create_cluster_impl(me, cluster, context);
-    return RP_CLUSTER(cluster_);
+    return RP_CLUSTER_FACTORY_IMPL_BASE_GET_CLASS(me)->create_cluster_impl(me, cluster, context);
 }
 
 static void
@@ -66,7 +61,7 @@ cluster_factory_iface_init(RpClusterFactoryInterface* iface)
 OVERRIDE void
 get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
 {
-    LOGD("(%p, %u, %p, %p)", obj, prop_id, value, pspec);
+    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
     switch (prop_id)
     {
         case PROP_NAME:
@@ -81,7 +76,7 @@ get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
 OVERRIDE void
 set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec)
 {
-    LOGD("(%p, %u, %p, %p)", obj, prop_id, value, pspec);
+    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
     switch (prop_id)
     {
         case PROP_NAME:
@@ -95,10 +90,10 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
 }
 
 OVERRIDE void
-dispose(GObject* object)
+dispose(GObject* obj)
 {
-    LOGD("(%p)", object);
-    G_OBJECT_CLASS(rp_cluster_factory_impl_base_parent_class)->dispose(object);
+    NOISY_MSG_("(%p)", obj);
+    G_OBJECT_CLASS(rp_cluster_factory_impl_base_parent_class)->dispose(obj);
 }
 
 static void
@@ -123,5 +118,33 @@ rp_cluster_factory_impl_base_class_init(RpClusterFactoryImplBaseClass* klass)
 static void
 rp_cluster_factory_impl_base_init(RpClusterFactoryImplBase* self G_GNUC_UNUSED)
 {
-    LOGD("(%p)", self);
+    NOISY_MSG_("(%p)", self);
+}
+
+PairClusterSharedPtrThreadAwareLoadBalancerPtr
+rp_cluster_factory_impl_base_create(const RpClusterCfg* cluster, RpServerFactoryContext* server_context, RpClusterManager* cm,
+                                    bool added_via_api)
+{
+    extern RpClusterFactory* default_cluster_factory;
+    extern RpClusterFactory* default_dfp_factory;
+
+    LOGD("(%p, %p, %p, %u)", cluster, server_context, cm, added_via_api);
+
+    g_return_val_if_fail(cluster != NULL, PairClusterSharedPtrThreadAwareLoadBalancerPtr_make(NULL, NULL));
+    g_return_val_if_fail(RP_IS_SERVER_FACTORY_CONTEXT(server_context), PairClusterSharedPtrThreadAwareLoadBalancerPtr_make(NULL, NULL));
+    g_return_val_if_fail(RP_IS_CLUSTER_MANAGER(cm), PairClusterSharedPtrThreadAwareLoadBalancerPtr_make(NULL, NULL));
+
+    RpClusterFactory* factory;
+    if (cluster->type == RpDiscoveryType_STRICT_DNS)
+    {
+        factory = default_dfp_factory;
+    }
+    else
+    {
+        factory = default_cluster_factory;
+    }
+
+    g_autoptr(RpClusterFactoryContext) context = RP_CLUSTER_FACTORY_CONTEXT(
+        rp_cluster_factory_context_impl_new(server_context, cm, added_via_api));
+    return rp_cluster_factory_create(factory, cluster, context);
 }

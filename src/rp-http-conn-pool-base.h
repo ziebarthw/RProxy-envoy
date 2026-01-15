@@ -11,7 +11,7 @@
 #include <glib-object.h>
 #include "rp-codec-client.h"
 #include "rp-http-conn-pool.h"
-#include "conn_pool/rp-conn-pool-base.h"
+#include "common/conn_pool/rp-conn-pool-base.h"
 
 G_BEGIN_DECLS
 

@@ -12,12 +12,14 @@
 #include <evhtp.h>
 #include "rp-filter-state.h"
 #include "rp-host-description.h"
+#include "rp-net-address.h"
 #include "rp-socket.h"
 #include "rp-time.h"
 
 G_BEGIN_DECLS
 
 typedef struct _RpRoute RpRoute;
+typedef /*const*/ SHARED_PTR(RpClusterInfo) RpClusterInfoConstSharedPtr;
 
 typedef enum {
     // Local server healthcheck failed.
@@ -279,10 +281,10 @@ struct _RpUpstreamInfoInterface {
     void (*set_upstream_ssl_connection)(RpUpstreamInfo*, RpSslConnectionInfo*);
     RpSslConnectionInfo* (*upstream_ssl_connection)(RpUpstreamInfo*);
     RpUpstreamTiming* (*upstream_timing)(RpUpstreamInfo*);
-    void (*set_upstream_local_address)(RpUpstreamInfo*, struct sockaddr*);
-    struct sockaddr* (*upstream_local_address)(RpUpstreamInfo*);
-    void (*set_upstream_remote_address)(RpUpstreamInfo*, struct sockaddr*);
-    struct sockaddr* (*upstream_remote_address)(RpUpstreamInfo*);
+    void (*set_upstream_local_address)(RpUpstreamInfo*, RpNetworkAddressInstanceConstSharedPtr);
+    RpNetworkAddressInstanceConstSharedPtr (*upstream_local_address)(RpUpstreamInfo*);
+    void (*set_upstream_remote_address)(RpUpstreamInfo*, RpNetworkAddressInstanceConstSharedPtr);
+    RpNetworkAddressInstanceConstSharedPtr (*upstream_remote_address)(RpUpstreamInfo*);
     void (*set_upstream_transport_failure_reason)(RpUpstreamInfo*, const char*);
     const char* (*upstream_transport_failure_reason)(RpUpstreamInfo*);
     void (*set_upstream_host)(RpUpstreamInfo*, RpHostDescription*);
@@ -342,28 +344,28 @@ rp_upstream_info_upstream_interface_name(RpUpstreamInfo* self)
         RP_UPSTREAM_INFO_GET_IFACE(self)->upstream_interface_name(self) : NULL;
 }
 static inline void
-rp_upstream_info_set_upstream_local_address(RpUpstreamInfo* self, struct sockaddr* upstream_local_address)
+rp_upstream_info_set_upstream_local_address(RpUpstreamInfo* self, RpNetworkAddressInstanceConstSharedPtr upstream_local_address)
 {
     if (RP_IS_UPSTREAM_INFO(self))
     {
         RP_UPSTREAM_INFO_GET_IFACE(self)->set_upstream_local_address(self, upstream_local_address);
     }
 }
-static inline struct sockaddr*
+static inline RpNetworkAddressInstanceConstSharedPtr
 rp_upstream_info_upstream_local_address(RpUpstreamInfo* self)
 {
     return RP_IS_UPSTREAM_INFO(self) ?
         RP_UPSTREAM_INFO_GET_IFACE(self)->upstream_local_address(self) : NULL;
 }
 static inline void
-rp_upstream_info_set_upstream_remote_address(RpUpstreamInfo* self, struct sockaddr* upstream_remote_address)
+rp_upstream_info_set_upstream_remote_address(RpUpstreamInfo* self, RpNetworkAddressInstanceConstSharedPtr upstream_remote_address)
 {
     if (RP_IS_UPSTREAM_INFO(self))
     {
         RP_UPSTREAM_INFO_GET_IFACE(self)->set_upstream_remote_address(self, upstream_remote_address);
     }
 }
-static inline struct sockaddr*
+static inline RpNetworkAddressInstanceConstSharedPtr
 rp_upstream_info_upstream_remote_address(RpUpstreamInfo* self)
 {
     return RP_IS_UPSTREAM_INFO(self) ?
@@ -489,8 +491,8 @@ struct _RpStreamInfoInterface {
     RpFilterState* (*filter_state)(RpStreamInfo*);
     void (*set_request_headers)(RpStreamInfo*, evhtp_headers_t*);
     evhtp_headers_t* (*get_request_headers)(RpStreamInfo*);
-    void (*set_upstream_cluster_info)(RpStreamInfo*, RpClusterInfo*);
-    RpClusterInfo* (*upstream_cluster_info)(RpStreamInfo*);
+    void (*set_upstream_cluster_info)(RpStreamInfo*, RpClusterInfoConstSharedPtr);
+    RpClusterInfoConstSharedPtr (*upstream_cluster_info)(RpStreamInfo*);
     //TODO...
     void (*set_attempt_count)(RpStreamInfo*, guint32);
     guint32 (*attempt_count)(RpStreamInfo*);
@@ -522,10 +524,8 @@ rp_stream_info_set_response_code(RpStreamInfo* self, evhtp_res response_code)
 static inline void
 rp_stream_info_set_upstream_info(RpStreamInfo* self, RpUpstreamInfo* upstream_info)
 {
-    if (RP_IS_STREAM_INFO(self))
-    {
+    if (RP_IS_STREAM_INFO(self)) \
         RP_STREAM_INFO_GET_IFACE(self)->set_upstream_info(self, upstream_info);
-    }
 }
 static inline RpUpstreamInfo*
 rp_stream_info_upstream_info(RpStreamInfo* self)
@@ -554,10 +554,8 @@ rp_stream_info_filter_state(RpStreamInfo* self)
 static inline void
 rp_stream_info_set_request_headers(RpStreamInfo* self, evhtp_headers_t* request_headers)
 {
-    if (RP_IS_STREAM_INFO(self))
-    {
+    if (RP_IS_STREAM_INFO(self)) \
         RP_STREAM_INFO_GET_IFACE(self)->set_request_headers(self, request_headers);
-    }
 }
 static inline evhtp_headers_t*
 rp_stream_info_get_request_headers(RpStreamInfo* self)
@@ -566,14 +564,12 @@ rp_stream_info_get_request_headers(RpStreamInfo* self)
         RP_STREAM_INFO_GET_IFACE(self)->get_request_headers(self) : NULL;
 }
 static inline void
-rp_stream_info_set_upstream_cluster_info(RpStreamInfo* self, RpClusterInfo* upstream_cluster_info)
+rp_stream_info_set_upstream_cluster_info(RpStreamInfo* self, RpClusterInfoConstSharedPtr upstream_cluster_info)
 {
-    if (RP_IS_STREAM_INFO(self))
-    {
+    if (RP_IS_STREAM_INFO(self)) \
         RP_STREAM_INFO_GET_IFACE(self)->set_upstream_cluster_info(self, upstream_cluster_info);
-    }
 }
-static inline RpClusterInfo*
+static inline RpClusterInfoConstSharedPtr
 rp_stream_info_upstream_cluster_info(RpStreamInfo* self)
 {
     return RP_IS_STREAM_INFO(self) ?

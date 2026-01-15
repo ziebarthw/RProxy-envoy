@@ -9,7 +9,7 @@
 
 #include <stdbool.h>
 #include <glib-object.h>
-#include "rp-instance.h"
+#include "rp-server-instance.h"
 #include "rp-factory-context.h"
 
 G_BEGIN_DECLS
@@ -22,6 +22,6 @@ G_BEGIN_DECLS
 #define RP_TYPE_SERVER_FACTORY_CONTEXT_IMPL rp_server_factory_context_impl_get_type()
 G_DECLARE_FINAL_TYPE(RpServerFactoryContextImpl, rp_server_factory_context_impl, RP, SERVER_FACTORY_CONTEXT_IMPL, GObject)
 
-RpServerFactoryContextImpl* rp_server_factory_context_impl_new(RpInstance* server);
+RpServerFactoryContextImpl* rp_server_factory_context_impl_new(RpServerInstance* server);
 
 G_END_DECLS

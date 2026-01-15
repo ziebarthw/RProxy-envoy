@@ -5,19 +5,12 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_rewrite_urls_filter_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_rewrite_urls_filter_NOISY)
 #   define NOISY_MSG_ LOGD
 #else
 #   define NOISY_MSG_(x, ...)
-#endif
-
-#ifndef OVERRIDE
-#define OVERRIDE static
 #endif
 
 #include "rp-filter-factory.h"

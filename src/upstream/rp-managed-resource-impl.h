@@ -9,7 +9,7 @@
 
 #include <stdbool.h>
 #include <glib-object.h>
-#include "common/rp-basic-resource-impl.h"
+#include "common/common/rp-basic-resource-impl.h"
 
 G_BEGIN_DECLS
 

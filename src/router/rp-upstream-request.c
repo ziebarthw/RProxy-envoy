@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_upstream_request_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_upstream_request_NOISY)
@@ -509,7 +506,7 @@ constructed(RpUpstreamRequest* self)
         rp_stream_filter_callbacks_stream_info(CALLBACKS(self)),
             rp_stream_info_upstream_info(STREAM_INFO(self)));
 
-    RpClusterInfo* cluster_info = rp_stream_info_upstream_cluster_info(
+    RpClusterInfoConstSharedPtr cluster_info = rp_stream_info_upstream_cluster_info(
         rp_stream_filter_callbacks_stream_info(CALLBACKS(self)));
     if (cluster_info)
     {

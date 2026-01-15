@@ -14,7 +14,7 @@
 
 G_BEGIN_DECLS
 
-typedef void (*RpOnNewConnectionFn)(void*);
+typedef void (*RpOnNewConnectionFn)(RpTcpConnPoolInstancePtr, gpointer);
 
 /*
  * Tcp pool returns information about a given pool, as well as a function to
@@ -24,7 +24,7 @@ typedef void (*RpOnNewConnectionFn)(void*);
 G_DECLARE_FINAL_TYPE(RpTcpPoolData, rp_tcp_pool_data, RP, TCP_POOL_DATA, GObject)
 
 RpTcpPoolData* rp_tcp_pool_data_new(RpOnNewConnectionFn on_new_connection,
-                                    void* arg,
+                                    gpointer arg,
                                     RpTcpConnPoolInstance* pool);
 RpCancellable* rp_tcp_pool_data_new_connection(RpTcpPoolData* self,
                                                 RpTcpConnPoolCallbacks* callbacks);

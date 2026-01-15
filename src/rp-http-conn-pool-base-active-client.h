@@ -10,7 +10,7 @@
 #include <stdbool.h>
 #include <glib-object.h>
 #include "rp-http-conn-pool.h"
-#include "conn_pool/rp-conn-pool-base-active-client.h"
+#include "common/conn_pool/rp-conn-pool-base-active-client.h"
 
 G_BEGIN_DECLS
 

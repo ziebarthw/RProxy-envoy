@@ -9,19 +9,22 @@
 
 #include <stdbool.h>
 #include <glib-object.h>
+#include "rp-factory-context.h"
 
 G_BEGIN_DECLS
 
 typedef struct _RpFilterConfigBase RpFilterConfigBase;
 struct _RpFilterConfigBase {
     const char* name;
+    RpFactoryContext* context;
 };
 
 static inline RpFilterConfigBase
-rp_filter_config_base_ctor(const char* name)
+rp_filter_config_base_ctor(const char* name, RpFactoryContext* context)
 {
     RpFilterConfigBase self = {
-        .name = name
+        .name = name,
+        .context = context
     };
     return self;
 }

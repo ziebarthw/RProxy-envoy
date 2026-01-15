@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_static_route_config_provider_impl_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_static_route_config_provider_impl_NOISY)
@@ -25,20 +22,10 @@ struct _RpStaticRouteConfigProviderImpl {
 
     gint64 m_last_update;
     RpRouteConfigImpl* m_config;
-    RpServerFactoryContext* m_factory_context;
     RpRdsConfigInfo m_config_info;
     RpRouteConfiguration m_config_proto;
+    RpThreadLocalInstance* m_tls;
 };
-
-enum
-{
-    PROP_0, // Reserved.
-    PROP_ROUTE_CONFIG_PROTO,
-    PROP_FACTORY_CONTEXT,
-    N_PROPERTIES
-};
-
-static GParamSpec* obj_properties[N_PROPERTIES] = { NULL, };
 
 static void rds_route_config_provider_iface_int(RpRdsRouteConfigProviderInterface* iface);
 static void route_config_provider_iface_int(RpRouteConfigProviderInterface* iface);
@@ -101,56 +88,6 @@ route_config_provider_iface_int(RpRouteConfigProviderInterface* iface)
 }
 
 OVERRIDE void
-get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_ROUTE_CONFIG_PROTO:
-            g_value_set_pointer(value, &RP_STATIC_ROUTE_CONFIG_PROVIDER_IMPL(obj)->m_config_proto);
-            break;
-        case PROP_FACTORY_CONTEXT:
-            g_value_set_object(value, RP_STATIC_ROUTE_CONFIG_PROVIDER_IMPL(obj)->m_factory_context);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
-set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_ROUTE_CONFIG_PROTO:
-            RP_STATIC_ROUTE_CONFIG_PROVIDER_IMPL(obj)->m_config_proto =
-                *((RpRouteConfiguration*)g_value_get_pointer(value));
-            break;
-        case PROP_FACTORY_CONTEXT:
-            RP_STATIC_ROUTE_CONFIG_PROVIDER_IMPL(obj)->m_factory_context = g_value_get_object(value);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
-constructed(GObject* obj)
-{
-    NOISY_MSG_("(%p)", obj);
-
-    G_OBJECT_CLASS(rp_static_route_config_provider_impl_parent_class)->constructed(obj);
-
-    RpStaticRouteConfigProviderImpl* self = RP_STATIC_ROUTE_CONFIG_PROVIDER_IMPL(obj);
-    self->m_last_update = g_get_real_time();
-    self->m_config_info = rp_rds_config_info_ctor(self->m_config_proto, "");
-    self->m_config = rp_route_config_impl_create(&self->m_config_proto, self->m_factory_context);
-}
-
-OVERRIDE void
 dispose(GObject* object)
 {
     NOISY_MSG_("(%p)", object);
@@ -167,22 +104,7 @@ rp_static_route_config_provider_impl_class_init(RpStaticRouteConfigProviderImplC
     LOGD("(%p)", klass);
 
     GObjectClass* object_class = G_OBJECT_CLASS(klass);
-    object_class->get_property = get_property;
-    object_class->set_property = set_property;
-    object_class->constructed = constructed;
     object_class->dispose = dispose;
-
-    obj_properties[PROP_ROUTE_CONFIG_PROTO] = g_param_spec_pointer("route-config-proto",
-                                                    "Route config proto",
-                                                    "Route Config Proto (rule_t)",
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-    obj_properties[PROP_FACTORY_CONTEXT] = g_param_spec_object("factory-context",
-                                                    "Factory context",
-                                                    "ServerFactoryContext Instance",
-                                                    RP_TYPE_SERVER_FACTORY_CONTEXT,
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-
-    g_object_class_install_properties(object_class, N_PROPERTIES, obj_properties);
 }
 
 static void
@@ -192,13 +114,18 @@ rp_static_route_config_provider_impl_init(RpStaticRouteConfigProviderImpl* self 
 }
 
 RpStaticRouteConfigProviderImpl*
-rp_static_route_config_provider_impl_new(RpRouteConfiguration* route_config_proto, RpServerFactoryContext* factory_context)
+rp_static_route_config_provider_impl_new(RpRouteConfiguration* route_config_proto, RpServerFactoryContext* factory_context, RpThreadLocalInstance* tls)
 {
-    LOGD("(%p, %p)", route_config_proto, factory_context);
+    LOGD("(%p, %p, %p)", route_config_proto, factory_context, tls);
+
     g_return_val_if_fail(route_config_proto != NULL, NULL);
     g_return_val_if_fail(RP_IS_SERVER_FACTORY_CONTEXT(factory_context), NULL);
-    return g_object_new(RP_TYPE_STATIC_ROUTE_CONFIG_PROVIDER_IMPL,
-                        "route-config-proto", route_config_proto,
-                        "factory-context", factory_context,
-                        NULL);
+    g_return_val_if_fail(RP_IS_THREAD_LOCAL_INSTANCE(tls), NULL);
+
+    RpStaticRouteConfigProviderImpl* self = g_object_new(RP_TYPE_STATIC_ROUTE_CONFIG_PROVIDER_IMPL, NULL);
+    self->m_last_update = g_get_real_time();
+    self->m_config_proto = *route_config_proto;
+    self->m_config_info = rp_rds_config_info_ctor(self->m_config_proto, "");
+    self->m_config = rp_route_config_impl_create(&self->m_config_proto, factory_context, tls);
+    return self;
 }

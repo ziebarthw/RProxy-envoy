@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_per_host_upstream_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_per_host_upstream_NOISY)
@@ -32,7 +29,7 @@ G_DEFINE_FINAL_TYPE_WITH_CODE(RpPerHostGenericConnPoolFactory, rp_per_host_gener
 )
 
 static RpGenericConnPool*
-create_generic_conn_pool_i(RpGenericConnPoolFactory* self, RpHost* host, RpThreadLocalCluster* thread_local_cluster,
+create_generic_conn_pool_i(RpGenericConnPoolFactory* self, RpHostConstSharedPtr host, RpThreadLocalCluster* thread_local_cluster,
                             RpUpstreamProtocol_e upstream_protocol, RpResourcePriority_e priority, evhtp_proto downstream_protocol,
                             RpLoadBalancerContext* context)
 {

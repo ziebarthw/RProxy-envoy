@@ -20,6 +20,8 @@ struct _RpHttpUpstreamClass {
 
 };
 
+RpHttpUpstream* rp_http_upstream_new(RpUpstreamToDownstream* upstream_request,
+                                        RpRequestEncoder* encoder);
 RpUpstreamToDownstream* rp_http_upstream_upstream_request_(RpHttpUpstream* self);
 
 G_END_DECLS

@@ -30,10 +30,10 @@ struct _RpConnectionInfoSetterImpl {
 
     RpSslConnectionInfo* m_ssl_info;
 
-    struct sockaddr_storage m_local_address;
-    struct sockaddr_storage m_direct_local_address;
-    struct sockaddr_storage m_remote_address;
-    struct sockaddr_storage m_direct_remote_address;
+    RpNetworkAddressInstanceConstSharedPtr m_local_address;
+    RpNetworkAddressInstanceConstSharedPtr m_direct_local_address;
+    RpNetworkAddressInstanceConstSharedPtr m_remote_address;
+    RpNetworkAddressInstanceConstSharedPtr m_direct_remote_address;
 
     char* m_server_name;
     char* m_interface_name;
@@ -51,41 +51,18 @@ G_DEFINE_FINAL_TYPE_WITH_CODE(RpConnectionInfoSetterImpl, rp_connection_info_set
     G_IMPLEMENT_INTERFACE(RP_TYPE_CONNECTION_INFO_SETTER, connection_info_setter_iface_init)
 )
 
-static inline void
-set_sockaddr_storage(struct sockaddr_storage* dest, struct sockaddr* src)
-{
-    NOISY_MSG_("(%p, %p)", dest, src);
-    if (!src) //REVISIT...
-    {
-        NOISY_MSG_("null");
-        struct sockaddr_in* dest_ = (struct sockaddr_in*)dest;
-        memset(dest_, 0, sizeof(*dest_));
-        dest_->sin_family = AF_UNSPEC;
-    }
-    else if (src->sa_family == AF_INET)
-    {
-        NOISY_MSG_("IPv4");
-        *((struct sockaddr_in*)dest) = *((struct sockaddr_in*)src);
-    }
-    else
-    {
-        NOISY_MSG_("IPv6");
-        *((struct sockaddr_in6*)dest) = *((struct sockaddr_in6*)src);
-    }
-}
-
-static struct sockaddr*
+static RpNetworkAddressInstanceConstSharedPtr
 remote_address_i(RpConnectionInfoProvider* self)
 {
     NOISY_MSG_("(%p)", self);
-    return (struct sockaddr*)&RP_CONNECTION_INFO_SETTER_IMPL(self)->m_remote_address;
+    return RP_CONNECTION_INFO_SETTER_IMPL(self)->m_remote_address;
 }
 
-static struct sockaddr*
+static RpNetworkAddressInstanceConstSharedPtr
 local_address_i(RpConnectionInfoProvider* self)
 {
     NOISY_MSG_("(%p)", self);
-    return (struct sockaddr*)&RP_CONNECTION_INFO_SETTER_IMPL(self)->m_local_address;
+    return RP_CONNECTION_INFO_SETTER_IMPL(self)->m_local_address;
 }
 
 static RpSslConnectionInfo*
@@ -120,17 +97,21 @@ set_ssl_connection_i(RpConnectionInfoSetter* self, RpSslConnectionInfo* ssl_info
 }
 
 static void
-set_local_address_i(RpConnectionInfoSetter* self, struct sockaddr* address)
+set_local_address_i(RpConnectionInfoSetter* self, RpNetworkAddressInstanceConstSharedPtr address)
 {
     NOISY_MSG_("(%p, %p)", self, address);
-    set_sockaddr_storage(&RP_CONNECTION_INFO_SETTER_IMPL(self)->m_local_address, address);
+    RpConnectionInfoSetterImpl* me = RP_CONNECTION_INFO_SETTER_IMPL(self);
+    g_clear_object(&me->m_local_address);
+    if (address) me->m_local_address = g_object_ref(address);
 }
 
 static void
-set_remote_address_i(RpConnectionInfoSetter* self, struct sockaddr* address)
+set_remote_address_i(RpConnectionInfoSetter* self, RpNetworkAddressInstanceConstSharedPtr address)
 {
     NOISY_MSG_("(%p, %p)", self, address);
-    set_sockaddr_storage(&RP_CONNECTION_INFO_SETTER_IMPL(self)->m_remote_address, address);
+    RpConnectionInfoSetterImpl* me = RP_CONNECTION_INFO_SETTER_IMPL(self);
+    g_clear_object(&me->m_remote_address);
+    if (address) me->m_remote_address = g_object_ref(address);
 }
 
 static void
@@ -159,6 +140,8 @@ dispose(GObject* obj)
 
     RpConnectionInfoSetterImpl* self = RP_CONNECTION_INFO_SETTER_IMPL(obj);
     g_clear_pointer(&self->m_server_name, g_free);
+    g_clear_object(&self->m_local_address);
+    g_clear_object(&self->m_remote_address);
 
     G_OBJECT_CLASS(rp_connection_info_setter_impl_parent_class)->dispose(obj);
 }
@@ -191,11 +174,12 @@ constructed(RpConnectionInfoSetterImpl* self)
 }
 
 RpConnectionInfoSetterImpl*
-rp_connection_info_setter_impl_new(struct sockaddr* local_address, struct sockaddr* remote_address)
+rp_connection_info_setter_impl_new(RpNetworkAddressInstanceConstSharedPtr local_address,
+                                    RpNetworkAddressInstanceConstSharedPtr remote_address)
 {
     LOGD("(%p, %p)", local_address, remote_address);
     RpConnectionInfoSetterImpl* self = g_object_new(RP_TYPE_CONNECTION_INFO_SETTER_IMPL, NULL);
-    set_sockaddr_storage(&self->m_local_address, local_address);
-    set_sockaddr_storage(&self->m_remote_address, remote_address);
+    if (local_address) self->m_local_address = g_object_ref(local_address);
+    if (remote_address) self->m_remote_address = g_object_ref(remote_address);
     return constructed(self);
 }

@@ -25,9 +25,6 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(upstream_NOISY) || defined(ALL_NOISY)) && !defined(NO_upstream_NOISY)
@@ -563,24 +560,6 @@ upstream_free(void* arg)
         return;
     }
 
-    upstream_c_t* conn;
-    upstream_c_t* save;
-
-    /* free all of the active/idle/down connections */
-    for (conn = TAILQ_FIRST(&self->active); conn; conn = save)
-    {
-        save = TAILQ_NEXT(conn, next);
-
-        upstream_conn_free(conn);
-    }
-
-    for (conn = TAILQ_FIRST(&self->idle); conn; conn = save)
-    {
-        save = TAILQ_NEXT(conn, next);
-
-        upstream_conn_free(conn);
-    }
-
     g_free(self);
 }
 
@@ -594,20 +573,13 @@ upstream_free(void* arg)
  * @return upstream_t on success, NULL on error
  */
 upstream_t*
-upstream_new(rproxy_t* rproxy, upstream_cfg_t* cfg)
+upstream_new(upstream_cfg_t* cfg)
 {
-    LOGD("(%p, %p(%s))", rproxy, cfg, cfg->name);
+    LOGD("(%p(%s))", cfg, cfg->name);
 
-    g_return_val_if_fail(rproxy != NULL, NULL);
     g_return_val_if_fail(cfg != NULL, NULL);
 
     upstream_t* self = g_new0(upstream_t, 1);
-    if (!self)
-    {
-        LOGE("alloc failed");
-        return NULL;
-    }
-
     if (cfg->ssl_cfg && upstream_ssl_init(self, cfg->ssl_cfg) != 0)
     {
         LOGE("alloc failed");
@@ -616,11 +588,7 @@ upstream_new(rproxy_t* rproxy, upstream_cfg_t* cfg)
     }
 
     self->config = cfg;
-    self->rproxy = rproxy;
 
-    TAILQ_INIT(&self->active);
-    TAILQ_INIT(&self->idle);
-
-    LOGD("self %p, %zu bytes", self, sizeof(*self));
+    NOISY_MSG_("self %p, %zu bytes", self, sizeof(*self));
     return self;
 }

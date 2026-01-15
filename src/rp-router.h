@@ -10,7 +10,7 @@
 #include <stdbool.h>
 #include <glib-object.h>
 #include <evhtp.h>
-#include "common/rp-conn-pool.h"
+#include "rp-conn-pool.h"
 #include "rp-codec.h"
 #include "rp-http-conn-pool.h"
 #include "rp-socket.h"
@@ -254,6 +254,8 @@ struct _RpRouteInterface {
     //TODO...
 };
 
+typedef SHARED_PTR(RpRoute) RpRouteConstSharedPtr;
+
 static inline RpDirectResponseEntry*
 rp_route_direct_response_entry(RpRoute* self)
 {
@@ -288,7 +290,7 @@ struct _RpGenericUpstreamInterface {
     //TODO...
     RpStatusCode_e (*encode_headers)(RpGenericUpstream*, evhtp_headers_t*, bool);
     void (*encode_trailers)(RpGenericUpstream*, evhtp_headers_t*);
-    //TODO...
+    void (*enable_tcp_tunneling)(RpGenericUpstream*);
     void (*read_disable)(RpGenericUpstream*, bool);
     void (*reset_stream)(RpGenericUpstream*);
     //TODO...
@@ -298,10 +300,8 @@ struct _RpGenericUpstreamInterface {
 static inline void
 rp_generic_upstream_encode_data(RpGenericUpstream* self, evbuf_t* data, bool end_stream)
 {
-    if (RP_IS_GENERIC_UPSTREAM(self))
-    {
+    if (RP_IS_GENERIC_UPSTREAM(self)) \
         RP_GENERIC_UPSTREAM_GET_IFACE(self)->encode_data(self, data, end_stream);
-    }
 }
 static inline RpStatusCode_e
 rp_generic_upstream_encode_headers(RpGenericUpstream* self, evhtp_headers_t* request_headers, bool end_stream)
@@ -313,24 +313,24 @@ rp_generic_upstream_encode_headers(RpGenericUpstream* self, evhtp_headers_t* req
 static inline void
 rp_generic_upstream_encode_trailers(RpGenericUpstream* self, evhtp_headers_t* trailers)
 {
-    if (RP_IS_GENERIC_UPSTREAM(self))
-    {
+    if (RP_IS_GENERIC_UPSTREAM(self)) \
         RP_GENERIC_UPSTREAM_GET_IFACE(self)->encode_trailers(self, trailers);
-    }
+}
+static inline void
+rp_generic_upstream_enable_tcp_tunneling(RpGenericUpstream* self)
+{
+    if (RP_IS_GENERIC_UPSTREAM(self)) \
+        RP_GENERIC_UPSTREAM_GET_IFACE(self)->enable_tcp_tunneling(self);
 }
 static inline void rp_generic_upstream_read_disable(RpGenericUpstream* self, bool disable)
 {
-    if (RP_IS_GENERIC_UPSTREAM(self))
-    {
+    if (RP_IS_GENERIC_UPSTREAM(self)) \
         RP_GENERIC_UPSTREAM_GET_IFACE(self)->read_disable(self, disable);
-    }
 }
 static inline void rp_generic_upstream_reset_stream(RpGenericUpstream* self)
 {
-    if (RP_IS_GENERIC_UPSTREAM(self))
-    {
+    if (RP_IS_GENERIC_UPSTREAM(self)) \
         RP_GENERIC_UPSTREAM_GET_IFACE(self)->reset_stream(self);
-    }
 }
 
 
@@ -439,7 +439,7 @@ struct _RpGenericConnPoolInterface {
     void (*new_stream)(RpGenericConnPool*, RpGenericConnectionPoolCallbacks*);
     bool (*cancel_any_pending_stream)(RpGenericConnPool*);
     RpHostDescription* (*host)(RpGenericConnPool*);
-    //TODO...
+    bool (*valid)(RpGenericConnPool*);
 };
 
 static inline void
@@ -462,6 +462,12 @@ rp_generic_conn_pool_host(RpGenericConnPool* self)
     return RP_IS_GENERIC_CONN_POOL(self) ?
         RP_GENERIC_CONN_POOL_GET_IFACE(self)->host(self) : NULL;
 }
+static inline bool
+rp_generic_conn_pool_valid(RpGenericConnPool* self)
+{
+    return RP_IS_GENERIC_CONN_POOL(self) ?
+        RP_GENERIC_CONN_POOL_GET_IFACE(self)->valid(self) : false;
+}
 
 
 /*
@@ -474,7 +480,7 @@ struct _RpGenericConnPoolFactoryInterface {
     GTypeInterface parent_iface;
 
     RpGenericConnPool* (*create_generic_conn_pool)(RpGenericConnPoolFactory*,
-                                                    RpHost*,
+                                                    RpHostConstSharedPtr,
                                                     RpThreadLocalCluster*,
                                                     RpUpstreamProtocol_e,
                                                     RpResourcePriority_e,
@@ -483,9 +489,11 @@ struct _RpGenericConnPoolFactoryInterface {
                                                     /*Protobuf::Message*/);
 };
 
+typedef UNIQUE_PTR(RpGenericConnPoolFactory) RpGenericConnPoolFactoryPtr;
+
 static inline RpGenericConnPool*
 rp_generic_conn_pool_factory_create_generic_conn_pool(RpGenericConnPoolFactory* self,
-                                                        RpHost* host,
+                                                        RpHostConstSharedPtr host,
                                                         RpThreadLocalCluster* thread_local_cluster,
                                                         RpUpstreamProtocol_e upstream_protocol,
                                                         RpResourcePriority_e priority,

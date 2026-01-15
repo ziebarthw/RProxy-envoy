@@ -13,6 +13,7 @@
 #include "rp-factory-context.h"
 #include "rp-route-configuration.h"
 #include "rp-rds.h"
+#include "rp-thread-local.h"
 #include "lzq.h"
 
 G_BEGIN_DECLS
@@ -46,7 +47,8 @@ struct _RpHttpConnectionManagerCfg {
 G_DECLARE_FINAL_TYPE(RpHttpConnectionManagerConfig, rp_http_connection_manager_config, RP, HTTP_CONNECTION_MANAGER_CONFIG, GObject)
 
 RpHttpConnectionManagerConfig* rp_http_connection_manager_config_new(RpHttpConnectionManagerCfg* config,
-                                                                        RpFactoryContext* context);
+                                                                        RpFactoryContext* context,
+                                                                        RpThreadLocalInstance* tls);
 void rp_http_connection_manager_config_add_filter_factory(RpHttpConnectionManagerConfig* self,
                                                             RpFilterFactoryCb* cb,
                                                             bool disabled);

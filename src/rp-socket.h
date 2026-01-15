@@ -10,7 +10,9 @@
 #include <stdbool.h>
 #include <glib-object.h>
 #include <evhtp.h>
+#include "rproxy.h"
 #include "rp-io-handle.h"
+#include "rp-net-address.h"
 
 G_BEGIN_DECLS
 
@@ -34,11 +36,11 @@ G_DECLARE_INTERFACE(RpConnectionInfoProvider, rp_connection_info_provider, RP, C
 struct _RpConnectionInfoProviderInterface {
     GTypeInterface parent_iface;
 
-    struct sockaddr* (*local_address)(RpConnectionInfoProvider*);
-    struct sockaddr* (*direct_local_address)(RpConnectionInfoProvider*);
+    RpNetworkAddressInstanceConstSharedPtr (*local_address)(RpConnectionInfoProvider*);
+    RpNetworkAddressInstanceConstSharedPtr (*direct_local_address)(RpConnectionInfoProvider*);
     bool (*local_address_restored)(RpConnectionInfoProvider*);
-    struct sockaddr* (*remote_address)(RpConnectionInfoProvider*);
-    struct sockaddr* (*direct_remote_address)(RpConnectionInfoProvider*);
+    RpNetworkAddressInstanceConstSharedPtr (*remote_address)(RpConnectionInfoProvider*);
+    RpNetworkAddressInstanceConstSharedPtr (*direct_remote_address)(RpConnectionInfoProvider*);
     const char* (*requested_server_name)(RpConnectionInfoProvider*);
     guint64 (*connection_id)(RpConnectionInfoProvider*);
     const char* (*interface_name)(RpConnectionInfoProvider*);
@@ -46,13 +48,13 @@ struct _RpConnectionInfoProviderInterface {
     //TODO...
 };
 
-static inline struct sockaddr*
+static inline RpNetworkAddressInstanceConstSharedPtr
 rp_connection_info_provider_local_address(RpConnectionInfoProvider* self)
 {
     return RP_IS_CONNECTION_INFO_PROVIDER(self) ?
         RP_CONNECTION_INFO_PROVIDER_GET_IFACE(self)->local_address(self) : NULL;
 }
-static inline struct sockaddr*
+static inline RpNetworkAddressInstanceConstSharedPtr
 rp_connection_info_provider_direct_local_address(RpConnectionInfoProvider* self)
 {
     return RP_IS_CONNECTION_INFO_PROVIDER(self) ?
@@ -66,13 +68,13 @@ rp_connection_info_provider_local_address_restored(RpConnectionInfoProvider* sel
         RP_CONNECTION_INFO_PROVIDER_GET_IFACE(self)->local_address_restored(self) :
         false;
 }
-static inline struct sockaddr*
+static inline RpNetworkAddressInstanceConstSharedPtr
 rp_connection_info_provider_remote_address(RpConnectionInfoProvider* self)
 {
     return RP_IS_CONNECTION_INFO_PROVIDER(self) ?
         RP_CONNECTION_INFO_PROVIDER_GET_IFACE(self)->remote_address(self) : NULL;
 }
-static inline struct sockaddr*
+static inline RpNetworkAddressInstanceConstSharedPtr
 rp_connection_info_provider_direct_remote_address(RpConnectionInfoProvider* self)
 {
     return RP_IS_CONNECTION_INFO_PROVIDER(self) ?
@@ -112,9 +114,9 @@ G_DECLARE_INTERFACE(RpConnectionInfoSetter, rp_connection_info_setter, RP, CONNE
 struct _RpConnectionInfoSetterInterface {
     RpConnectionInfoProviderInterface parent_iface;
 
-    void (*set_local_address)(RpConnectionInfoSetter*, struct sockaddr*);
-    void (*restore_local_address)(RpConnectionInfoSetter*, struct sockaddr*);
-    void (*set_remote_address)(RpConnectionInfoSetter*, struct sockaddr*);
+    void (*set_local_address)(RpConnectionInfoSetter*, RpNetworkAddressInstanceConstSharedPtr);
+    void (*restore_local_address)(RpConnectionInfoSetter*, RpNetworkAddressInstanceConstSharedPtr);
+    void (*set_remote_address)(RpConnectionInfoSetter*, RpNetworkAddressInstanceConstSharedPtr);
     void (*set_requested_server_name)(RpConnectionInfoSetter*, const char*);
     void (*set_connection_id)(RpConnectionInfoSetter*, guint64);
     void (*enable_setting_interface_name)(RpConnectionInfoSetter*, bool);
@@ -122,7 +124,7 @@ struct _RpConnectionInfoSetterInterface {
 };
 
 static inline void
-rp_connection_info_setter_set_local_address(RpConnectionInfoSetter* self, struct sockaddr* local_address)
+rp_connection_info_setter_set_local_address(RpConnectionInfoSetter* self, RpNetworkAddressInstanceConstSharedPtr local_address)
 {
     if (RP_IS_CONNECTION_INFO_SETTER(self))
     {
@@ -130,7 +132,7 @@ rp_connection_info_setter_set_local_address(RpConnectionInfoSetter* self, struct
     }
 }
 static inline void
-rp_connection_info_setter_restore_local_address(RpConnectionInfoSetter* self, struct sockaddr* local_address)
+rp_connection_info_setter_restore_local_address(RpConnectionInfoSetter* self, RpNetworkAddressInstanceConstSharedPtr local_address)
 {
     if (RP_IS_CONNECTION_INFO_SETTER(self))
     {
@@ -138,7 +140,7 @@ rp_connection_info_setter_restore_local_address(RpConnectionInfoSetter* self, st
     }
 }
 static inline void
-rp_connection_info_setter_set_remote_address(RpConnectionInfoSetter* self, struct sockaddr* remote_address)
+rp_connection_info_setter_set_remote_address(RpConnectionInfoSetter* self, RpNetworkAddressInstanceConstSharedPtr remote_address)
 {
     if (RP_IS_CONNECTION_INFO_SETTER(self))
     {
@@ -193,10 +195,13 @@ struct _RpSocketInterface {
     //TODO...
     void (*close)(RpSocket*);
     bool (*is_open)(RpSocket*);
-    int (*connect)(RpSocket*, struct sockaddr*, const char*);
+    int (*connect)(RpSocket*, RpNetworkAddressInstanceConstSharedPtr, const char*);
     int (*sockfd)(RpSocket*);
     //TODO...
 };
+
+typedef UNIQUE_PTR(RpSocket) RpSocketPtr;
+typedef SHARED_PTR(RpSocket) RpSocketSharedPtr;
 
 static inline RpConnectionInfoSetter*
 rp_socket_connection_info_provider(RpSocket* self)
@@ -228,7 +233,7 @@ rp_socket_is_open(RpSocket* self)
     return RP_IS_SOCKET(self) ? RP_SOCKET_GET_IFACE(self)->is_open(self) : false;
 }
 static inline int
-rp_socket_connect(RpSocket* self, struct sockaddr* address, const char* requested_server_name)
+rp_socket_connect(RpSocket* self, RpNetworkAddressInstanceConstSharedPtr address, const char* requested_server_name)
 {
     return RP_IS_SOCKET(self) ?
         RP_SOCKET_GET_IFACE(self)->connect(self, address, requested_server_name) :

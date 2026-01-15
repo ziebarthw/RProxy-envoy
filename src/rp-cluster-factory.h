@@ -13,6 +13,7 @@
 #include "rp-cluster-manager.h"
 #include "rp-codec.h"
 #include "rp-factory-context.h"
+#include "rp-load-balancer.h"
 
 G_BEGIN_DECLS
 
@@ -28,6 +29,8 @@ struct _RpClusterFactoryContextInterface {
 
     RpServerFactoryContext* (*server_factory_context)(RpClusterFactoryContext*);
     RpClusterManager* (*cluster_manager)(RpClusterFactoryContext*);
+    //TODO...
+    bool (*added_via_api)(RpClusterFactoryContext*);
     //TODO...
 };
 
@@ -45,6 +48,12 @@ rp_cluster_factory_context_cluster_manager(RpClusterFactoryContext* self)
         RP_CLUSTER_FACTORY_CONTEXT_GET_IFACE(self)->cluster_manager(self) :
         NULL;
 }
+static inline bool
+rp_cluster_factory_context_added_via_api(RpClusterFactoryContext* self)
+{
+    return RP_IS_CLUSTER_FACTORY_CONTEXT(self) ?
+        RP_CLUSTER_FACTORY_CONTEXT_GET_IFACE(self)->added_via_api(self) : false;
+}
 
 
 /**
@@ -57,15 +66,18 @@ G_DECLARE_INTERFACE(RpClusterFactory, rp_cluster_factory, RP, CLUSTER_FACTORY, G
 struct _RpClusterFactoryInterface {
     GTypeInterface parent_iface;
 
-    RpCluster* (*create)(RpClusterFactory*, RpClusterCfg*, RpClusterFactoryContext*);
+    PairClusterSharedPtrThreadAwareLoadBalancerPtr
+        (*create)(RpClusterFactory*,
+                    const RpClusterCfg*,
+                    RpClusterFactoryContext*);
 };
 
-static inline RpCluster*
-rp_cluster_factory_create(RpClusterFactory* self, RpClusterCfg* cluster, RpClusterFactoryContext* context)
+static inline PairClusterSharedPtrThreadAwareLoadBalancerPtr
+rp_cluster_factory_create(RpClusterFactory* self, const RpClusterCfg* cluster, RpClusterFactoryContext* context)
 {
     return RP_IS_CLUSTER_FACTORY(self) ?
         RP_CLUSTER_FACTORY_GET_IFACE(self)->create(self, cluster, context) :
-        NULL;
+        PairClusterSharedPtrThreadAwareLoadBalancerPtr_make(NULL, NULL);
 }
 
 G_END_DECLS

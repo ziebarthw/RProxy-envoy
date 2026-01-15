@@ -30,7 +30,7 @@ struct _RpRouteConfigImpl {
     SHARED_PTR(RpRouteConfiguration) m_config;
     SHARED_PTR(RpServerFactoryContext) m_factory_context;
 
-    SHARED_PTR(RpDispatcher) m_dispatcher;
+    SHARED_PTR(RpThreadLocalInstance) m_tls;
 
     UNIQUE_PTR(RpRouteCommonConfigImpl) m_shared_config;
 };
@@ -73,7 +73,8 @@ route_i(RpRouteConfig* self, RpRouteCallback cb, evhtp_headers_t* request_header
     RpRouteConfigImpl* me = RP_ROUTE_CONFIG_IMPL(self);
     const char* hostname = evhtp_header_find(request_headers, RpHeaderValues.HostLegacy);
     const char* path = evhtp_header_find(request_headers, RpHeaderValues.Path);
-    evthr_t* thr = rp_dispatcher_thr(RP_DISPATCHER_IMPL(me->m_dispatcher));
+    RpDispatcher* dispatcher = rp_thread_local_instance_dispatcher(me->m_tls);
+    evthr_t* thr = rp_dispatcher_thr(dispatcher);
     rproxy_t* rproxy = evthr_get_aux(thr);
     // |path| may be nullptr if it is a CONNECT request.
     rule_cfg_t* rule_cfg = evhtp_path_match(rproxy->htp, hostname, path ? path : "/");
@@ -124,36 +125,29 @@ constructed(RpRouteConfigImpl* self)
 }
 
 static inline RpRouteConfigImpl*
-route_config_impl_new(RpRouteConfiguration* config, RpServerFactoryContext* factory_context, RpStatusCode_e* creation_status)
+route_config_impl_new(RpRouteConfiguration* config, RpServerFactoryContext* factory_context, RpThreadLocalInstance* tls, RpStatusCode_e* creation_status)
 {
-    NOISY_MSG_("(%p, %p, %p)", config, factory_context, creation_status);
+    NOISY_MSG_("(%p, %p, %p, %p)", config, factory_context, tls, creation_status);
     RpRouteConfigImpl* self = g_object_new(RP_TYPE_ROUTE_CONFIG_IMPL, NULL);
     self->m_config = config;
     self->m_factory_context = factory_context;
+    self->m_tls = tls;
     *creation_status = RpStatusCode_Ok;
     return constructed(self);
 }
 
 RpRouteConfigImpl*
-rp_route_config_impl_create(RpRouteConfiguration* config, RpServerFactoryContext* factory_context)
+rp_route_config_impl_create(RpRouteConfiguration* config, RpServerFactoryContext* factory_context, RpThreadLocalInstance* tls)
 {
-    LOGD("(%p, %p)", config, factory_context);
+    LOGD("(%p, %p, %p)", config, factory_context, tls);
     g_return_val_if_fail(config != NULL, NULL);
     g_return_val_if_fail(RP_IS_SERVER_FACTORY_CONTEXT(factory_context), NULL);
+    g_return_val_if_fail(RP_IS_THREAD_LOCAL_INSTANCE(tls), NULL);
     RpStatusCode_e creation_status = RpStatusCode_Ok;
-    RpRouteConfigImpl* ret = route_config_impl_new(config, factory_context, &creation_status);
+    RpRouteConfigImpl* ret = route_config_impl_new(config, factory_context, tls, &creation_status);
     if (creation_status != RpStatusCode_Ok)
     {
         return NULL;
     }
     return ret;
-}
-
-void
-rp_route_config_impl_set_dispatcher(RpRouteConfigImpl* self, SHARED_PTR(RpDispatcher) dispatcher)
-{
-    LOGD("(%p, %p)", self, dispatcher);
-    g_return_if_fail(RP_IS_ROUTE_CONFIG_IMPL(self));
-    g_return_if_fail(RP_IS_DISPATCHER(dispatcher));
-    self->m_dispatcher = dispatcher;
 }

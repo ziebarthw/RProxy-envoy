@@ -16,7 +16,20 @@ struct RpCustomHeaderValues_s {
 
     const char* Accept;
     const char* AcceptEncoding;
+    const char* AccessControlRequestHeaders;
+    const char* AccessControlRequestMethod;
+    const char* AccessControlAllowOrigin;
+    const char* AccessControlAllowHeaders;
+    const char* AccessControlAllowMethods;
+    const char* AccessControlExposeHeaders;
+    const char* AccessControlMaxAge;
+    const char* AccessControlAllowCredentials;
+    const char* AccessControlRequestPrivateNetwork;
+    const char* AccessControlAllowPrivateNetwork;
     //TODO...
+    const char* CacheControl;
+    const char* CacheStatus;
+    const char* CdnLoop;
     const char* ContentEncoding;
     //TODO...
     const char* Origin;

@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_http_conn_pool_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_http_conn_pool_NOISY)
@@ -53,6 +50,7 @@ enum
 static GParamSpec* obj_properties[N_PROPERTIES] = { NULL, };
 
 static void generic_conn_pool_iface_init(RpGenericConnPoolInterface* iface);
+static void http_conn_pool_callbacks_iface_init(RpHttpConnPoolCallbacksInterface* iface);
 
 // https://github.com/envoyproxy/envoy/blob/main/source/extensions/upstreams/http/http/upstream_request.h
 // class HttpConnPool : public Router::GenericConnPool, public Envoy::Http::ConnectionPool::Callbacks
@@ -60,7 +58,7 @@ static void generic_conn_pool_iface_init(RpGenericConnPoolInterface* iface);
 G_DEFINE_ABSTRACT_TYPE_WITH_CODE(RpHttpConnPool, rp_http_conn_pool, G_TYPE_OBJECT,
     G_ADD_PRIVATE(RpHttpConnPool)
     G_IMPLEMENT_INTERFACE(RP_TYPE_GENERIC_CONN_POOL, generic_conn_pool_iface_init)
-    G_IMPLEMENT_INTERFACE(RP_TYPE_HTTP_CONN_POOL_CALLBACKS, NULL)
+    G_IMPLEMENT_INTERFACE(RP_TYPE_HTTP_CONN_POOL_CALLBACKS, http_conn_pool_callbacks_iface_init)
 )
 
 #define PRIV(obj) \
@@ -103,13 +101,56 @@ cancel_any_pending_stream_i(RpGenericConnPool* self)
     return false;
 }
 
+static bool
+valid_i(RpGenericConnPool* self)
+{
+    NOISY_MSG_("(%p)", self);
+    return PRIV(self)->m_pool_data != NULL;
+}
+
 static void
 generic_conn_pool_iface_init(RpGenericConnPoolInterface* iface)
 {
-    NOISY_MSG_("(%p)", iface);
+    LOGD("(%p)", iface);
     iface->new_stream = new_stream_i;
     iface->host = host_i;
     iface->cancel_any_pending_stream = cancel_any_pending_stream_i;
+    iface->valid = valid_i;
+}
+
+static void
+on_pool_failure_i(RpHttpConnPoolCallbacks* self, RpPoolFailureReason_e reason, const char* transport_failure_reason, RpHostDescription* host)
+{
+    NOISY_MSG_("(%p, %d, %p(%s), %p)",
+        self, reason, transport_failure_reason, transport_failure_reason, host);
+    RpHttpConnPoolPrivate* me = PRIV(self);
+    me->m_conn_pool_stream_handle = NULL;
+    rp_generic_connection_pool_callbacks_on_pool_failure(me->m_callbacks, reason, transport_failure_reason, host);
+}
+
+static void
+on_pool_ready_i(RpHttpConnPoolCallbacks* self, RpRequestEncoder* request_encoder, RpHostDescription* host, RpStreamInfo* info, evhtp_proto protocol)
+{
+    NOISY_MSG_("(%p, %p, %p, %p, %d)", self, request_encoder, host, info, protocol);
+    RpHttpConnPoolPrivate* me = PRIV(self);
+    me->m_conn_pool_stream_handle = NULL;
+    RpHttpUpstream* upstream = rp_http_upstream_new(
+        rp_generic_connection_pool_callbacks_upstream_to_downstream(me->m_callbacks), request_encoder);
+    rp_generic_connection_pool_callbacks_on_pool_ready(me->m_callbacks,
+                                                        RP_GENERIC_UPSTREAM(g_steal_pointer(&upstream)),
+                                                        host,
+                                                        rp_stream_connection_info_provider(
+                                                            rp_stream_encoder_get_stream(RP_STREAM_ENCODER(request_encoder))),
+                                                        info,
+                                                        protocol);
+}
+
+static void
+http_conn_pool_callbacks_iface_init(RpHttpConnPoolCallbacksInterface* iface)
+{
+    LOGD("(%p)", iface);
+    iface->on_pool_failure = on_pool_failure_i;
+    iface->on_pool_ready = on_pool_ready_i;
 }
 
 OVERRIDE void

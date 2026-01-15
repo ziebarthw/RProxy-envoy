@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_host_set_impl_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_host_set_impl_NOISY)
@@ -16,9 +13,9 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
-#include "upstream/rp-host-set-impl.h"
+#include "upstream/rp-upstream-impl.h"
 
-static guint32 kDefaultOverProvisioningFactor = 140;
+const guint32 kDefaultOverProvisioningFactor = 140;
 
 typedef struct _RpLocalityEntry RpLocalityEntry;
 struct _RpLocalityEntry {
@@ -39,10 +36,10 @@ rp_locality_entry_ctor(guint32 index, double effective_weight)
 typedef struct _RpHostSetImplPrivate RpHostSetImplPrivate;
 struct _RpHostSetImplPrivate {
 
-    RpHostVector m_hosts;
-    RpHostVector m_healthy_hosts;
-    RpHostVector m_degraded_hosts;
-    RpHostVector m_excluded_hosts;
+    RpHostVectorConstSharedPtr m_hosts;
+    RpHostVector* m_healthy_hosts;
+    RpHostVector* m_degraded_hosts;
+    RpHostVector* m_excluded_hosts;
     RpHostsPerLocality* m_hosts_per_locality;//empty
     RpHostsPerLocality* m_healthy_hosts_per_locality;//empty
     RpHostsPerLocality* m_degraded_hosts_per_locality;//empty
@@ -53,6 +50,7 @@ struct _RpHostSetImplPrivate {
 
     guint32 m_priority;
     guint32 m_overprovisioning_factor;
+
     bool m_weighted_priority_health;
 };
 
@@ -69,35 +67,36 @@ static GParamSpec* obj_properties[N_PROPERTIES] = { NULL, };
 
 static void host_set_iface_init(RpHostSetInterface* iface);
 
-G_DEFINE_ABSTRACT_TYPE_WITH_CODE(RpHostSetImpl, rp_host_set_impl, G_TYPE_OBJECT,
+G_DEFINE_TYPE_WITH_CODE(RpHostSetImpl, rp_host_set_impl, G_TYPE_OBJECT,
     G_ADD_PRIVATE(RpHostSetImpl)
+    G_IMPLEMENT_INTERFACE(RP_TYPE_HOST_SET, host_set_iface_init)
 )
 
 #define PRIV(obj) \
     ((RpHostSetImplPrivate*) rp_host_set_impl_get_instance_private(RP_HOST_SET_IMPL(obj)))
 
-static RpHostVector
+static RpHostVector*
 hosts_i(RpHostSet* self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_hosts;
 }
 
-static RpHostVector
+static RpHostVector*
 healthy_hosts_i(RpHostSet* self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_healthy_hosts;
 }
 
-static RpHostVector
+static RpHostVector*
 degraded_hosts_i(RpHostSet* self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_degraded_hosts;
 }
 
-static RpHostVector
+static RpHostVector*
 excluded_hosts_i(RpHostSet* self)
 {
     NOISY_MSG_("(%p)", self);
@@ -220,31 +219,15 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
     }
 }
 
-OVERRIDE GObject*
-constructor(GType type, guint n_construct_properties, GObjectConstructParam *construct_properties)
-{
-    LOGD("(%lu, %u, %p)", type, n_construct_properties, construct_properties);
-
-    GObject* obj = G_OBJECT_CLASS(rp_host_set_impl_parent_class)->constructor(type, n_construct_properties, construct_properties);
-    NOISY_MSG_("obj %p", obj);
-
-    RpHostSetImpl* self = RP_HOST_SET_IMPL(obj);
-    RpHostSetImplPrivate* me = PRIV(self);
-    me->m_hosts = g_array_new(false, true, sizeof(RpHostSetImpl));
-    //TODO...
-
-    return obj;
-}
-
 OVERRIDE void
-dispose(GObject* object)
+dispose(GObject* obj)
 {
-    LOGD("(%p)", object);
-    G_OBJECT_CLASS(rp_host_set_impl_parent_class)->dispose(object);
+    NOISY_MSG_("(%p)", obj);
+    G_OBJECT_CLASS(rp_host_set_impl_parent_class)->dispose(obj);
 }
 
 OVERRIDE RpStatusCode_e
-run_upate_callbacks(RpHostSetImpl* self, RpHostVector hosts_added, RpHostVector hosts_removed)
+run_upate_callbacks(RpHostSetImpl* self, RpHostVector* hosts_added, RpHostVector* hosts_removed)
 {
     NOISY_MSG_("(%p, %p, %p)", self, hosts_added, hosts_removed);
 //TODO...
@@ -259,7 +242,6 @@ rp_host_set_impl_class_init(RpHostSetImplClass* klass)
     GObjectClass* object_class = G_OBJECT_CLASS(klass);
     object_class->get_property = get_property;
     object_class->set_property = set_property;
-    object_class->constructor = constructor;
     object_class->dispose = dispose;
 
     klass->run_update_callbacks = run_upate_callbacks;
@@ -288,7 +270,9 @@ rp_host_set_impl_class_init(RpHostSetImplClass* klass)
 }
 
 static void
-rp_host_set_impl_init(RpHostSetImpl* self G_GNUC_UNUSED)
+rp_host_set_impl_init(RpHostSetImpl* self)
 {
     LOGD("(%p)", self);
+    RpHostSetImplPrivate* me = PRIV(self);
+    me->m_hosts = g_ptr_array_new(); //new HostVector()
 }

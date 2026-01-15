@@ -75,7 +75,7 @@ create_io_handle_i(RpNetworkTransportSocket* self)
 {
     NOISY_MSG_("(%p)", self);
     RpRawBufferSocket* me = RP_RAW_BUFFER_SOCKET(self);
-    RpIoBevSocketHandleImpl* io_handle = rp_io_bev_socket_handle_impl_new(me->m_type, g_steal_pointer(&me->m_bev), NULL);
+    RpIoBevSocketHandleImpl* io_handle = rp_io_bev_socket_handle_impl_new(me->m_type, g_steal_pointer(&me->m_bev), me->m_dns_base);
     return RP_IO_HANDLE(io_handle);
 }
 
@@ -154,8 +154,9 @@ static int
 connect_i(RpNetworkTransportSocket* self, RpConnectionSocket* socket)
 {
     NOISY_MSG_("(%p, %p)", self, socket);
-    struct sockaddr* addr = rp_connection_info_provider_remote_address(
-                                RP_CONNECTION_INFO_PROVIDER(rp_socket_connection_info_provider(RP_SOCKET(socket))));
+    RpNetworkAddressInstanceConstSharedPtr addr = rp_connection_info_provider_remote_address(
+                                                    RP_CONNECTION_INFO_PROVIDER(
+                                                        rp_socket_connection_info_provider(RP_SOCKET(socket))));
 RpNetworkConnection* connection = rp_network_transport_socket_callbacks_connection(RP_RAW_BUFFER_SOCKET(self)->m_callbacks);
 NOISY_MSG_("connection %p", connection);
 RpStreamInfo* stream_info = rp_network_connection_stream_info(connection);

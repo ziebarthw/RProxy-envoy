@@ -5,19 +5,12 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_default_client_conn_factory_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_default_client_conn_factory_NOISY)
 #   define NOISY_MSG_ LOGD
 #else
 #   define NOISY_MSG_(x, ...)
-#endif
-
-#ifndef OVERRIDE
-#define OVERRIDE static
 #endif
 
 #include "rp-net-client-conn-impl.h"
@@ -35,7 +28,8 @@ G_DEFINE_FINAL_TYPE_WITH_CODE(RpDefaultClientConnectionFactory, rp_default_clien
 
 static RpNetworkClientConnection*
 create_client_connection_i(RpClientConnectionFactory* self G_GNUC_UNUSED, RpDispatcher* dispatcher,
-                            struct sockaddr* address, struct sockaddr* source_address, RpNetworkTransportSocket* transport_socket)
+                            RpNetworkAddressInstanceConstSharedPtr address, RpNetworkAddressInstanceConstSharedPtr source_address,
+                            RpNetworkTransportSocket* transport_socket)
 {
     NOISY_MSG_("(%p, %p, %p, %p, %p)",
         self, dispatcher, address, source_address, transport_socket);

@@ -22,4 +22,11 @@ RpRawBufferSocket* rp_raw_buffer_socket_new(RpHandleType_e type,
                                             evhtp_ssl_t* ssl,
                                             evdns_base_t* dns_base);
 
+
+#define RP_TYPE_RAW_BUFFER_SOCKET_FACTORY rp_raw_buffer_socket_factory_get_type()
+G_DECLARE_FINAL_TYPE(RpRawBufferSocketFactory, rp_raw_buffer_socket_factory, RP, RAW_BUFFER_SOCKET_FACTORY, GObject)
+
+RpRawBufferSocketFactory* rp_raw_buffer_socket_factory_create_upstream_factory(upstream_t* upstream);
+RpRawBufferSocketFactory* rp_raw_buffer_socket_factory_create_downstream_factory(server_cfg_t* server_cfg);
+
 G_END_DECLS

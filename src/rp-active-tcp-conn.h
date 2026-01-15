@@ -20,6 +20,6 @@ G_DECLARE_FINAL_TYPE(RpActiveTcpConn, rp_active_tcp_conn, RP, ACTIVE_TCP_CONN, G
 RpActiveTcpConn* rp_active_tcp_conn_new(GList** active_connections,
                                         UNIQUE_PTR(RpNetworkConnection) new_connection,
                                         UNIQUE_PTR(RpStreamInfo) stream_info,
-                                        SHARED_PTR(thread_ctx_t) thread_ctx);
+                                        SHARED_PTR(tpool_ctx_t) tpool_ctx);
 
 G_END_DECLS

@@ -21,6 +21,6 @@ G_BEGIN_DECLS
 G_DECLARE_FINAL_TYPE(RpClientSocketImpl, rp_client_socket_impl, RP, CLIENT_SOCKET_IMPL, RpConnectionSocketImpl)
 
 RpClientSocketImpl* rp_client_socket_impl_new(RpIoHandle* io_handle,
-                                                struct sockaddr* remote_address);
+                                                RpNetworkAddressInstanceConstSharedPtr remote_address);
 
 G_END_DECLS

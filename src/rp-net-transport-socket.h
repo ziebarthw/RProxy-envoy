@@ -128,6 +128,8 @@ struct _RpNetworkTransportSocketInterface {
     evdns_base_t* (*dns_base)(RpNetworkTransportSocket*);
 };
 
+typedef UNIQUE_PTR(RpNetworkTransportSocket) RpNetworkTransportSocketPtr;
+
 static inline void
 rp_network_transport_socket_set_transport_socket_callbacks(RpNetworkTransportSocket* self, RpNetworkTransportSocketCallbacks* callbacks)
 {
@@ -240,7 +242,7 @@ G_DECLARE_INTERFACE(RpUpstreamTransportSocketFactory, rp_upstream_transport_sock
 struct _RpUpstreamTransportSocketFactoryInterface {
     RpTransportSocketFactoryBaseInterface parent_iface;
 
-    RpNetworkTransportSocket* (*create_transport_socket)(RpUpstreamTransportSocketFactory*,
+    RpNetworkTransportSocketPtr (*create_transport_socket)(RpUpstreamTransportSocketFactory*,
                                                             RpHostDescription*);
     bool (*supports_alpn)(RpUpstreamTransportSocketFactory*);
     const char* (*default_server_name_indication)(RpUpstreamTransportSocketFactory*);
@@ -248,7 +250,9 @@ struct _RpUpstreamTransportSocketFactoryInterface {
     SSL_CTX* (*ssl_ctx)(RpUpstreamTransportSocketFactory*);
 };
 
-static inline RpNetworkTransportSocket*
+typedef UNIQUE_PTR(RpUpstreamTransportSocketFactory) RpUpstreamTransportSocketFactoryPtr;
+
+static inline RpNetworkTransportSocketPtr
 rp_upstream_transport_socket_factory_create_transport_socket(RpUpstreamTransportSocketFactory* self, RpHostDescription* host)
 {
     return RP_IS_UPSTREAM_TRANSPORT_SOCKET_FACTORY(self) ?
@@ -287,11 +291,13 @@ G_DECLARE_INTERFACE(RpDownstreamTransportSocketFactory, rp_downstream_transport_
 struct _RpDownstreamTransportSocketFactoryInterface {
     RpTransportSocketFactoryBaseInterface parent_iface;
 
-    RpNetworkTransportSocket* (*create_downstream_transport_socket)(RpDownstreamTransportSocketFactory*,
-                                                                    evhtp_connection_t*);
+    RpNetworkTransportSocketPtr (*create_downstream_transport_socket)(RpDownstreamTransportSocketFactory*,
+                                                                        evhtp_connection_t*);
 };
 
-static inline RpNetworkTransportSocket*
+typedef UNIQUE_PTR(RpDownstreamTransportSocketFactory) RpDownstreamTransportSocketFactoryPtr;
+
+static inline RpNetworkTransportSocketPtr
 rp_downstream_transport_socket_factory_create_downstream_transport_socket(RpDownstreamTransportSocketFactory* self, evhtp_connection_t* conn)
 {
     return RP_IS_DOWNSTREAM_TRANSPORT_SOCKET_FACTORY(self) ?

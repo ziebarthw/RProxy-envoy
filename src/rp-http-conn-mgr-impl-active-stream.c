@@ -5,15 +5,14 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_http_conn_mgr_impl_active_stream_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_http_conn_mgr_impl_active_stream_NOISY)
 #   define NOISY_MSG_ LOGD
+#   define IF_NOISY_
 #else
 #   define NOISY_MSG_(x, ...)
+#   define IF_NOISY_(x, ...)
 #endif
 
 #include "router/rp-route-config-impl.h"
@@ -78,7 +77,7 @@ struct _RpHttpConnMgrImplActiveStream {
     RpDownstreamFilterManager* m_filter_manager;
 
     RpResponseEncoder* m_response_encoder;
-    RpClusterInfo* m_cached_cluster_info;
+    RpClusterInfoConstSharedPtr m_cached_cluster_info;
 
     RpRouteConfig* m_snapped_route_config;
     RpRoute* m_cached_route;
@@ -155,9 +154,6 @@ refresh_cached_route_internal(RpHttpConnMgrImplActiveStream* self, RpRouteCallba
 #endif//0
         RpRouteConfigProvider* route_config_provider = rp_connection_manager_config_route_config_provider(config);
         RpRouteConfig* route_config = rp_route_config_provider_config_cast(route_config_provider);
-        RpDispatcher* dispatcher = rp_http_connection_manager_impl_dispatcher_(connection_manager);
-
-        rp_route_config_impl_set_dispatcher(RP_ROUTE_CONFIG_IMPL(route_config), dispatcher);
 
         route = rp_route_config_route(route_config,
                                         NULL,
@@ -740,8 +736,8 @@ mutate_response_headers(evhtp_headers_t* response_headers, evhtp_headers_t* requ
 
     if (request_headers && http_utility_is_upgrade(request_headers) && http_utility_is_upgrade(response_headers))
     {
-        bool no_body = (!evhtp_header_find(response_headers, RpHeaderValues.TransferEncoding) &&
-                            !evhtp_header_find(response_headers, RpHeaderValues.ContentLength));
+        IF_NOISY_(bool no_body = (!evhtp_header_find(response_headers, RpHeaderValues.TransferEncoding) &&
+                            !evhtp_header_find(response_headers, RpHeaderValues.ContentLength));)
 
         //TODO:bool is_1xx ...
     }
@@ -1024,8 +1020,8 @@ set_route_i(RpDownstreamStreamFilterCallbacks* self, RpRoute* route)
     if (!route || !rp_route_route_entry(route))
     {
         NOISY_MSG_("clearing cached cluster info %p", me->m_cached_cluster_info);
-        g_clear_object(&me->m_cached_cluster_info);
-//        me->m_cached_cluster_info = NULL;
+//        g_clear_object(&me->m_cached_cluster_info);
+me->m_cached_cluster_info = NULL;
     }
     else
     {
@@ -1131,6 +1127,8 @@ constructed(RpHttpConnMgrImplActiveStream* self)
                                                                 rp_http_connection_protocol(RP_HTTP_CONNECTION(codec_)),
                                                                 rp_stream_info_filter_state(
                                                                     rp_network_connection_stream_info(connection)));
+    stats_inc(g_traffic_stats.downstream_rq_total);
+    stats_inc(g_traffic_stats.downstream_rq_active);
     return self;
 }
 
@@ -1237,6 +1235,7 @@ rp_http_conn_mgr_impl_active_stream_complete_request(RpHttpConnMgrImplActiveStre
     rp_stream_info_on_request_complete(
         rp_filter_manager_stream_info(RP_FILTER_MANAGER(self->m_filter_manager)));
 
+    stats_dec(g_traffic_stats.downstream_rq_active);
     //TODO...
 
     //TODO...

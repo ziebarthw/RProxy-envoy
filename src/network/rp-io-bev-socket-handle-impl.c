@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_io_bev_socket_handle_impl_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_io_bev_socket_handle_impl_NOISY)
@@ -19,6 +16,7 @@
 #include "rp-dispatcher.h"
 #include "rp-http-utility.h"
 #include "event/rp-schedulable-cb-impl.h"
+#include "network/rp-address-impl.h"
 #include "network/rp-io-bev-socket-handle-impl.h"
 
 #define SOCKFD(s) \
@@ -37,8 +35,8 @@ struct _RpIoBevSocketHandleImpl {
     RpFileReadyCb m_cb;
     gpointer m_arg;
 
-    struct sockaddr_storage m_local_addr;
-    struct sockaddr_storage m_peer_addr;
+    RpNetworkAddressInstanceConstSharedPtr m_local_addr;
+    RpNetworkAddressInstanceConstSharedPtr m_peer_addr;
 
     guint32 m_injected_activation_events;
     guint32 m_enabled_events;
@@ -57,7 +55,7 @@ G_DEFINE_FINAL_TYPE_WITH_CODE(RpIoBevSocketHandleImpl, rp_io_bev_socket_handle_i
 )
 
 static void
-readcb(evbev_t* bev, void* arg)
+readcb(evbev_t* bev, gpointer arg)
 {
     NOISY_MSG_("(%p(fd %d), %p)", bev, bufferevent_getfd(bev), arg);
 
@@ -68,7 +66,7 @@ NOISY_MSG_("\n\"%.*s\"", (int)evbuffer_get_length(bufferevent_get_input(bev)), (
 }
 
 static void
-writecb(evbev_t* bev G_GNUC_UNUSED, void* arg G_GNUC_UNUSED)
+writecb(evbev_t* bev G_GNUC_UNUSED, gpointer arg G_GNUC_UNUSED)
 {
     NOISY_MSG_("(%p(fd %d), %p)", bev, bufferevent_getfd(bev), arg);
 
@@ -93,6 +91,7 @@ do_bufferevent_error(evbev_t* bev, int errcode)
     {
         const char* errmsg = evutil_socket_error_to_string(errcode);
         LOGE("Socket error %d(%s)", errcode, errmsg);
+g_assert(errcode != 111);
     }
 
     int fd = bufferevent_getfd(bev);
@@ -108,7 +107,7 @@ do_bufferevent_error(evbev_t* bev, int errcode)
 }
 
 static void
-eventcb(evbev_t* bev, short events, void* arg)
+eventcb(evbev_t* bev, short events, gpointer arg)
 {
     // Grab errno before anything else to prevent its pollution.
     int errcode = EVUTIL_SOCKET_ERROR();
@@ -187,11 +186,13 @@ file_event_assign_events(RpIoBevSocketHandleImpl* self, guint32 events)
 
     bufferevent_setcb(self->m_bev, readcb_, writecb_, eventcb, self);
 
+#if 0
     if (events & RpFileReadyType_Closed)
     {
         NOISY_MSG_("enabling close on fd %d", SOCKFD(self));
         bufferevent_trigger_event(self->m_bev, BEV_EVENT_EOF, 0);
     }
+#endif//0
 }
 
 static void
@@ -294,29 +295,6 @@ close_i(RpIoHandle* self)
     }
 }
 
-static inline int
-sockaddr_port(struct sockaddr* address)
-{
-    NOISY_MSG_("(%p)", address);
-    switch (address->sa_family)
-    {
-        case AF_INET:
-            return ntohs(((struct sockaddr_in*)address)->sin_port);
-        case AF_INET6:
-            return ntohs(((struct sockaddr_in6*)address)->sin6_port);
-        default:
-            return -1;
-    }
-}
-
-static inline sa_family_t
-sockaddr_family(struct sockaddr* address)
-{
-    NOISY_MSG_("(%p)", address);
-NOISY_MSG_("sa family %d(%u), port %d", address->sa_family, address->sa_family == AF_UNSPEC, sockaddr_port(address));
-    return address ? address->sa_family : AF_UNSPEC;
-}
-
 static inline guint16
 default_port(RpIoBevSocketHandleImpl* self)
 {
@@ -334,19 +312,28 @@ socket_connect_hostname(RpIoBevSocketHandleImpl* self, const char* requested_ser
     return bufferevent_socket_connect_hostname(self->m_bev, self->m_dns_base, AF_UNSPEC, hostname, port);
 }
 
+static inline int
+socket_connect_addr(RpIoBevSocketHandleImpl* self, RpNetworkAddressInstanceConstSharedPtr address)
+{
+    NOISY_MSG_("(%p, %p)", self, address);
+    return bufferevent_socket_connect(self->m_bev,
+                                        rp_network_address_instance_sock_addr(address),
+                                        rp_network_address_instance_sock_addr_len(address));
+}
+
 static int
-connect_internal(RpIoBevSocketHandleImpl* self, struct sockaddr* address, const char* requested_server_name)
+connect_internal(RpIoBevSocketHandleImpl* self, RpNetworkAddressInstanceConstSharedPtr address, const char* requested_server_name)
 {
     NOISY_MSG_("(%p(fd %d), %p, %p(%s))",
         self, SOCKFD(self), address, requested_server_name, requested_server_name);
-    return sockaddr_family(address) != AF_UNSPEC ?
-            bufferevent_socket_connect(self->m_bev, address, sizeof(*address)) :
+    return address ?
+            socket_connect_addr(self, address) :
             socket_connect_hostname(self, requested_server_name);
 
 }
 
 static int
-connect_i(RpIoHandle* self, struct sockaddr* address, const char* requested_server_name)
+connect_i(RpIoHandle* self, RpNetworkAddressInstanceConstSharedPtr address, const char* requested_server_name)
 {
     NOISY_MSG_("(%p(fd %d), %p, %p(%s))",
         self, SOCKFD(self), address, requested_server_name, requested_server_name);
@@ -419,42 +406,44 @@ is_open_i(RpIoHandle* self)
     return is_open(RP_IO_BEV_SOCKET_HANDLE_IMPL(self));
 }
 
-static struct sockaddr*
+static RpNetworkAddressInstanceConstSharedPtr
 local_address_i(RpIoHandle* self)
 {
     NOISY_MSG_("(%p(fd %d))", self, SOCKFD(self));
     RpIoBevSocketHandleImpl* me = RP_IO_BEV_SOCKET_HANDLE_IMPL(self);
-    socklen_t ss_len = sizeof(me->m_local_addr);
-    memset(&me->m_local_addr, 0, ss_len);
+    struct sockaddr_storage ss;
+    socklen_t ss_len = sizeof(ss);
+    memset(&ss, 0, ss_len);
     if (!is_open(me))
     {
         LOGE("socket is closed");
     }
-    else if (getsockname(bufferevent_getfd(me->m_bev), (struct sockaddr*)&me->m_local_addr, &ss_len) != 0)
+    else if (getsockname(bufferevent_getfd(me->m_bev), (struct sockaddr*)&ss, &ss_len) != 0)
     {
         int err = errno;
         LOGE("getsockname() failed %d(%s) on fd %d", err, g_strerror(err), SOCKFD(self));
     }
-    return (struct sockaddr*)&me->m_local_addr;
+    return rp_network_address_address_from_sock_addr(&ss, ss_len, true);
 }
 
-static struct sockaddr*
+static RpNetworkAddressInstanceConstSharedPtr
 peer_address_i(RpIoHandle* self)
 {
     NOISY_MSG_("(%p(fd %d))", self, SOCKFD(self));
     RpIoBevSocketHandleImpl* me = RP_IO_BEV_SOCKET_HANDLE_IMPL(self);
-    socklen_t ss_len = sizeof(me->m_peer_addr);
-    memset(&me->m_peer_addr, 0, ss_len);
+    struct sockaddr_storage ss;
+    socklen_t ss_len = sizeof(ss);
+    memset(&ss, 0, ss_len);
     if (!is_open(me))
     {
         LOGE("socket is closed");
     }
-    else if (getpeername(bufferevent_getfd(me->m_bev), (struct sockaddr*)&me->m_peer_addr, &ss_len) != 0)
+    else if (getpeername(bufferevent_getfd(me->m_bev), (struct sockaddr*)&ss, &ss_len) != 0)
     {
         int err = errno;
         LOGE("getsockname() failed %d(%s) on fd %d", err, g_strerror(err), SOCKFD(self));
     }
-    return (struct sockaddr*)&me->m_peer_addr;
+    return rp_network_address_address_from_sock_addr(&ss, ss_len, true);
 }
 
 static void

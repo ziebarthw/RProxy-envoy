@@ -10,16 +10,29 @@
 #include <stdbool.h>
 #include <glib-object.h>
 #include <evhtp.h>
+#include "rproxy.h"
 #include "rp-listen-socket.h"
+#include "rp-signal.h"
 #include "rp-time.h"
 #include "rp-timer.h"
 
 G_BEGIN_DECLS
 
+typedef struct _RpNetworkTransportSocket* RpNetworkTransportSocketPtr;
+typedef struct _RpNetworkServerConnection* RpNetworkServerConnectionPtr;
+typedef struct _RpNetworkClientConnection* RpNetworkClientConnectionPtr;
+typedef struct _RpStreamInfo RpStreamInfo;
+
 /**
  * Callback invoked when a dispatcher post() runs.
  */
-typedef void (*RpPostCb)(void*);
+typedef void (*RpPostCb)(gpointer);
+
+typedef enum {
+    RpRunType_BLOCK,
+    RpRunType_NON_BLOCK,
+    RpRunType_RUN_UNTIL_EXIT
+} RpRunType_e;
 
 /**
  * Minimal interface to the dispatching loop used to create low-level primitives. See Dispatcher
@@ -71,7 +84,31 @@ struct _RpDispatcherInterface {
     void (*clear_deferred_destroy_list)(RpDispatcher*);
     void (*deferred_delete)(RpDispatcher*, GObject*);
     void (*deferred_destroy)(RpDispatcher*, gpointer, GDestroyNotify);
+    RpNetworkServerConnectionPtr (*create_server_connection)(RpDispatcher*,
+                                                                RpSocketPtr,
+                                                                RpNetworkTransportSocketPtr,
+                                                                RpStreamInfo*);
+    RpNetworkClientConnectionPtr (*create_client_connection)(RpDispatcher*,
+                                                                RpNetworkAddressInstanceConstSharedPtr,
+                                                                RpNetworkAddressInstanceConstSharedPtr,
+                                                                RpNetworkTransportSocketPtr);
+    void (*exit)(RpDispatcher*);
+    RpSignalEventPtr (*listen_for_signal)(RpDispatcher*,
+                                            signal_t,
+                                            RpSignalCb,
+                                            gpointer);
+//TODO...virtual void deleteInDispatcherThread(DispatcherThradDeletableConstPtr deletable) PURE;
+    void (*run)(RpDispatcher*, RpRunType_e);
+    //TODO...
+    void (*shutdown)(RpDispatcher*);
+
+    // Custom...
+    evthr_t* (*thr)(RpDispatcher*);
+    evbase_t* (*base)(RpDispatcher*);
+    evdns_base_t* (*dns_base)(RpDispatcher*);
 };
+
+typedef UNIQUE_PTR(RpDispatcher) RpDispatcherPtr;
 
 static inline const char*
 rp_dispatcher_name(RpDispatcher* self)
@@ -122,17 +159,63 @@ rp_dispatcher_deferred_destroy(RpDispatcher* self, gpointer mem, GDestroyNotify 
     if (RP_IS_DISPATCHER(self)) \
         RP_DISPATCHER_GET_IFACE(self)->deferred_destroy(self, mem, cb);
 }
+static inline RpNetworkServerConnectionPtr
+rp_dispatcher_create_server_connection(RpDispatcher* self, RpSocketPtr socket, RpNetworkTransportSocketPtr transport_socket, RpStreamInfo* stream_info)
+{
+    return RP_IS_DISPATCHER(self) ?
+        RP_DISPATCHER_GET_IFACE(self)->create_server_connection(self, socket, transport_socket, stream_info) :
+        NULL;
+}
+static inline RpNetworkClientConnectionPtr
+rp_dispatcher_create_client_connection(RpDispatcher* self, RpNetworkAddressInstanceConstSharedPtr address, RpNetworkAddressInstanceConstSharedPtr source_address, RpNetworkTransportSocketPtr transport_socket)
+{
+    return RP_IS_DISPATCHER(self) ?
+        RP_DISPATCHER_GET_IFACE(self)->create_client_connection(self, address, source_address, transport_socket) :
+        NULL;
+}
+static inline void
+rp_dispatcher_exit(RpDispatcher* self)
+{
+    if (RP_IS_DISPATCHER(self)) \
+        RP_DISPATCHER_GET_IFACE(self)->exit(self);
+}
+static inline RpSignalEventPtr
+rp_dispatcher_listen_for_signal(RpDispatcher* self, signal_t signal_num, RpSignalCb cb, gpointer arg)
+{
+    return RP_IS_DISPATCHER(self) ?
+        RP_DISPATCHER_GET_IFACE(self)->listen_for_signal(self, signal_num, cb, arg) :
+        NULL;
+}
+static inline void
+rp_dispatcher_run(RpDispatcher* self, RpRunType_e type)
+{
+    if (RP_IS_DISPATCHER(self)) \
+        RP_DISPATCHER_GET_IFACE(self)->run(self, type);
+}
+static inline void
+rp_dispatcher_shutdown(RpDispatcher* self)
+{
+    if (RP_IS_DISPATCHER(self)) \
+        RP_DISPATCHER_GET_IFACE(self)->shutdown(self);
+}
+static inline evthr_t*
+rp_dispatcher_thr(RpDispatcher* self)
+{
+    return RP_IS_DISPATCHER(self) ?
+        RP_DISPATCHER_GET_IFACE(self)->thr(self) : NULL;
+}
+static inline evbase_t*
+rp_dispatcher_base(RpDispatcher* self)
+{
+    return RP_IS_DISPATCHER(self) ?
+        RP_DISPATCHER_GET_IFACE(self)->base(self) : NULL;
+}
+static inline evdns_base_t*
+rp_dispatcher_dns_base(RpDispatcher* self)
+{
+    return RP_IS_DISPATCHER(self) ?
+        RP_DISPATCHER_GET_IFACE(self)->dns_base(self) : NULL;
+}
 
-
-#if 0
-typedef evthr_t RpDispatcher;
-
-void rp_dispatcher_init(RpDispatcher* self);
-void rp_dispatcher_exit(RpDispatcher* self);
-void rp_dispatcher_deferred_delete(RpDispatcher* self, GObject* obj);
-void rp_dispatcher_deferred_destroy(RpDispatcher* self,
-                                    gpointer mem,
-                                    GDestroyNotify cb);
-#endif//0
 
 G_END_DECLS

@@ -5,15 +5,14 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_router_filter_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_router_filter_NOISY)
 #   define NOISY_MSG_ LOGD
+#   define IF_NOISY_
 #else
 #   define NOISY_MSG_(x, ...)
+#   define IF_NOISY_(x, ...)
 #endif
 
 #include "event/rp-dispatcher-impl.h"
@@ -29,17 +28,13 @@
 #include "rp-router.h"
 #include "rp-router-filter.h"
 
-#define DISPATCHER_IMPL(c) \
-    RP_DISPATCHER_IMPL(rp_filter_chain_factory_callbacks_dispatcher(c))
-#define THR(c) rp_dispatcher_thr(DISPATCHER_IMPL(c))
-#define RPROXY(c) ((rproxy_t*)evthr_get_aux(THR(c)))
-#define CLUSTER_MANAGER(c) RPROXY(c)->m_cluster_manager
 #define RP_ROUTER_FILTER_CB(s) (RpRouterFilterCb*)s
 
 typedef struct _RpRouterFilterCb RpRouterFilterCb;
 struct _RpRouterFilterCb {
     RpFilterFactoryCb parent_instance;
     RpRouterFilterConfig* m_config;
+    RpFactoryContext* m_context;
 };
 
 struct _RpRouterFilter {
@@ -51,7 +46,7 @@ struct _RpRouterFilter {
     RpStreamDecoderFilterCallbacks* m_callbacks;
     RpRoute* m_route;
     RpRouteEntry* m_route_entry;
-    RpClusterInfo* m_cluster;
+    RpClusterInfoConstSharedPtr m_cluster;
 //TODO...    void (*m_on_host_selected)(RpRouterFilter*, RpHostDescription*, const char*);
     GSList/*<UpstreamRequestPtr>*/* m_upstream_requests;
     RpUpstreamRequest* m_final_upstream_request;
@@ -177,7 +172,7 @@ on_upstream_complete(RpRouterFilter* self, RpUpstreamRequest* upstream_request)
         rp_upstream_request_reset_stream(upstream_request);
     }
 //    RpDispatcher* dispatcher = rp_stream_filter_callbacks_dispatcher(self->m_callbacks);
-    gint64 response_time = g_get_monotonic_time() - self->m_downstream_request_complete_time;
+    IF_NOISY_(gint64 response_time = g_get_monotonic_time() - self->m_downstream_request_complete_time;)
     NOISY_MSG_("response time %zd usec", response_time);
 
     //TODO...
@@ -221,8 +216,8 @@ stream_filter_base_iface_init(RpStreamFilterBaseInterface* iface)
     iface->on_local_reply = on_local_reply_i;
 }
 
-static RpGenericConnPool*
-create_conn_pool(RpRouterFilter* self, RpThreadLocalCluster* cluster, RpHost* host)
+static UNIQUE_PTR(RpGenericConnPool)
+create_conn_pool(RpRouterFilter* self, RpThreadLocalCluster* cluster, RpHostConstSharedPtr host)
 {
     NOISY_MSG_("(%p, %p, %p)", self, cluster, host);
     if (!host)
@@ -256,7 +251,7 @@ create_conn_pool(RpRouterFilter* self, RpThreadLocalCluster* cluster, RpHost* ho
 static RpFilterHeadersStatus_e
 continue_decode_headers(RpRouterFilter* self, RpThreadLocalCluster* cluster, evhtp_headers_t* request_headers, bool end_stream,
                         modify_headers_cb modify_headers, bool* should_continue_decoding,
-                        RpHost* selected_host, const char* selected_host_details)
+                        RpHostConstSharedPtr selected_host, const char* selected_host_details)
 {
     NOISY_MSG_("(%p, %p, %p, %u, %p, %p, %p, %p(%s))",
         self, cluster, request_headers, end_stream, modify_headers, should_continue_decoding,
@@ -270,7 +265,7 @@ continue_decode_headers(RpRouterFilter* self, RpThreadLocalCluster* cluster, evh
         return RpFilterHeadersStatus_StopIteration;
     }
 
-    RpHostDescription* host = rp_generic_conn_pool_host(generic_conn_pool);
+    IF_NOISY_(RpHostDescription* host = rp_generic_conn_pool_host(generic_conn_pool);)
     NOISY_MSG_("host %p", host);
 
 #if 0
@@ -491,6 +486,20 @@ host_selection_retry_count_i(RpLoadBalancerContext* self)
     return 1;
 }
 
+static RpOverrideHost
+override_host_to_select_i(RpLoadBalancerContext* self)
+{
+    NOISY_MSG_("(%p)", self);
+    RpRouterFilter* me = RP_ROUTER_FILTER(self);
+    if (me->m_is_retry)
+    {
+        NOISY_MSG_("returning empty result");
+        return RpOverrideHost_make(NULL, false);
+    }
+NOISY_MSG_("callbacks %p", me->m_callbacks);
+    return rp_stream_decoder_filter_callbacks_upstream_override_host(me->m_callbacks);
+}
+
 static void
 load_balancer_context_iface_init(RpLoadBalancerContextInterface* iface)
 {
@@ -500,6 +509,7 @@ load_balancer_context_iface_init(RpLoadBalancerContextInterface* iface)
     iface->request_stream_info = request_stream_info_i;
     iface->should_select_another_host = should_select_another_host_i;
     iface->host_selection_retry_count = host_selection_retry_count_i;
+    iface->override_host_to_select = override_host_to_select_i;
 }
 
 static RpStreamDecoderFilterCallbacks*
@@ -509,7 +519,7 @@ callbacks_i(RpRouterFilterInterface* self)
     return RP_ROUTER_FILTER(self)->m_callbacks;
 }
 
-static RpClusterInfo*
+static RpClusterInfoConstSharedPtr
 cluster_i(RpRouterFilterInterface* self)
 {
     NOISY_MSG_("(%p)", self);
@@ -800,13 +810,15 @@ rp_router_filter_init(RpRouterFilter* self)
 }
 
 static inline RpRouterFilter*
-router_filter_new(RpRouterFilterConfig* config, RpGenericConnPoolFactory* factory)
+router_filter_new(RpRouterFilterConfig* config, RpGenericConnPoolFactory* factory, RpClusterManager* cluster_manager)
 {
-    LOGD("(%p, %p)", config, factory);
+    LOGD("(%p, %p, %p)", config, factory, cluster_manager);
     g_return_val_if_fail(RP_IS_ROUTER_FILTER_CONFIG(config), NULL);
+    g_return_val_if_fail(RP_IS_CLUSTER_MANAGER(cluster_manager), NULL);
     RpRouterFilter* self = g_object_new(RP_TYPE_ROUTER_FILTER, NULL);
     self->m_config = config;
     self->m_generic_conn_pool_factory = factory;
+    self->m_cluster_manager = g_object_ref(cluster_manager);
     return self;
 }
 
@@ -818,9 +830,11 @@ filter_factory_cb(RpFilterFactoryCb* self, RpFilterChainFactoryCallbacks* callba
     NOISY_MSG_("(%p, %p)", self, callbacks);
 
     RpRouterFilterCb* me = RP_ROUTER_FILTER_CB(self);
+    RpServerFactoryContext* server_factory_context = rp_generic_factory_context_server_factory_context(RP_GENERIC_FACTORY_CONTEXT(me->m_context));
+    RpClusterManager* cluster_manager = rp_common_factory_context_cluster_manager(RP_COMMON_FACTORY_CONTEXT(server_factory_context));
     RpRouterFilter* filter = router_filter_new(me->m_config,
-                                                RP_GENERIC_CONN_POOL_FACTORY(default_conn_pool_factory));
-    filter->m_cluster_manager = g_object_ref(CLUSTER_MANAGER(callbacks));
+                                                RP_GENERIC_CONN_POOL_FACTORY(default_conn_pool_factory),
+                                                cluster_manager);
     rp_filter_chain_factory_callbacks_add_stream_decoder_filter(callbacks, RP_STREAM_DECODER_FILTER(filter));
 }
 
@@ -833,22 +847,23 @@ destroy_router_filter_cb(RpRouterFilterCb* self)
 }
 
 static inline RpRouterFilterCb
-router_filter_cb_ctor(RpRouterFilterConfig* config)
+router_filter_cb_ctor(RpRouterFilterConfig* config, RpFactoryContext* context)
 {
-    NOISY_MSG_("(%p)", config);
+    NOISY_MSG_("(%p, %p)", config, context);
     RpRouterFilterCb self = {
         .parent_instance = rp_filter_factory_cb_ctor(filter_factory_cb, (GDestroyNotify)destroy_router_filter_cb),
-        .m_config = config
+        .m_config = config,
+        .m_context = context
     };
     return self;
 }
 
 static inline RpRouterFilterCb*
-router_filter_cb_new(RpRouterFilterConfig* config)
+router_filter_cb_new(RpRouterFilterConfig* config, RpFactoryContext* context)
 {
-    NOISY_MSG_("(%p)", config);
+    NOISY_MSG_("(%p, %p)", config, context);
     RpRouterFilterCb* self = g_new0(RpRouterFilterCb, 1);
-    *self = router_filter_cb_ctor(config);
+    *self = router_filter_cb_ctor(config, context);
     return self;
 }
 
@@ -858,7 +873,7 @@ rp_router_filter_create_filter_factory(RpRouterCfg* proto_config, RpFactoryConte
     LOGD("(%p, %p)", proto_config, context);
     g_return_val_if_fail(proto_config != NULL, NULL);
     g_return_val_if_fail(RP_IS_FACTORY_CONTEXT(context), NULL);
-    return (RpFilterFactoryCb*)router_filter_cb_new(rp_router_filter_config_new(proto_config, context));
+    return (RpFilterFactoryCb*)router_filter_cb_new(rp_router_filter_config_new(proto_config, context), context);
 }
 
 RpCoreResponseFlag_e

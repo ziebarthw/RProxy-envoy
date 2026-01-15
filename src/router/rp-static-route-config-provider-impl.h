@@ -12,6 +12,7 @@
 #include "rp-factory-context.h"
 #include "rp-route-config-provider.h"
 #include "rp-route-configuration.h"
+#include "rp-thread-local.h"
 
 G_BEGIN_DECLS
 
@@ -22,6 +23,7 @@ G_BEGIN_DECLS
 G_DECLARE_FINAL_TYPE(RpStaticRouteConfigProviderImpl, rp_static_route_config_provider_impl, RP, STATIC_ROUTE_CONFIG_PROVIDER_IMPL, GObject)
 
 RpStaticRouteConfigProviderImpl* rp_static_route_config_provider_impl_new(RpRouteConfiguration* route_config_proto,
-                                                                            RpServerFactoryContext* factory_context);
+                                                                            RpServerFactoryContext* factory_context,
+                                                                            RpThreadLocalInstance* tls);
 
 G_END_DECLS

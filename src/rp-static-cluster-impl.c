@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_static_cluster_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_static_cluster_NOISY)
@@ -18,6 +15,7 @@
 
 #include <netinet/in.h>
 #include "network/rp-transport-socket-factory-impl.h"
+#include "server/rp-transport-socket-config-impl.h"
 #include "tcp/rp-conn-pool.h"
 #include "upstream/rp-priority-state-manager.h"
 #include "rproxy.h"
@@ -28,7 +26,6 @@ struct _RpStaticClusterImplPrivate {
 
     RpClusterFactoryContext* m_context;
 
-    RpClusterManager* m_parent;
     RpConnectionPoolInstance* m_pool;
 
     GHashTable* m_host_map;
@@ -99,76 +96,7 @@ normalize_protocol(evhtp_proto protocol)
     return protocol < EVHTP_PROTO_11 ? EVHTP_PROTO_11 : protocol;
 }
 
-static RpHttpConnectionPoolInstancePtr
-http_conn_pool_impl(RpStaticClusterImpl* self, RpHost* host, RpResourcePriority_e priority, evhtp_proto downstream_protocol, RpLoadBalancerContext* context G_GNUC_UNUSED)
-{
-    NOISY_MSG_("(%p, %p, %d, %d, %p)", self, host, priority, downstream_protocol, context);
-    RpStaticClusterImplPrivate* me = PRIV(self);
-//TODO...upstream_protocols = host->cluster().upstreamHttpProtocol(downstream_protocol);
-    evhtp_proto upstream_protocols[] = {normalize_protocol(downstream_protocol), EVHTP_PROTO_INVALID};
-    const RpClusterCfg* config = rp_cluster_impl_base_config_(RP_CLUSTER_IMPL_BASE(self));
-    return rp_cluster_manager_factory_allocate_conn_pool(RP_CLUSTER_MANAGER_FACTORY(me->m_parent),
-                                                                                    config->dispatcher,
-                                                                                    host,
-                                                                                    priority,
-                                                                                    upstream_protocols);
-}
-
-static RpTcpConnPoolInstancePtr
-prod_cluster_manager_factory_allocate_tcp_conn_pool(RpDispatcher* dispatcher, RpHost* host, RpResourcePriority_e priority)
-{
-    NOISY_MSG_("(%p, %p, %d)", dispatcher, host, priority);
-    return RP_TCP_CONN_POOL_INSTANCE(rp_tcp_conn_pool_impl_new(dispatcher, host, priority));
-}
-
-static RpTcpConnPoolInstancePtr
-tcp_conn_pool_impl(RpStaticClusterImpl* self, RpHost* host, RpResourcePriority_e priority, RpLoadBalancerContext* context)
-{
-    NOISY_MSG_("(%p, %p, %d, %p)", self, host, priority, context);
-    const RpClusterCfg* config = rp_cluster_impl_base_config_(RP_CLUSTER_IMPL_BASE(self));
-    return prod_cluster_manager_factory_allocate_tcp_conn_pool(config->dispatcher,
-                                                                host,
-                                                                priority);
-}
-
-static void
-on_new_stream(gpointer arg)
-{
-    NOISY_MSG_("(%p)", arg);
-}
-
-static RpHttpPoolData*
-http_conn_pool_i(RpThreadLocalCluster* self, RpHost* host, RpResourcePriority_e priority, evhtp_proto downstream_protocol, RpLoadBalancerContext* context)
-{
-    NOISY_MSG_("(%p, %p, %d, %d, %p)",
-        self, host, priority, downstream_protocol, context);
-    RpStaticClusterImplPrivate* me = PRIV(self);
-    RpHttpConnectionPoolInstancePtr pool = http_conn_pool_impl(RP_STATIC_CLUSTER_IMPL(self),
-                                                                host,
-                                                                priority,
-                                                                downstream_protocol,
-                                                                context);
-    me->m_pool = RP_CONNECTION_POOL_INSTANCE(pool);
-    return rp_http_pool_data_new(on_new_stream, self, pool);
-}
-
-static void
-on_new_connection(gpointer arg)
-{
-    NOISY_MSG_("(%p)", arg);
-}
-
-static RpTcpPoolData*
-tcp_conn_pool_i(RpThreadLocalCluster* self, RpHost* host, RpResourcePriority_e priority, RpLoadBalancerContext* context)
-{
-    NOISY_MSG_("(%p, %p, %d, %p)", self, host, priority, context);
-    RpStaticClusterImplPrivate* me = PRIV(self);
-    RpTcpConnPoolInstancePtr pool = tcp_conn_pool_impl(RP_STATIC_CLUSTER_IMPL(self), host, priority, context);
-    me->m_pool = RP_CONNECTION_POOL_INSTANCE(pool);
-    return rp_tcp_pool_data_new(on_new_connection, self, RP_TCP_CONN_POOL_INSTANCE(me->m_pool));
-}
-
-static RpClusterInfo*
+static RpClusterInfoConstSharedPtr
 info_i(RpThreadLocalCluster* self)
 {
     NOISY_MSG_("(%p)", self);
@@ -180,8 +108,6 @@ thread_local_cluster_iface_init(RpThreadLocalClusterInterface* iface)
 {
     LOGD("(%p)", iface);
     iface->choose_host = choose_host_i;
-    iface->http_conn_pool = http_conn_pool_i;
-    iface->tcp_conn_pool = tcp_conn_pool_i;
     iface->info = info_i;
 }
 
@@ -207,7 +133,7 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
     switch (prop_id)
     {
         case PROP_CONTEXT:
-            PRIV(obj)->m_context = g_value_get_object(value);
+            PRIV(obj)->m_context = g_object_ref(g_value_get_object(value));
             break;
         default:
             G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
@@ -258,11 +184,7 @@ constructed(GObject* obj)
     RpStaticClusterImpl* self = RP_STATIC_CLUSTER_IMPL(obj);
     GHashTable* host_map = ensure_host_map(self);
     RpStaticClusterImplPrivate* me = PRIV(self);
-#if 0
-    RpServerFactoryContext* server_context = rp_cluster_factory_context_server_factory_context(me->m_context);
-    RpLocalInfo* local_info = rp_common_factory_context_local_info(RP_COMMON_FACTORY_CONTEXT(server_context));
-#endif//0
-    RpClusterInfo* cluster_info = rp_cluster_info(RP_CLUSTER(self));
+    RpClusterInfoConstSharedPtr cluster_info = rp_cluster_info(RP_CLUSTER(self));
     const RpClusterCfg* config = rp_cluster_impl_base_config_(RP_CLUSTER_IMPL_BASE(obj));
     lztq* lb_endpoints = config->lb_endpoints;
     for (lztq_elem* elem = lztq_first(lb_endpoints); elem; elem = lztq_next(elem))
@@ -282,14 +204,13 @@ constructed(GObject* obj)
         g_hash_table_insert(host_map, upstream, host);
     }
 
-    me->m_parent = rp_cluster_factory_context_cluster_manager(me->m_context);
-    me->m_context = NULL; // Avoid dangling pointer.
+    g_clear_object(&me->m_context); // Avoid dangling pointer.
 }
 
 OVERRIDE void
 dispose(GObject* obj)
 {
-    LOGD("(%p)", obj);
+    NOISY_MSG_("(%p)", obj);
 
     RpStaticClusterImplPrivate* me = PRIV(obj);
     g_clear_pointer(&me->m_host_map, g_hash_table_unref);
@@ -297,11 +218,11 @@ dispose(GObject* obj)
     G_OBJECT_CLASS(rp_static_cluster_impl_parent_class)->dispose(obj);
 }
 
-static RpInitializationPhase_e
+static RpInitializePhase_e
 initialize_phase_i(RpCluster* self G_GNUC_UNUSED)
 {
     NOISY_MSG_("(%p)", self);
-    return RpInitializationPhase_Primary;
+    return RpInitializePhase_Primary;
 }
 
 static void
@@ -352,13 +273,15 @@ rp_static_cluster_impl_class_init(RpStaticClusterImplClass* klass)
 static void
 rp_static_cluster_impl_init(RpStaticClusterImpl* self G_GNUC_UNUSED)
 {
-    LOGD("(%p)", self);
+    NOISY_MSG_("(%p)", self);
 }
 
 RpStaticClusterImpl*
-rp_static_cluster_impl_new(RpClusterCfg* config, RpClusterFactoryContext* context, RpStatusCode_e* creation_status)
+rp_static_cluster_impl_new(const RpClusterCfg* config, RpClusterFactoryContext* context, RpStatusCode_e* creation_status)
 {
     LOGD("(%p, %p, %p)", config, context, creation_status);
+    g_return_val_if_fail(config != NULL, NULL);
+    g_return_val_if_fail(RP_IS_CLUSTER_FACTORY_CONTEXT(context), NULL);
     if (creation_status) *creation_status = RpStatusCode_Ok;
     return g_object_new(RP_TYPE_STATIC_CLUSTER_IMPL,
                         "config", config,

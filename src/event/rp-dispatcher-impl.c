@@ -5,19 +5,21 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_dispatch_impl_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_dispatch_impl_NOISY)
 #   define NOISY_MSG_ LOGD
+#   define IF_NOISY_
 #else
 #   define NOISY_MSG_(x, ...)
+#   define IF_NOISY_(x, ...)
 #endif
 
+#include "network/rp-default-client-conn-factory.h"
+#include "thread_local/rp-thread-local-impl.h"
 #include "event/rp-libevent-scheduler.h"
 #include "event/rp-schedulable-cb-impl.h"
+#include "event/rp-signal-impl.h"
 #include "event/rp-dispatcher-impl.h"
 
 typedef struct _pointer_node pointer_node;
@@ -30,13 +32,18 @@ struct _RpDispatcherImpl {
     GObject parent_instance;
 
     UNIQUE_PTR(gchar) m_name;
-    evthr_t* m_thr;
+    UNIQUE_PTR(evdns_base_t) m_dns_base;
+    SHARED_PTR(evthr_t) m_thr;
 
     UNIQUE_PTR(RpTimeSystem) m_time_system;
     RpLibeventScheduler* m_base_scheduler;
     RpScheduler* m_scheduler;
     RpSchedulableCallback* m_deferred_delete_cb;
     RpSchedulableCallback* m_deferred_destroy_cb;
+
+    RpSchedulableCallbackPtr m_post_cb;
+    GMutex m_post_lock;
+    GList* m_post_callbacks;
 
     GArray* m_to_delete_1;
     GArray* m_to_delete_2;
@@ -49,6 +56,7 @@ struct _RpDispatcherImpl {
 
     bool m_deferred_deleting : 1;
     bool m_deferred_destroying : 1;
+    bool m_shutdown_called : 1;
 };
 
 static void dispatcher_base_iface_init(RpDispatcherBaseInterface* iface);
@@ -186,11 +194,70 @@ is_thread_safe_i(RpDispatcherBase* self)
     return true;//TODO...
 }
 
+typedef struct _RpPostCbCtx RpPostCbCtx;
+struct _RpPostCbCtx {
+    RpPostCb cb;
+    gpointer arg;
+};
+static inline RpPostCbCtx
+rp_post_cb_ctx_ctor(RpPostCb cb, gpointer arg)
+{
+    RpPostCbCtx self = {
+        .cb = cb,
+        .arg = arg
+    };
+    return self;
+}
+static inline RpPostCbCtx*
+rp_post_cb_ctx_new(RpPostCb cb, gpointer arg)
+{
+    RpPostCbCtx* self = g_new(RpPostCbCtx, 1);
+    *self = rp_post_cb_ctx_ctor(cb, arg);
+    return self;
+}
+
+static void
+run_post_callbacks(RpSchedulableCallback *self G_GNUC_UNUSED, gpointer arg)
+{
+    NOISY_MSG_("(%p, %p)", self, arg);
+
+    RpDispatcherImpl* me = RP_DISPATCHER_IMPL(arg);
+
+    internal_clear_deferred_delete_list(me);
+    internal_clear_deferred_destroy_list(me);
+
+    GList* callbacks;
+    {
+        G_MUTEX_AUTO_LOCK(&me->m_post_lock, locker);
+        callbacks = g_steal_pointer(&me->m_post_callbacks);
+    }
+    while (callbacks)
+    {
+        //TODO...touchWatchdog();
+        RpPostCbCtx* ctx = callbacks->data;
+        ctx->cb(ctx->arg);
+        g_free(ctx);
+        callbacks = g_list_remove_link(callbacks, callbacks);
+    }
+}
+
 static void
 post_i(RpDispatcherBase* self, RpPostCb cb, gpointer arg)
 {
     NOISY_MSG_("(%p, %p, %p)", self, cb, arg);
-    LOGI("TO DO...");
+    bool do_post = false;
+    RpDispatcherImpl* me = RP_DISPATCHER_IMPL(self);
+    {
+        G_MUTEX_AUTO_LOCK(&me->m_post_lock, locker);
+        do_post = !me->m_post_callbacks;
+        me->m_post_callbacks = g_list_append(me->m_post_callbacks, rp_post_cb_ctx_new(cb, arg));
+    }
+
+    if (do_post)
+    {
+        NOISY_MSG_("doing post");
+        rp_schedulable_callback_schedule_callback_current_iteration(me->m_post_cb);
+    }
 }
 
 static void
@@ -272,6 +339,90 @@ deferred_destroy_i(RpDispatcher* self, gpointer mem, GDestroyNotify cb)
     }
 }
 
+static RpTimeSource*
+time_source_i(RpDispatcher* self)
+{
+    NOISY_MSG_("(%p)", self);
+    return RP_TIME_SOURCE(RP_DISPATCHER_IMPL(self)->m_time_system);
+}
+
+static evthr_t*
+thr_i(RpDispatcher* self)
+{
+    NOISY_MSG_("(%p)", self);
+    return RP_DISPATCHER_IMPL(self)->m_thr;
+}
+
+static evbase_t*
+base_i(RpDispatcher* self)
+{
+    NOISY_MSG_("(%p)", self);
+    return evthr_get_base(thr_i(self));
+}
+
+static evdns_base_t*
+dns_base_i(RpDispatcher* self)
+{
+    NOISY_MSG_("(%p)", self);
+    return RP_DISPATCHER_IMPL(self)->m_dns_base;
+}
+
+static RpSignalEventPtr
+listen_for_signal_i(RpDispatcher* self, signal_t signal_num, RpSignalCb cb, gpointer arg)
+{
+    NOISY_MSG_("(%p, %d, %p, %p)", self, signal_num, cb, arg);
+    g_assert(rp_dispatcher_base_is_thread_safe(RP_DISPATCHER_BASE(self)));
+    return rp_signal_event_impl_new(RP_DISPATCHER_IMPL(self), signal_num, cb, arg);
+}
+
+static void
+run_i(RpDispatcher* self, RpRunType_e type)
+{
+    NOISY_MSG_("(%p, %d)", self, type);
+    RpDispatcherImpl* me = RP_DISPATCHER_IMPL(self);
+    run_post_callbacks(NULL, self);
+    rp_libevent_scheduler_run(me->m_base_scheduler, type);
+}
+
+static void
+shutdown_i(RpDispatcher* self)
+{
+    NOISY_MSG_("(%p)", self);
+    g_assert(rp_dispatcher_base_is_thread_safe(RP_DISPATCHER_BASE(self)));
+    RpDispatcherImpl* me = RP_DISPATCHER_IMPL(self);
+    IF_NOISY_(guint deferred_deletables_size = (*me->m_current_to_delete)->len;)
+    IF_NOISY_(guint deferred_destroyables_size = (*me->m_current_to_destroy)->len;)
+    IF_NOISY_(guint post_callbacks_size;)
+    {
+        G_MUTEX_AUTO_LOCK(&me->m_post_lock, locker);
+        IF_NOISY_(post_callbacks_size = g_list_length(me->m_post_callbacks);)
+    }
+
+    //TODO...std::list<DispatcherThreadDeletableConstPtr> local_deletables;
+
+    g_assert(!me->m_shutdown_called);
+    me->m_shutdown_called = true;
+    NOISY_MSG_("%s detroyed %u thread local objects. %u thread local pointers. %u post callbacks",
+        G_STRFUNC, deferred_deletables_size, deferred_destroyables_size, post_callbacks_size);
+}
+
+static void
+exit_i(RpDispatcher* self)
+{
+    NOISY_MSG_("(%p)", self);
+    rp_libevent_scheduler_loop_exit(RP_DISPATCHER_IMPL(self)->m_base_scheduler);
+}
+
+static RpNetworkClientConnectionPtr
+create_client_connection_i(RpDispatcher* self, RpNetworkAddressInstanceConstSharedPtr address,
+                            RpNetworkAddressInstanceConstSharedPtr source_address, RpNetworkTransportSocketPtr transport_socket)
+{
+    extern RpDefaultClientConnectionFactory* default_client_connection_factory;
+    NOISY_MSG_("(%p, %p, %p, %p)", self, address, source_address, transport_socket);
+    RpClientConnectionFactory* factory = RP_CLIENT_CONNECTION_FACTORY(default_client_connection_factory);
+    return rp_client_connection_factory_create_client_connection(factory, self, address, source_address, transport_socket);
+}
+
 static void
 dispatcher_iface_init(RpDispatcherInterface* iface)
 {
@@ -282,6 +433,15 @@ dispatcher_iface_init(RpDispatcherInterface* iface)
     iface->clear_deferred_delete_list = clear_deferred_delete_list_i;
     iface->create_schedulable_callback = create_schedulable_callback_i;
     iface->deferred_destroy = deferred_destroy_i;
+    iface->time_source = time_source_i;
+    iface->thr = thr_i;
+    iface->base = base_i;
+    iface->dns_base = dns_base_i;
+    iface->listen_for_signal = listen_for_signal_i;
+    iface->run = run_i;
+    iface->shutdown = shutdown_i;
+    iface->exit = exit_i;
+    iface->create_client_connection = create_client_connection_i;
 }
 
 // REVISIT - this is "hokey".(?)
@@ -307,6 +467,13 @@ reinit_scheduler(RpDispatcherImpl* self)
     return rval;
 }
 
+static void
+evdns_free(gpointer arg)
+{
+    NOISY_MSG_("(%p)", arg);
+    evdns_base_free((evdns_base_t*)arg, 0);
+}
+
 OVERRIDE void
 dispose(GObject* obj)
 {
@@ -317,6 +484,11 @@ dispose(GObject* obj)
     self->m_scheduler = reinit_scheduler(self);//RIVISIT...
 
     g_clear_pointer(&self->m_name, g_free);
+    g_clear_pointer(&self->m_dns_base, evdns_free);
+
+    g_clear_object(&self->m_deferred_delete_cb);
+    g_clear_object(&self->m_deferred_destroy_cb);
+    g_clear_object(&self->m_post_cb);
 
     g_clear_object(&self->m_time_system);
     g_clear_object(&self->m_base_scheduler);
@@ -355,6 +527,8 @@ rp_dispatcher_impl_init(RpDispatcherImpl* self)
     NOISY_MSG_("(%p)", self);
     self->m_deferred_deleting = false;
     self->m_deferred_destroying = false;
+    self->m_shutdown_called = false;
+    g_mutex_init(&self->m_post_lock);
 }
 
 static inline RpDispatcherImpl*
@@ -365,10 +539,15 @@ constructed(RpDispatcherImpl* self)
     self->m_base_scheduler = rp_libevent_scheduler_new(self->m_thr);
     self->m_scheduler = rp_time_system_create_scheduler(self->m_time_system, RP_SCHEDULER(self->m_base_scheduler), NULL);
 
+    self->m_dns_base = evdns_base_new(evthr_get_base(self->m_thr), 1);
+    g_assert(self->m_dns_base != NULL);
+
     self->m_deferred_delete_cb = RP_SCHEDULABLE_CALLBACK(
         rp_schedulable_callback_impl_new(rp_libevent_scheduler_base(self->m_base_scheduler), clear_deferred_delete_list, self));
     self->m_deferred_destroy_cb = RP_SCHEDULABLE_CALLBACK(
         rp_schedulable_callback_impl_new(rp_libevent_scheduler_base(self->m_base_scheduler), clear_deferred_destroy_list, self));
+    self->m_post_cb = RP_SCHEDULABLE_CALLBACK(
+        rp_schedulable_callback_impl_new(rp_libevent_scheduler_base(self->m_base_scheduler), run_post_callbacks, self));
 
     self->m_to_delete_1 = g_array_new(false, false, sizeof(GObject*));
     self->m_to_delete_2 = g_array_new(false, false, sizeof(GObject*));
@@ -382,7 +561,7 @@ constructed(RpDispatcherImpl* self)
     return self;
 }
 
-RpDispatcherImpl*
+RpDispatcherPtr
 rp_dispatcher_impl_new(const char* name, UNIQUE_PTR(RpTimeSystem) time_system, SHARED_PTR(evthr_t) thr)
 {
     LOGD("(%p(%s), %p, %p)", name, name, time_system, thr);
@@ -392,13 +571,13 @@ rp_dispatcher_impl_new(const char* name, UNIQUE_PTR(RpTimeSystem) time_system, S
     self->m_name = name ? g_strdup(name) : NULL;
     self->m_time_system = time_system;
     self->m_thr = thr;
-    return constructed(self);
+    return RP_DISPATCHER(constructed(self));
 }
 
-evthr_t*
-rp_dispatcher_thr(RpDispatcherImpl* self)
+evbase_t*
+rp_dispatcher_impl_base(RpDispatcherImpl* self)
 {
     LOGD("(%p)", self);
     g_return_val_if_fail(RP_IS_DISPATCHER_IMPL(self), NULL);
-    return self->m_thr;
+    return rp_libevent_scheduler_base(self->m_base_scheduler);
 }

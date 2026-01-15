@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_server_impl_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_server_impl_NOISY)
@@ -20,10 +17,12 @@
 #include "rp-transport-socket-config.h"
 #include "server/rp-server-impl.h"
 
+#define SERVER(s) RP_SERVER_FACTORY_CONTEXT_IMPL(s)->m_server
+
 struct _RpServerFactoryContextImpl {
     GObject parent_instance;
 
-    RpInstance* m_server;
+    RpServerInstance* m_server;
 };
 
 static void common_factory_iface_init(RpCommonFactoryContextInterface* iface);
@@ -54,14 +53,35 @@ static RpClusterManager*
 cluster_manager_i(RpCommonFactoryContext* self)
 {
     NOISY_MSG_("(%p)", self);
-    return rp_instance_cluster_manager(RP_INSTANCE(RP_SERVER_FACTORY_CONTEXT_IMPL(self)->m_server));
+    return rp_server_instance_cluster_manager(SERVER(self));
 }
 
 static RpLocalInfo*
 local_info_i(RpCommonFactoryContext* self)
 {
     NOISY_MSG_("(%p)", self);
-    return rp_instance_local_info(RP_INSTANCE(RP_SERVER_FACTORY_CONTEXT_IMPL(self)->m_server));
+    return rp_server_instance_local_info(SERVER(self));
+}
+
+static RpDispatcher*
+main_thread_dispatcher_i(RpCommonFactoryContext* self)
+{
+    NOISY_MSG_("(%p)", self);
+    return rp_server_instance_dispatcher(SERVER(self));
+}
+
+static RpSlotAllocator*
+thread_local_i(RpCommonFactoryContext* self)
+{
+    NOISY_MSG_("(%p)", self);
+    return RP_SLOT_ALLOCATOR(rp_server_instance_thread_local(SERVER(self)));
+}
+
+static RpSingletonManager*
+singleton_manager_i(RpCommonFactoryContext* self)
+{
+    NOISY_MSG_("(%p)", self);
+    return rp_server_instance_singleton_manager(SERVER(self));
 }
 
 static void
@@ -70,13 +90,30 @@ common_factory_iface_init(RpCommonFactoryContextInterface* iface)
     LOGD("(%p)", iface);
     iface->cluster_manager = cluster_manager_i;
     iface->local_info = local_info_i;
+    iface->main_thread_dispatcher = main_thread_dispatcher_i;
+    iface->thread_local = thread_local_i;
+    iface->singleton_manager = singleton_manager_i;
 }
 
 static RpTransportSocketFactoryContext*
 get_transport_socket_factory_context_i(RpServerFactoryContext* self)
 {
     NOISY_MSG_("(%p)", self);
-    return rp_instance_transport_socket_factory_context(RP_INSTANCE(RP_SERVER_FACTORY_CONTEXT_IMPL(self)->m_server));
+    return rp_server_instance_transport_socket_factory_context(SERVER(self));
+}
+
+static rproxy_t*
+bootstrap_i(RpServerFactoryContext* self)
+{
+    NOISY_MSG_("(%p)", self);
+    return rp_server_instance_bootstrap(SERVER(self));
+}
+
+static GMutex*
+lock_i(RpServerFactoryContext* self)
+{
+    NOISY_MSG_("(%p)", self);
+    return rp_server_instance_lock(SERVER(self));
 }
 
 static void
@@ -84,13 +121,15 @@ server_factory_context_iface_init(RpServerFactoryContextInterface* iface)
 {
     LOGD("(%p)", iface);
     iface->get_transport_socket_factory_context = get_transport_socket_factory_context_i;
+    iface->bootstrap = bootstrap_i;
+    iface->lock = lock_i;
 }
 
 OVERRIDE void
-dispose(GObject* object)
+dispose(GObject* obj)
 {
-    NOISY_MSG_("(%p)", object);
-    G_OBJECT_CLASS(rp_server_factory_context_impl_parent_class)->dispose(object);
+    NOISY_MSG_("(%p)", obj);
+    G_OBJECT_CLASS(rp_server_factory_context_impl_parent_class)->dispose(obj);
 }
 
 static void
@@ -109,10 +148,10 @@ rp_server_factory_context_impl_init(RpServerFactoryContextImpl* self G_GNUC_UNUS
 }
 
 RpServerFactoryContextImpl*
-rp_server_factory_context_impl_new(RpInstance* server)
+rp_server_factory_context_impl_new(RpServerInstance* server)
 {
     LOGD("(%p)", server);
-    g_return_val_if_fail(RP_IS_INSTANCE(server), NULL);
+    g_return_val_if_fail(RP_IS_SERVER_INSTANCE(server), NULL);
     RpServerFactoryContextImpl* self = g_object_new(RP_TYPE_SERVER_FACTORY_CONTEXT_IMPL, NULL);
     self->m_server = server;
     return self;

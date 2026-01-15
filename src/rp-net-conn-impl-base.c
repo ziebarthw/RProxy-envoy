@@ -16,10 +16,7 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
-#ifndef OVERRIDE
-#define OVERRIDE static
-#endif
-
+#include "rproxy.h"
 #include "rp-net-conn-impl-base.h"
 
 #define SOCKFD(s) rp_network_connection_sockfd(RP_NETWORK_CONNECTION(s))

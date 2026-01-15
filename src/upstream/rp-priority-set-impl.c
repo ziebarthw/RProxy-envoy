@@ -5,9 +5,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
+#include <stdio.h>
 #include "macrologger.h"
 
 #if (defined(rp_priority_set_impl_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_priority_set_impl_NOISY)
@@ -16,35 +14,35 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
-#include "upstream/rp-priority-set-impl.h"
+#include "upstream/rp-upstream-impl.h"
 
 typedef struct _RpPrioritySetImplPrivate RpPrioritySetImplPrivate;
 struct _RpPrioritySetImplPrivate {
 
-    GArray* m_host_sets;
-    RpHostMap m_const_cross_priority_host_map;//never null
+    UNIQUE_PTR(GPtrArray)/*<std::unique_ptr<HostSet>>*/ m_host_sets;
+    /*mutable*/ RpHostMap* m_const_cross_priority_host_map;//never null
     RpPrioritySetImpl* m_parent;
     bool m_batch_update;
 };
 
 static void priority_set_iface_init(RpPrioritySetInterface* iface);
 
-G_DEFINE_ABSTRACT_TYPE_WITH_CODE(RpPrioritySetImpl, rp_priority_set_impl, G_TYPE_OBJECT,
+G_DEFINE_TYPE_WITH_CODE(RpPrioritySetImpl, rp_priority_set_impl, G_TYPE_OBJECT,
     G_ADD_PRIVATE(RpPrioritySetImpl)
-    G_IMPLEMENT_INTERFACE(RP_TYPE_PRIORITY_SET_IMPL, priority_set_iface_init)
+    G_IMPLEMENT_INTERFACE(RP_TYPE_PRIORITY_SET, priority_set_iface_init)
 )
 
 #define PRIV(obj) \
     ((RpPrioritySetImplPrivate*) rp_priority_set_impl_get_instance_private(RP_PRIORITY_SET_IMPL(obj)))
 
-static GArray*
+static GPtrArray*
 host_sets_per_priority_i(RpPrioritySet* self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_host_sets;
 }
 
-static RpHostMap
+static RpHostMapConstSharedPtr
 cross_priority_host_map_i(RpPrioritySet* self)
 {
     NOISY_MSG_("(%p)", self);
@@ -59,39 +57,22 @@ priority_set_iface_init(RpPrioritySetInterface* iface)
     iface->cross_priority_host_map = cross_priority_host_map_i;
 }
 
-OVERRIDE GObject*
-constructor(GType type, guint n_construct_properties, GObjectConstructParam *construct_properties)
-{
-    LOGD("(%lu, %u, %p)", type, n_construct_properties, construct_properties);
-
-    GObject* obj = G_OBJECT_CLASS(rp_priority_set_impl_parent_class)->constructor(type, n_construct_properties, construct_properties);
-    NOISY_MSG_("obj %p", obj);
-
-    RpPrioritySetImpl* self = RP_PRIORITY_SET_IMPL(obj);
-
-    return obj;
-}
-
 OVERRIDE void
 dispose(GObject* object)
 {
-    LOGD("(%p)", object);
+    NOISY_MSG_("(%p)", object);
     G_OBJECT_CLASS(rp_priority_set_impl_parent_class)->dispose(object);
 }
 
-OVERRIDE RpHostSetImpl*
-create_host_set(RpPrioritySetImpl* self, guint32 priority, bool weighted_priority_health, guint32 overprovisioning_factor)
+OVERRIDE RpHostSetImplPtr
+create_host_set(RpPrioritySetImpl* self, guint32 priority)
 {
-    NOISY_MSG_("(%p, %u, %u, %u)", self, priority, weighted_priority_health, overprovisioning_factor);
-    return g_object_new(RP_TYPE_HOST_SET_IMPL,
-                        "priority", priority,
-                        "weighted-priority-health", weighted_priority_health,
-                        "overprovisioning-factor", overprovisioning_factor,
-                        NULL);
+    NOISY_MSG_("(%p, %u)", self, priority);
+    return g_object_new(RP_TYPE_HOST_SET_IMPL, "priority", priority, NULL);
 }
 
 OVERRIDE RpStatusCode_e
-run_update_callbacks(RpPrioritySetImpl* self, RpHostVector hosts_added, RpHostVector hosts_removed)
+run_update_callbacks(RpPrioritySetImpl* self, RpHostVector* hosts_added, RpHostVector* hosts_removed)
 {
     NOISY_MSG_("(%p, %p, %p)", self, hosts_added, hosts_removed);
 //TODO...
@@ -99,7 +80,7 @@ return RpStatusCode_Ok;
 }
 
 OVERRIDE RpStatusCode_e
-run_reference_update_callbacks(RpPrioritySetImpl* self, guint32 priority, RpHostVector hosts_added, RpHostVector hosts_removed)
+run_reference_update_callbacks(RpPrioritySetImpl* self, guint32 priority, RpHostVector* hosts_added, RpHostVector* hosts_removed)
 {
     NOISY_MSG_("(%p, %u, %p, %p)", self, priority, hosts_added, hosts_removed);
 //TODO...
@@ -112,7 +93,6 @@ rp_priority_set_impl_class_init(RpPrioritySetImplClass* klass)
     LOGD("(%p)", klass);
 
     GObjectClass* object_class = G_OBJECT_CLASS(klass);
-    object_class->constructor = constructor;
     object_class->dispose = dispose;
 
     klass->create_host_set = create_host_set;
@@ -121,7 +101,46 @@ rp_priority_set_impl_class_init(RpPrioritySetImplClass* klass)
 }
 
 static void
-rp_priority_set_impl_init(RpPrioritySetImpl* self G_GNUC_UNUSED)
+rp_priority_set_impl_init(RpPrioritySetImpl* self)
 {
     LOGD("(%p)", self);
+    RpPrioritySetImplPrivate* me = PRIV(self);
+    me->m_batch_update = false;
+    me->m_host_sets = g_ptr_array_new();
+    RpHostMap* host_map = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, (GDestroyNotify)g_hash_table_unref/*HostSharedPtr*/);
+    // REVISIT - this is really not applicable/reproducable in C.(?)
+    me->m_const_cross_priority_host_map = host_map;
+}
+
+RpPrioritySetImpl*
+rp_priority_set_impl_new(void)
+{
+    LOGD("()");
+    return g_object_new(RP_TYPE_PRIORITY_SET_IMPL, NULL);
+}
+
+const RpHostSet*
+rp_priority_set_impl_get_or_create_host_set(RpPrioritySetImpl* self, guint32 priority)
+{
+    LOGD("(%p, %u)", self, priority);
+    g_return_val_if_fail(RP_IS_PRIORITY_SET_IMPL(self), NULL);
+    RpPrioritySetImplPrivate* me = PRIV(self);
+    if (me->m_host_sets->len < priority + 1)
+    {
+        for (guint i = me->m_host_sets->len; i <= priority; ++i)
+        {
+            RpHostSetImplPtr host_set = rp_priority_set_impl_create_host_set(self, i);
+            //TODO...host_sets_priority_update_cbs_.push_back(...)
+            g_ptr_array_add(me->m_host_sets, g_steal_pointer(&host_set));
+        }
+    }
+    return me->m_host_sets->pdata[priority];
+}
+
+RpHostMap**
+rp_priority_set_impl_const_cross_priority_host_map_(RpPrioritySetImpl* self)
+{
+    LOGD("(%p)", self);
+    g_return_val_if_fail(RP_IS_PRIORITY_SET_IMPL(self), NULL);
+    return &PRIV(self)->m_const_cross_priority_host_map;
 }

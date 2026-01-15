@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_active_stream_filter_base_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_active_stream_filter_base_NOISY)
@@ -177,7 +174,7 @@ dispatcher_i(RpStreamFilterCallbacks* self)
     return rp_filter_manager_dispatcher(PRIV(self)->m_parent);
 }
 
-static RpClusterInfo*
+static RpClusterInfoConstSharedPtr
 cluster_info_i(RpStreamFilterCallbacks* self)
 {
     NOISY_MSG_("(%p)", self);
