@@ -9,7 +9,7 @@
 
 #if (defined(rp_http_conn_mgr_impl_active_stream_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_http_conn_mgr_impl_active_stream_NOISY)
 #   define NOISY_MSG_ LOGD
-#   define IF_NOISY_
+#   define IF_NOISY_(x, ...) x##__VA_ARGS__
 #else
 #   define NOISY_MSG_(x, ...)
 #   define IF_NOISY_(x, ...)
