@@ -19,8 +19,8 @@
 typedef struct _RpNetworkAddressInstanceBasePrivate RpNetworkAddressInstanceBasePrivate;
 struct _RpNetworkAddressInstanceBasePrivate {
     GString* m_friendly_name;
-    const RpNetworkAddressSocketInterface* m_socket_interface;
-    RpAddressType_e m_type;
+    RpNetworkAddressSocketInterface* m_socket_interface;
+    RpNetworkAddressType_e m_type;
 };
 
 enum
@@ -65,14 +65,14 @@ logical_name_i(RpNetworkAddressInstance* self)
     return as_string_i(self);
 }
 
-static RpAddressType_e
+static RpNetworkAddressType_e
 type_i(RpNetworkAddressInstance* self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_type;
 }
 
-static const RpNetworkAddressSocketInterface*
+static RpNetworkAddressSocketInterface*
 socket_interface_i(RpNetworkAddressInstance* self)
 {
     NOISY_MSG_("(%p)", self);
@@ -100,7 +100,7 @@ get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
             g_value_set_int(value, PRIV(obj)->m_type);
             break;
         case PROP_SOCK_INTERFACE:
-            g_value_set_object(value, (gpointer)PRIV(obj)->m_socket_interface);
+            g_value_set_object(value, PRIV(obj)->m_socket_interface);
             break;
         default:
             G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
@@ -132,7 +132,11 @@ dispose(GObject* obj)
     NOISY_MSG_("(%p)", obj);
 
     RpNetworkAddressInstanceBasePrivate* me = PRIV(obj);
-    g_string_free(g_steal_pointer(&me->m_friendly_name), true);
+    if (me->m_friendly_name)
+    {
+        NOISY_MSG_("freeing friendly name %p(%s)", me->m_friendly_name, me->m_friendly_name->str);
+        g_string_free(g_steal_pointer(&me->m_friendly_name), true);
+    }
 
     G_OBJECT_CLASS(rp_network_address_instance_base_parent_class)->dispose(obj);
 }
@@ -155,9 +159,9 @@ rp_network_address_instance_base_class_init(RpNetworkAddressInstanceBaseClass* k
     obj_properties[PROP_TYPE] = g_param_spec_int("type",
                                                     "Address type",
                                                     "Address type",
-                                                    RpAddressType_IP,
-                                                    RpAddressType_RPROXY_INTERNAL,
-                                                    RpAddressType_IP,
+                                                    RpNetworkAddressType_IP,
+                                                    RpNetworkAddressType_RPROXY_INTERNAL,
+                                                    RpNetworkAddressType_IP,
                                                     G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
 
     g_object_class_install_properties(object_class, N_PROPERTIES, obj_properties);

@@ -9,14 +9,11 @@
 
 #include <stdbool.h>
 #include <glib-object.h>
+#include "rproxy.h"
 #include "rp-stream-info.h"
 #include "rp-stream-reset-handler.h"
 
 G_BEGIN_DECLS
-
-#ifndef OVERRIDE
-#define OVERRIDE static
-#endif
 
 typedef enum {
     RpCodecType_HTTP1,

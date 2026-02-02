@@ -272,3 +272,11 @@ rp_thread_local_cluster_manager_impl_host_tcp_conn_pool_map_(RpThreadLocalCluste
     g_return_val_if_fail(RP_IS_THREAD_LOCAL_CLUSTER_MANAGER_IMPL(self), NULL);
     return self->m_host_tcp_conn_pool_map;
 }
+
+GList*
+rp_thread_local_cluster_manager_impl_update_callbacks_(RpThreadLocalClusterManagerImpl* self)
+{
+    LOGD("(%p)", self);
+    g_return_val_if_fail(RP_IS_THREAD_LOCAL_CLUSTER_MANAGER_IMPL(self), NULL);
+    return self->m_update_callbacks;
+}

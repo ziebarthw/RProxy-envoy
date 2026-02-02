@@ -12,9 +12,12 @@
 #include "rproxy.h"
 #include "rp-router.h"
 #include "rp-stream-info.h"
+#include "rp-typed-config.h"
 #include "rp-upstream.h"
 
 G_BEGIN_DECLS
+
+typedef struct _RpServerFactoryContext RpServerFactoryContext;
 
 /*
  * A handle to allow cancelation of asynchronous host selection.
@@ -272,5 +275,53 @@ struct _RpLoadBalancerConfigInterface {
 };
 
 typedef UNIQUE_PTR(RpLoadBalancerConfig) RpLoadBalancerConfigPtr;
+
+
+/**
+ * Factory config for load balancers. To support a load balancing policy of
+ * LOAD_BALANCING_POLICY_CONFIG, at least one load balancer factory corresponding to a policy in
+ * load_balancing_policy must be registered with Envoy. Envoy will use the first policy for which
+ * it has a registered factory.
+ */
+#define RP_TYPE_TYPED_LOAD_BALANCER_FACTORY rp_typed_load_balancer_factory_get_type()
+G_DECLARE_INTERFACE(RpTypedLoadBalancerFactory, rp_typed_load_balancer_factory, RP, TYPED_LOAD_BALANCER_FACTORY, GObject)
+
+struct _RpTypedLoadBalancerFactoryInterface {
+    GTypeInterface parent_iface;
+
+    RpThreadAwareLoadBalancerPtr (*create)(RpTypedLoadBalancerFactory*,
+                                            RpLoadBalancerConfig*,
+                                            RpClusterInfo*,
+                                            RpPrioritySet*,
+                                            RpTimeSource*);
+    RpLoadBalancerConfig* (*load_legacy)(RpTypedLoadBalancerFactory*, RpServerFactoryContext*, const RpClusterCfg*);
+    const char* (*category)(RpTypedLoadBalancerFactory*);
+};
+
+static inline RpThreadAwareLoadBalancerPtr
+rp_typed_load_balancer_factory_create(RpTypedLoadBalancerFactory* self, RpLoadBalancerConfig* lb_config, RpClusterInfo* cluster_info, RpPrioritySet* priority_set, RpTimeSource* time_source)
+{
+    return RP_IS_TYPED_LOAD_BALANCER_FACTORY(self) ?
+        RP_TYPED_LOAD_BALANCER_FACTORY_GET_IFACE(self)->create(self, lb_config, cluster_info, priority_set, time_source) :
+        NULL;
+}
+static inline RpLoadBalancerConfig*
+rp_typed_load_balancer_factory_load_legacy(RpTypedLoadBalancerFactory* self, RpServerFactoryContext* factory_context, const RpClusterCfg* cluster)
+{
+    return RP_IS_TYPED_LOAD_BALANCER_FACTORY(self) ?
+        RP_TYPED_LOAD_BALANCER_FACTORY_GET_IFACE(self)->load_legacy(self, factory_context, cluster) :
+        NULL;
+}
+static inline const char*
+rp_typed_load_balancer_factory_category(RpTypedLoadBalancerFactory* self)
+{
+    return RP_IS_TYPED_LOAD_BALANCER_FACTORY(self) ?
+        RP_TYPED_LOAD_BALANCER_FACTORY_GET_IFACE(self)->category(self) : NULL;
+}
+static inline const char*
+rp_typed_load_balancer_factory_name(RpTypedLoadBalancerFactory* self)
+{
+    return rp_untyped_factory_name(RP_UNTYPED_FACTORY(self));
+}
 
 G_END_DECLS

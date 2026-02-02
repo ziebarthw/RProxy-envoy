@@ -13,13 +13,16 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
-#include "upstream/rp-cluster-factory-context-impl.h"
+#include "upstream/rp-cluster-factory-impl.h"
 
 struct _RpClusterFactoryContextImpl {
     GObject parent_instance;
 
     RpServerFactoryContext* m_server_context;
     RpClusterManager* m_cluster_manager;
+    RpNetworkDnsResolverSharedPtr m_dns_resolver;
+    RpLazyCreateDnsResolver m_dns_resolver_fn;
+    gpointer m_dns_resolver_arg;
     bool m_added_via_api;
 };
 
@@ -50,6 +53,18 @@ added_via_api_i(RpClusterFactoryContext* self)
     return RP_CLUSTER_FACTORY_CONTEXT_IMPL(self)->m_added_via_api;
 }
 
+static RpNetworkDnsResolverSharedPtr
+dns_resolver_i(RpClusterFactoryContext* self)
+{
+    NOISY_MSG_("(%p)", self);
+    RpClusterFactoryContextImpl* me = RP_CLUSTER_FACTORY_CONTEXT_IMPL(self);
+    if (!me->m_dns_resolver)
+    {
+        me->m_dns_resolver = me->m_dns_resolver_fn(me->m_dns_resolver_arg);
+    }
+    return me->m_dns_resolver;
+}
+
 static void
 cluster_factory_context_iface_init(RpClusterFactoryContextInterface* iface)
 {
@@ -57,6 +72,7 @@ cluster_factory_context_iface_init(RpClusterFactoryContextInterface* iface)
     iface->cluster_manager = cluster_manager_i;
     iface->server_factory_context = server_factory_context_i;
     iface->added_via_api = added_via_api_i;
+    iface->dns_resolver = dns_resolver_i;
 }
 
 OVERRIDE void
@@ -87,9 +103,10 @@ rp_cluster_factory_context_impl_init(RpClusterFactoryContextImpl* self G_GNUC_UN
 }
 
 RpClusterFactoryContextImpl*
-rp_cluster_factory_context_impl_new(RpServerFactoryContext* server_context, RpClusterManager* cm, bool added_via_api)
+rp_cluster_factory_context_impl_new(RpServerFactoryContext* server_context, RpClusterManager* cm,
+                                    RpLazyCreateDnsResolver dns_resolver_fn, gpointer dns_resolver_arg, bool added_via_api)
 {
-    LOGD("(%p, %p, %u)", server_context, cm, added_via_api);
+    LOGD("(%p, %p, %p, %p, %u)", server_context, cm, dns_resolver_fn, dns_resolver_arg, added_via_api);
 
     g_return_val_if_fail(RP_IS_SERVER_FACTORY_CONTEXT(server_context), NULL);
     g_return_val_if_fail(RP_IS_CLUSTER_MANAGER(cm), NULL);
@@ -98,5 +115,7 @@ rp_cluster_factory_context_impl_new(RpServerFactoryContext* server_context, RpCl
     self->m_server_context = g_object_ref(server_context);
     self->m_cluster_manager = g_object_ref(cm);
     self->m_added_via_api = added_via_api;
+    self->m_dns_resolver_fn = dns_resolver_fn;
+    self->m_dns_resolver_arg = dns_resolver_arg;
     return self;
 }

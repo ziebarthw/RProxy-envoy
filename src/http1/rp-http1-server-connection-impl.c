@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_server_connection_impl_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_server_connection_impl_NOISY)
@@ -23,6 +20,9 @@
 #include "rp-parser.h"
 #include "rp-response-encoder-impl.h"
 #include "rp-http1-server-connection-impl.h"
+
+#define PARENT_HTTP_CONNECTION_IFACE(self) \
+    ((RpHttpConnectionInterface*)g_type_interface_peek_parent(RP_HTTP_CONNECTION_GET_IFACE(self)))
 
 static inline void
 g_string_free_and_clear(GString** strp)
@@ -89,16 +89,10 @@ disable_read(RpResponseEncoderImpl* self)
     rp_stream_read_disable(RP_STREAM(self), true);
 }
 
-static inline RpHttpConnectionInterface*
-parent_iface(RpHttpConnection* self)
-{
-    return (RpHttpConnectionInterface*)g_type_interface_peek_parent(RP_HTTP_CONNECTION_GET_IFACE(self));
-}
-
 static RpStatusCode_e
 dispatch_i(RpHttpConnection* self, evbuf_t* data)
 {
-    NOISY_MSG_("(%p, %p(%zu))", self, data, data ? evbuffer_get_length(data) : 0);
+    NOISY_MSG_("(%p, %p(%zu))", self, data, evbuf_length(data));
 
     RpHttp1ServerConnectionImpl* me = RP_HTTP1_SERVER_CONNECTION_IMPL(self);
 
@@ -109,12 +103,12 @@ dispatch_i(RpHttpConnection* self, evbuf_t* data)
         return RpStatusCode_Ok;
     }
 
-    RpStatusCode_e status = parent_iface(self)->dispatch(self, data);
+    RpStatusCode_e status = PARENT_HTTP_CONNECTION_IFACE(self)->dispatch(self, data);
 
     active_request = me->m_active_request;
     if (active_request && active_request->m_remote_complete)
     {
-        if (data && evbuffer_get_length(data) > 0)
+        if (evbuf_length(data) > 0)
         {
             disable_read(active_request->m_response_encoder);
         }
@@ -127,49 +121,49 @@ static void
 go_away_i(RpHttpConnection* self)
 {
     NOISY_MSG_("(%p)", self);
-    parent_iface(self)->go_away(self);
+    PARENT_HTTP_CONNECTION_IFACE(self)->go_away(self);
 }
 
 static void
 on_underlying_connection_above_write_buffer_high_watermark_i(RpHttpConnection* self)
 {
     NOISY_MSG_("(%p)", self);
-    parent_iface(self)->on_underlying_connection_above_write_buffer_high_watermark(self);
+    PARENT_HTTP_CONNECTION_IFACE(self)->on_underlying_connection_above_write_buffer_high_watermark(self);
 }
 
 static void
 on_underlying_connection_below_write_buffer_lo_watermark_i(RpHttpConnection* self)
 {
     NOISY_MSG_("(%p)", self);
-    parent_iface(self)->on_underlying_connection_below_write_buffer_lo_watermark(self);
+    PARENT_HTTP_CONNECTION_IFACE(self)->on_underlying_connection_below_write_buffer_lo_watermark(self);
 }
 
 static enum evhtp_proto
 protocol_i(RpHttpConnection* self)
 {
     NOISY_MSG_("(%p)", self);
-    return parent_iface(self)->protocol(self);
+    return PARENT_HTTP_CONNECTION_IFACE(self)->protocol(self);
 }
 
 static bool
 should_keep_alive_i(RpHttpConnection* self)
 {
     NOISY_MSG_("(%p)", self);
-    return parent_iface(self)->should_keep_alive(self);
+    return PARENT_HTTP_CONNECTION_IFACE(self)->should_keep_alive(self);
 }
 
 static void
 shutdown_notice_i(RpHttpConnection* self)
 {
     NOISY_MSG_("(%p)", self);
-    parent_iface(self)->shutdown_notice(self);
+    PARENT_HTTP_CONNECTION_IFACE(self)->shutdown_notice(self);
 }
 
 static bool
 wants_to_write_i(RpHttpConnection* self)
 {
     NOISY_MSG_("(%p)", self);
-    return parent_iface(self)->wants_to_write(self);
+    return PARENT_HTTP_CONNECTION_IFACE(self)->wants_to_write(self);
 }
 
 static void
@@ -446,7 +440,7 @@ handle_path(RpHttp1ServerConnectionImpl* self, evhtp_headers_t* request_headers,
     return RpStatusCode_Ok;
 }
 
-OVERRIDE RpStatusCode_e
+OVERRIDE RpStatusOrCallbackResult
 on_headers_complete_base(RpHttp1ConnectionImpl* self)
 {
     NOISY_MSG_("(%p)", self);
@@ -468,11 +462,11 @@ on_headers_complete_base(RpHttp1ConnectionImpl* self)
         rp_stream_encoder_impl_set_is_response_to_connect_request(stream_encoder,
             g_ascii_strcasecmp(method_name, RpHeaderValues.MethodValues.Connect) == 0);
 
-        RETURN_IF_ERROR(handle_path(me, headers, method_name));
+        RETURN_IF_ERROR_2(handle_path(me, headers, method_name));
 
         evhtp_headers_add_header(headers,
                     evhtp_header_new(RpHeaderValues.Method, method_name, 0, 1));
-        RETURN_IF_ERROR(check_protocol_version(me, headers));
+        RETURN_IF_ERROR_2(check_protocol_version(me, headers));
 
         //TODO...requestHeadersValue(...)
 
@@ -494,7 +488,7 @@ on_headers_complete_base(RpHttp1ConnectionImpl* self)
         }
     }
 
-    return RpStatusCode_Ok;
+    return rp_status_or_callback_result_ctor(RpStatusCode_Ok, RpCallbackResult_Success);
 }
 
 static void
@@ -508,7 +502,7 @@ dump_headers(RpHttp1ServerConnectionImpl* me)
     evbuffer_free(buf);
 }
 
-OVERRIDE RpCallbackResult_e
+OVERRIDE RpStatusOrCallbackResult
 on_message_complete_base(RpHttp1ConnectionImpl* self)
 {
     NOISY_MSG_("(%p)", self);
@@ -542,7 +536,7 @@ dump_headers(me);
         me->m_headers_or_trailers = NULL;
     }
 
-    return rp_parser_pause(rp_http1_connection_impl_get_parser(self));
+    return rp_status_or_callback_result_ctor(RpStatusCode_Ok, rp_parser_pause(rp_http1_connection_impl_get_parser(self)));
 }
 
 OVERRIDE void

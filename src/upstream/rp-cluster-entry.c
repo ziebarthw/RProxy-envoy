@@ -99,6 +99,7 @@ static RpLoadBalancer*
 load_balancer_i(RpThreadLocalCluster* self)
 {
     NOISY_MSG_("(%p)", self);
+NOISY_MSG_("lb %p", RP_CLUSTER_ENTRY(self)->m_lb);
     return RP_CLUSTER_ENTRY(self)->m_lb;
 }
 
@@ -215,21 +216,58 @@ maybe_pre_connect(RpClusterEntry* self)
     //TODO...
 }
 
-typedef struct _RpHttpPreConnectionCtx RpHttpPreConnectionCtx;
-struct _RpHttpPreConnectionCtx {
+typedef struct _RpHttpPreConnectCbCtx RpHttpPreConnectCbCtx;
+struct _RpHttpPreConnectCbCtx {
     RpClusterEntry* m_cluster_entry;
     RpResourcePriority_e m_priority;
     evhtp_proto m_protocol;
     RpLoadBalancerContext* m_context;
 };
+static inline RpHttpPreConnectCbCtx
+rp_http_pre_connect_cb_ctx_ctor(RpClusterEntry* cluster_entry, RpResourcePriority_e priority, evhtp_proto protocol, RpLoadBalancerContext* context)
+{
+    RpHttpPreConnectCbCtx self = {
+        .m_cluster_entry = cluster_entry,
+        .m_priority = priority,
+        .m_protocol = protocol,
+        .m_context = context
+    };
+    return self;
+}
+static inline RpHttpPreConnectCbCtx*
+rp_http_pre_connect_cb_ctx_new(RpClusterEntry* cluster_entry, RpResourcePriority_e priority, evhtp_proto protocol, RpLoadBalancerContext* context)
+{
+    NOISY_MSG_("(%p, %d, %d, %p)", cluster_entry, priority, protocol, context);
+    RpHttpPreConnectCbCtx* self = g_new(RpHttpPreConnectCbCtx, 1);
+    *self = rp_http_pre_connect_cb_ctx_ctor(cluster_entry, priority, protocol, context);
+    return self;
+}
+static inline void
+rp_http_pre_connect_cb_ctx_free(RpHttpPreConnectCbCtx* self)
+{
+    NOISY_MSG_("(%p)", self);
+    g_free(self);
+}
+static inline RpHttpPreConnectCbCtx
+rp_http_pre_connect_cb_ctx_captures(RpHttpPreConnectCbCtx* self)
+{
+    NOISY_MSG_("(%p)", self);
+    RpHttpPreConnectCbCtx captures = rp_http_pre_connect_cb_ctx_ctor(self->m_cluster_entry,
+                                                                        self->m_priority,
+                                                                        self->m_protocol,
+                                                                        self->m_context);
+    rp_http_pre_connect_cb_ctx_free(g_steal_pointer(&self));
+    return captures;
+}
 
 static void
-http_pre_connect(RpHttpConnectionPoolInstancePtr pool, gconstpointer user_data)
+http_pre_connect_cb(RpHttpConnectionPoolInstancePtr pool, gpointer user_data)
 {
     NOISY_MSG_("(%p, %p)", pool, user_data);
 //    rp_connection_pool_instance_maybe_preconnect(RP_CONNECTION_POOL_INSTANCE(pool), 1.0);
-    RpHttpPreConnectionCtx* ctx = (RpHttpPreConnectionCtx*)user_data;
-    maybe_pre_connect(ctx->m_cluster_entry);
+    RpHttpPreConnectCbCtx* ctx = user_data;
+    RpHttpPreConnectCbCtx captures = rp_http_pre_connect_cb_ctx_captures(g_steal_pointer(&ctx));
+    maybe_pre_connect(captures.m_cluster_entry);
 }
 
 static RpHttpPoolData*
@@ -248,29 +286,59 @@ http_conn_pool_i(RpThreadLocalCluster* self, SHARED_PTR(RpHost) host, RpResource
         return NULL;
     }
 
-    RpHttpPreConnectionCtx ctx = {
-        .m_cluster_entry = me,
-        .m_priority = priority,
-        .m_protocol = downstream_protocol,
-        .m_context = context
-    };
-    return rp_http_pool_data_new(http_pre_connect, &ctx, pool);
+    RpHttpPreConnectCbCtx* ctx = rp_http_pre_connect_cb_ctx_new(me, priority, downstream_protocol, context);
+    return rp_http_pool_data_new(http_pre_connect_cb, ctx, pool);
 }
 
-typedef struct _RpTcpPreConnectionCtx RpTcpPreConnectionCtx;
-struct _RpTcpPreConnectionCtx {
+typedef struct _RpTcpPreConnectCbCtx RpTcpPreConnectCbCtx;
+struct _RpTcpPreConnectCbCtx {
     RpClusterEntry* m_cluster_entry;
     RpResourcePriority_e m_priority;
     RpLoadBalancerContext* m_context;
 };
+static inline RpTcpPreConnectCbCtx
+rp_tcp_pre_connect_cb_ctx_ctor(RpClusterEntry* cluster_entry, RpResourcePriority_e priority, RpLoadBalancerContext* context)
+{
+    RpTcpPreConnectCbCtx self = {
+        .m_cluster_entry = cluster_entry,
+        .m_priority = priority,
+        .m_context = context
+    };
+    return self;
+}
+static inline RpTcpPreConnectCbCtx*
+rp_tcp_pre_connect_cb_ctx_new(RpClusterEntry* cluster_entry, RpResourcePriority_e priority, RpLoadBalancerContext* context)
+{
+    NOISY_MSG_("(%p, %d, %p)", cluster_entry, priority, context);
+    RpTcpPreConnectCbCtx* self = g_new(RpTcpPreConnectCbCtx, 1);
+    *self = rp_tcp_pre_connect_cb_ctx_ctor(cluster_entry, priority, context);
+    return self;
+}
+static inline void
+rp_tcp_pre_connect_cb_ctx_free(RpTcpPreConnectCbCtx* self)
+{
+    NOISY_MSG_("(%p)", self);
+    g_free(self);
+}
+static inline RpTcpPreConnectCbCtx
+rp_tcp_pre_connect_cb_ctx_captures(RpTcpPreConnectCbCtx* self)
+{
+    NOISY_MSG_("(%p)", self);
+    RpTcpPreConnectCbCtx captures = rp_tcp_pre_connect_cb_ctx_ctor(self->m_cluster_entry,
+                                                                    self->m_priority,
+                                                                    self->m_context);
+    rp_tcp_pre_connect_cb_ctx_free(self);
+    return captures;
+}
 
 static void
-tcp_pre_connect(RpTcpConnPoolInstancePtr pool, gpointer user_data)
+tcp_pre_connect_cb(RpTcpConnPoolInstancePtr pool, gpointer user_data)
 {
     NOISY_MSG_("(%p, %p)", pool, user_data);
 //    rp_connection_pool_instance_maybe_preconnect(RP_CONNECTION_POOL_INSTANCE(pool), 1.0);
-    RpHttpPreConnectionCtx* ctx = (RpHttpPreConnectionCtx*)user_data;
-    maybe_pre_connect(ctx->m_cluster_entry);
+    RpTcpPreConnectCbCtx* ctx = user_data;
+    RpTcpPreConnectCbCtx captures = rp_tcp_pre_connect_cb_ctx_captures(ctx);
+    maybe_pre_connect(captures.m_cluster_entry);
 }
 
 static RpTcpPoolData*
@@ -290,12 +358,8 @@ tcp_conn_pool_i(RpThreadLocalCluster* self, RpHostConstSharedPtr host, RpResourc
         return NULL;
     }
 
-    RpTcpPreConnectionCtx ctx = {
-        .m_cluster_entry = me,
-        .m_priority = priority,
-        .m_context = context
-    };
-    return rp_tcp_pool_data_new(tcp_pre_connect, &ctx, pool);
+    RpTcpPreConnectCbCtx* ctx = rp_tcp_pre_connect_cb_ctx_new(me, priority, context);
+    return rp_tcp_pool_data_new(tcp_pre_connect_cb, ctx, pool);
 }
 
 static RpPrioritySet*
@@ -352,26 +416,25 @@ constructed(RpClusterEntry* self)
     self->m_priority_set = rp_priority_set_impl_new();
     rp_priority_set_impl_get_or_create_host_set(self->m_priority_set, 0);
 
-if (self->m_lb_factory)
-{
+    g_assert(self->m_lb_factory != NULL);
     RpLoadBalancerParams params = {
         .priority_set = RP_PRIORITY_SET(self->m_priority_set),
         .local_priority_set = rp_thread_local_cluster_manager_impl_local_priority_set_(self->m_parent)
     };
     self->m_lb = rp_load_balancer_factory_create(self->m_lb_factory, &params);
-NOISY_MSG_("lb %p", self->m_lb);
-}
+    NOISY_MSG_("lb %p(%s)", self->m_lb, G_OBJECT_TYPE_NAME(self->m_lb));
     return self;
 }
 
 RpClusterEntry*
 rp_cluster_entry_new(RpThreadLocalClusterManagerImpl* parent, RpClusterInfoConstSharedPtr cluster, RpLoadBalancerFactorySharedPtr lb_factory)
 {
-    LOGD("(%p, %p, %p)", parent, cluster, lb_factory);
+    LOGD("(%p(%s), %p(%s), %p(%s))",
+        parent, G_OBJECT_TYPE_NAME(parent), cluster, G_OBJECT_TYPE_NAME(cluster), lb_factory, lb_factory ? G_OBJECT_TYPE_NAME(lb_factory) : "");
 
     g_return_val_if_fail(RP_IS_THREAD_LOCAL_CLUSTER_MANAGER_IMPL(parent), NULL);
     g_return_val_if_fail(RP_IS_CLUSTER_INFO(cluster), NULL);
-//TODO...    g_return_val_if_fail(RP_IS_LOAD_BALANCER_FACTORY(lb_factory), NULL);
+    g_return_val_if_fail(RP_IS_LOAD_BALANCER_FACTORY(lb_factory), NULL);
 
     RpClusterEntry* self = g_object_new(RP_TYPE_CLUSTER_ENTRY, NULL);
     self->m_parent = parent;

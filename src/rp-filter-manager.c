@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_filter_manager_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_filter_manager_NOISY)
@@ -780,6 +777,7 @@ decode_headers(RpFilterManager* self, RpActiveStreamDecoderFilter* filter, evhtp
     GList* entry = common_decode_prefix(self, filter, RpFilterIterationStartState_AlwaysStartFromNext);
     GList* continue_data_entry = NULL/*decoder_filters_.end()????*/;
     bool terminal_filter_decoded_end_stream = false;
+    g_assert(!state->m_decoder_filter_chain_complete || !entry || rp_active_stream_filter_base_get_end_stream(RP_ACTIVE_STREAM_FILTER_BASE(entry->data)));
 
     for (; entry; entry = entry->next)
     {
@@ -791,6 +789,7 @@ decode_headers(RpFilterManager* self, RpActiveStreamDecoderFilter* filter, evhtp
         rp_active_stream_filter_base_set_end_stream(fb, end_stream_);
         if (end_stream_)
         {
+            NOISY_MSG_("end_stream_");
             state->m_filter_call_state |= RpFilterCallState_EndOfStream;
         }
         RpFilterHeadersStatus_e status = rp_active_stream_decoder_decode_headers(f, request_headers, end_stream_);
@@ -801,9 +800,13 @@ decode_headers(RpFilterManager* self, RpActiveStreamDecoderFilter* filter, evhtp
         }
         if (state->m_decoder_filter_chain_aborted)
         {
+            NOISY_MSG_("TODO...executeLocalReplyIfPrepared()");
 //TODO: executeLocalReplyIfPrepared();
+            NOISY_MSG_("decodeHeaders filter iteration aborted due to local reply");
             status = RpFilterHeadersStatus_StopIteration;
         }
+
+        g_assert(!(status == RpFilterHeadersStatus_ContinueAndDontEndStream && !end_stream_));
 
         rp_active_stream_filter_base_set_processed_headers(fb, true);
 
@@ -811,6 +814,7 @@ decode_headers(RpFilterManager* self, RpActiveStreamDecoderFilter* filter, evhtp
 
         if (rp_active_stream_filter_base_get_end_stream(fb))
         {
+            NOISY_MSG_("end stream");
             rp_stream_decoder_filter_decode_complete(rp_active_stream_decoder_handle(f));
         }
 
@@ -832,19 +836,20 @@ decode_headers(RpFilterManager* self, RpActiveStreamDecoderFilter* filter, evhtp
 
         if (end_stream && me->m_buffered_request_data && continue_data_entry == NULL/*decoder_filters_.end()???*/)
         {
+            NOISY_MSG_("setting continue data entry to entry(%p)", entry);
             continue_data_entry = entry;
         }
-#if 0
         bool no_body_was_injected = continue_data_entry == NULL/*decoder_filters_.end()???*/;
-#endif//0
         terminal_filter_decoded_end_stream = (entry->next == NULL/*std::next(entry) == decoder_filters_.end()???*/ &&
-            rp_active_stream_filter_base_get_end_stream(RP_ACTIVE_STREAM_FILTER_BASE(entry->data)));
+            rp_active_stream_filter_base_get_end_stream(RP_ACTIVE_STREAM_FILTER_BASE(entry->data))) &&
+                no_body_was_injected;
     }
 
     maybe_continue_decoding(self, continue_data_entry);
 
     if (end_stream)
     {
+        NOISY_MSG_("disarming request timeout");
         disarm_request_timeout(self);
     }
     maybe_end_decode(self, terminal_filter_decoded_end_stream);

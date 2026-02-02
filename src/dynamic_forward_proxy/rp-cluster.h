@@ -50,20 +50,22 @@ RpDfpClusterThreadAwareLoadBalancer* rp_dfp_cluster_thread_aware_load_balancer_n
 #define RP_TYPE_DFP_CLUSTER_IMPL rp_dfp_cluster_impl_get_type()
 G_DECLARE_FINAL_TYPE(RpDfpClusterImpl, rp_dfp_cluster_impl, RP, DFP_CLUSTER_IMPL, RpClusterImplBase)
 
-RpDfpClusterImpl* rp_dfp_cluster_impl_new(const RpClusterCfg* config,
-                                          RpClusterFactoryContext* context,
-                                          RpStatusCode_e* creation_status);
+RpDfpClusterImpl* rp_dfp_cluster_impl_new(const RpClusterCfg* cluster,
+                                            const RpDfpClusterCfg* config,
+                                            RpClusterFactoryContext* context,
+                                            RpStatusCode_e* creation_status);
 RpHostSelectionResponse rp_dfp_cluster_impl_choose_host(RpDfpClusterImpl* self,
                                                         const char* host,
                                                         RpLoadBalancerContext* context);
-RpHostConstSharedPtr rp_dfp_cluster_impl_find_host_by_name(RpDfpClusterImpl* self, const char* host);
+RpHostConstSharedPtr rp_dfp_cluster_impl_find_host_by_name(RpDfpClusterImpl* self,
+                                                            const char* host);
 
 
 /**
  * ClusterFactory implementation.
  */
 #define RP_TYPE_DFP_CLUSTER_FACTORY rp_dfp_cluster_factory_get_type()
-G_DECLARE_FINAL_TYPE(RpDfpClusterFactory, rp_dfp_cluster_factory, RP, DFP_CLUSTER_FACTORY, RpClusterFactoryImplBase)
+G_DECLARE_FINAL_TYPE(RpDfpClusterFactory, rp_dfp_cluster_factory, RP, DFP_CLUSTER_FACTORY, RpConfigurableClusterFactoryBase)
 
 RpDfpClusterFactory* rp_dfp_cluster_factory_new(void);
 

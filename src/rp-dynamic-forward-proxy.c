@@ -107,6 +107,7 @@ load_dynamic_cluster(RpDynamicForwardProxy* self, RpDfpCluster* cluster, evhtp_h
     g_string_append_printf(cluster_name, "%s:%u", host, port);
     RpClusterManager* cluster_manager = rp_proxy_filter_config_cluster_manager(self->m_config);
     RpThreadLocalCluster* local_cluster = rp_cluster_manager_get_thread_local_cluster(cluster_manager, cluster_name->str);
+NOISY_MSG_("local cluster %p", local_cluster);
     if (local_cluster && rp_dfp_cluster_touch(cluster, cluster_name->str))
     {
         LOGD("using the thread local cluster after touch success");
@@ -129,7 +130,7 @@ load_dynamic_cluster(RpDynamicForwardProxy* self, RpDfpCluster* cluster, evhtp_h
     //TODO...
 
     LOGD("waiting to load cluster entry");
-    return RpFilterHeadersStatus_Continue;
+    return RpFilterHeadersStatus_StopAllIterationAndWatermark;
 }
 
 static RpFilterHeadersStatus_e
@@ -154,14 +155,24 @@ decode_headers_i(RpStreamDecoderFilter* self, evhtp_headers_t* request_headers, 
     }
     me->m_cluster_info = rp_thread_local_cluster_info(cluster);
 
-    if (rp_cluster_info_type(me->m_cluster_info) != RpDiscoveryType_STRICT_DNS)
+    const RpCustomClusterTypeCfg* cluster_type = rp_cluster_info_cluster_type(me->m_cluster_info);
+    if (!cluster_type)
     {
-        NOISY_MSG_("not strict dns");
+        NOISY_MSG_("not DFP cluster");
+        return RpFilterHeadersStatus_Continue;
+    }
+
+    if (g_ascii_strcasecmp(rp_cluster_type_cfg_name(cluster_type),
+                            "rproxy.clusters.dynamic_forward_proxy") != 0)
+    {
+        NOISY_MSG_("not DFP cluster");
         return RpFilterHeadersStatus_Continue;
     }
 
     guint16 default_port = 80;
     //TODO...if (cluster_info_->transportSocketMatcher(...)...)
+
+    //TODO...check for per route filter config.
 
     RpDfpClusterStoreSharedPtr cluster_store = rp_proxy_filter_config_cluster_store(me->m_config);
     RpDfpCluster* dfp_cluster = rp_dfp_cluster_store_load(cluster_store, rp_cluster_info_name(me->m_cluster_info));
@@ -172,12 +183,15 @@ decode_headers_i(RpStreamDecoderFilter* self, evhtp_headers_t* request_headers, 
         return RpFilterHeadersStatus_StopIteration;
     }
 
+    // REVISIT: For now, this is the essentially the hard-coded path.
     if (rp_dfp_cluster_enable_sub_cluster(dfp_cluster))
     {
         NOISY_MSG_("loading dynamic cluster");
         return load_dynamic_cluster(me, dfp_cluster, request_headers, default_port);
     }
 
+//TODO...perform DNS lookup and store IP address in state...
+//NOTE - in its current form, this path will never be taken.
     return RpFilterHeadersStatus_Continue;
 }
 

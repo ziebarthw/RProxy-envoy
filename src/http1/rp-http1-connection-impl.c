@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_http1_connection_impl_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_http1_connection_impl_NOISY)
@@ -103,19 +100,32 @@ ensure_empty_buffer(RpHttp1ConnectionImplPrivate* me)
     return me->m_empty_buffer;
 }
 
-static inline RpStatusCode_e
-dispatch_slice(RpHttp1ConnectionImpl* self, const char* slice, size_t len, size_t* nread)
+typedef struct _RpStatusOrSize RpStatusOrSize;
+struct _RpStatusOrSize {
+    RpStatusCode_e status;
+    gsize value;
+};
+#define rp_status_or_size_ctor(s, v) \
+    ((RpStatusOrSize){.status=s, .value=v})
+#define rp_status_or_size_ok(s) ((s)->status == RpStatusCode_Ok)
+#define rp_status_or_size_status(s) (s)->status
+#define rp_status_or_size_value(s) (s)->value
+
+static RpStatusOrSize
+dispatch_slice(RpHttp1ConnectionImpl* self, const char* slice, size_t len)
 {
-    NOISY_MSG_("(%p, %p, %zu, %p)", self, slice, len, nread);
+    NOISY_MSG_("(%p, %p, %zu)", self, slice, len);
 
     RpHttp1ConnectionImplPrivate* me = PRIV(self);
     RpParser* parser = me->m_parser;
 
-    *nread = rp_parser_execute(parser, slice, len);
+    g_assert((me->m_codec_status == RpStatusCode_Ok) && me->m_dispatching);
+
+    gsize nread = rp_parser_execute(parser, slice, len);
     if (me->m_codec_status != RpStatusCode_Ok)
     {
         NOISY_MSG_("returning %d", me->m_codec_status);
-        return me->m_codec_status;
+        return rp_status_or_size_ctor(me->m_codec_status, nread);
     }
 
     RpParserStatus_e status = rp_parser_get_status(parser);
@@ -123,11 +133,12 @@ dispatch_slice(RpHttp1ConnectionImpl* self, const char* slice, size_t len, size_
     {
         NOISY_MSG_("returning CodecProtocolError %d", RpStatusCode_CodecProtocolError);
         //TODO...
-        return RpStatusCode_CodecProtocolError;
+        me->m_codec_status = RpStatusCode_CodecProtocolError;
+        return rp_status_or_size_ctor(RpStatusCode_CodecProtocolError, nread);
     }
 
-    NOISY_MSG_("returning Ok");
-    return RpStatusCode_Ok;
+    NOISY_MSG_("returning %zu", nread);
+    return rp_status_or_size_ctor(RpStatusCode_Ok, nread);
 }
 
 static inline void
@@ -200,24 +211,24 @@ dispatch(RpHttp1ConnectionImpl* self, evbuf_t* data)
 
             me->m_dispatching_slice_already_drained = false;
 
-            size_t nparsed;
-            RpStatusCode_e status = dispatch_slice(self, v[0].iov_base, v[0].iov_len, &nparsed);
-            if (status != RpStatusCode_Ok)
+            RpStatusOrSize statusor_parsed = dispatch_slice(self, v[0].iov_base, v[0].iov_len);
+            if (!rp_status_or_size_ok(&statusor_parsed))
             {
-                NOISY_MSG_("returning %d", status);
-                return status;
+                NOISY_MSG_("returning %d", rp_status_or_size_status(&statusor_parsed));
+                return rp_status_or_size_status(&statusor_parsed);
             }
             if (!me->m_dispatching_slice_already_drained)
             {
-                g_assert(nparsed <= v[0].iov_len);
-                NOISY_MSG_("draining %zu bytes", nparsed);
-                evbuffer_drain(data, nparsed);
+                g_assert(rp_status_or_size_value(&statusor_parsed) <= v[0].iov_len);
+                NOISY_MSG_("draining %zu bytes", rp_status_or_size_value(&statusor_parsed));
+                evbuffer_drain(data, rp_status_or_size_value(&statusor_parsed));
             }
 
-            total_parsed += nparsed;
+            total_parsed += rp_status_or_size_value(&statusor_parsed);
             if (rp_parser_get_status(parser) != RpParserStatus_Ok)
             {
                 NOISY_MSG_("breaking on status %d", rp_parser_get_status(parser));
+                g_assert(rp_parser_get_status(me->m_parser) == RpParserStatus_Paused);
                 break;
             }
         }
@@ -226,12 +237,11 @@ dispatch(RpHttp1ConnectionImpl* self, evbuf_t* data)
     }
     else
     {
-        size_t nparsed;
-        RpStatusCode_e result = dispatch_slice(self, NULL, 0, &nparsed);
-        if (result != RpStatusCode_Ok)
+        RpStatusOrSize result = dispatch_slice(self, NULL, 0);
+        if (!rp_status_or_size_ok(&result))
         {
             NOISY_MSG_("failed");
-            return result;
+            return rp_status_or_size_status(&result);
         }
     }
 
@@ -311,9 +321,29 @@ set_and_check_callback_status(RpHttp1ConnectionImpl* self, RpStatusCode_e status
 {
     NOISY_MSG_("(%p, %d)", self, status);
     RpHttp1ConnectionImplPrivate* me = PRIV(self);
+    g_assert(me->m_codec_status == RpStatusCode_Ok);
     me->m_codec_status = status;
     return me->m_codec_status == RpStatusCode_Ok ?
-                            RpCallbackResult_Success : RpCallbackResult_Error;
+        RpCallbackResult_Success : RpCallbackResult_Error;
+}
+
+static RpCallbackResult_e
+set_and_check_callback_status_or(RpHttp1ConnectionImpl* self, RpStatusOrCallbackResult statusor)
+{
+    NOISY_MSG_("(%p, (%d, %d))", self, statusor.status, statusor.value);
+    RpHttp1ConnectionImplPrivate* me = PRIV(self);
+    g_assert(me->m_codec_status == RpStatusCode_Ok);
+    if (rp_status_or_callback_result_ok(&statusor))
+    {
+        NOISY_MSG_("returning value %d", rp_status_or_callback_result_value(&statusor));
+        return rp_status_or_callback_result_value(&statusor);
+    }
+    else
+    {
+        NOISY_MSG_("returning error, status %d", rp_status_or_callback_result_status(&statusor));
+        me->m_codec_status = rp_status_or_callback_result_status(&statusor);
+        return RpCallbackResult_Error;
+    }
 }
 
 static void
@@ -373,6 +403,8 @@ complete_current_header(RpHttp1ConnectionImpl* self)
     NOISY_MSG_("(%p)", self);
     RpHttp1ConnectionImplPrivate* me = PRIV(self);
     evhtp_headers_t* headers_or_trailers = RP_HTTP1_CONNECTION_IMPL_GET_CLASS(self)->headers_or_trailers(self);
+
+    g_assert(me->m_dispatching);
 
     //TODO...getBytesMeter().addHeaderBytesReceived(CRLF_SIZE + 1);
 
@@ -473,12 +505,12 @@ on_header_value_i(RpParserCallbacks* self, const char* data, size_t length)
     return set_and_check_callback_status(me, on_header_value_impl(me, data, length));
 }
 
-static inline RpStatusCode_e
+static inline RpStatusOrCallbackResult
 on_headers_complete_impl(RpHttp1ConnectionImpl* self)
 {
     NOISY_MSG_("(%p)", self);
 
-    RETURN_IF_ERROR(complete_current_header(self));
+    RETURN_IF_ERROR_2(complete_current_header(self));
 
     RpHttp1ConnectionImplPrivate* me = PRIV(self);
     RpParser* parser = me->m_parser;
@@ -507,8 +539,8 @@ on_headers_complete_impl(RpHttp1ConnectionImpl* self)
             else
             {
                 me->m_error_code = EVHTP_RES_BADREQ;
-                RETURN_IF_ERROR(rp_http1_connection_impl_send_protocol_error(self, "body-disallowed"));
-                return RpStatusCode_CodecProtocolError;
+                RETURN_IF_ERROR_2(rp_http1_connection_impl_send_protocol_error(self, "body-disallowed"));
+                return rp_status_or_callback_result_ctor(RpStatusCode_CodecProtocolError, 0);
             }
         }
         me->m_handling_upgrade = true;
@@ -525,8 +557,8 @@ on_headers_complete_impl(RpHttp1ConnectionImpl* self)
         else
         {
             me->m_error_code = EVHTP_RES_BADREQ;
-            RETURN_IF_ERROR(rp_http1_connection_impl_send_protocol_error(self, "chunked-content-length"));
-            return RpStatusCode_CodecProtocolError;
+            RETURN_IF_ERROR_2(rp_http1_connection_impl_send_protocol_error(self, "chunked-content-length"));
+            return rp_status_or_callback_result_ctor(RpStatusCode_CodecProtocolError, 0);
         }
     }
 
@@ -537,16 +569,21 @@ on_headers_complete_impl(RpHttp1ConnectionImpl* self)
             (g_ascii_strcasecmp(method_name, RpHeaderValues.MethodValues.Connect) == 0))
         {
             me->m_error_code = EVHTP_RES_NOTIMPL;
-            RETURN_IF_ERROR(rp_http1_connection_impl_send_protocol_error(self, "invalid-transfer-encoding"));
-            return RpStatusCode_CodecProtocolError;
+            RETURN_IF_ERROR_2(rp_http1_connection_impl_send_protocol_error(self, "invalid-transfer-encoding"));
+            return rp_status_or_callback_result_ctor(RpStatusCode_CodecProtocolError, 0);
         }
     }
 
-    RETURN_IF_ERROR(RP_HTTP1_CONNECTION_IMPL_GET_CLASS(self)->on_headers_complete_base(self));
+    RpStatusOrCallbackResult statusor = RP_HTTP1_CONNECTION_IMPL_GET_CLASS(self)->on_headers_complete_base(self);
+    if (!rp_status_or_callback_result_ok(&statusor))
+    {
+        RETURN_IF_ERROR_2(rp_status_or_callback_result_status(&statusor));
+    }
 
     me->m_header_parsing_state = RpHeaderParsingState_Done;
 
-    return /*TODO...me->m_handling_upgrade ? RpCallbackResult_NoBodyData :*/ RpStatusCode_Ok;
+    return me->m_handling_upgrade ?
+        rp_status_or_callback_result_ctor(RpStatusCode_Ok, RpCallbackResult_NoBodyData) : statusor;
 }
 
 static RpCallbackResult_e
@@ -554,10 +591,10 @@ on_headers_complete_i(RpParserCallbacks* self)
 {
     NOISY_MSG_("(%p)", self);
     RpHttp1ConnectionImpl* me = RP_HTTP1_CONNECTION_IMPL(self);
-    return set_and_check_callback_status(me, on_headers_complete_impl(me));
+    return set_and_check_callback_status_or(me, on_headers_complete_impl(me));
 }
 
-static inline RpCallbackResult_e
+static inline RpStatusOrCallbackResult
 on_message_complete_impl(RpHttp1ConnectionImpl* self)
 {
     NOISY_MSG_("(%p)", self);
@@ -569,12 +606,12 @@ on_message_complete_impl(RpHttp1ConnectionImpl* self)
     {
         g_assert(!me->m_deferred_end_stream_headers);
         NOISY_MSG_("Pausing parser due to upgrade");
-        return rp_parser_pause(me->m_parser);
+        return rp_status_or_callback_result_ctor(RpStatusCode_Ok, rp_parser_pause(me->m_parser));
     }
 
     if (me->m_header_parsing_state == RpHeaderParsingState_Value)
     {
-        RETURN_IF_ERROR(complete_current_header(self));
+        RETURN_IF_ERROR_2(complete_current_header(self));
     }
 
     return RP_HTTP1_CONNECTION_IMPL_GET_CLASS(self)->on_message_complete_base(self);
@@ -585,7 +622,7 @@ on_message_complete_i(RpParserCallbacks* self)
 {
     NOISY_MSG_("(%p)", self);
     RpHttp1ConnectionImpl* me = RP_HTTP1_CONNECTION_IMPL(self);
-    return set_and_check_callback_status(me, on_message_complete_impl(me));
+    return set_and_check_callback_status_or(me, on_message_complete_impl(me));
 }
 
 static void

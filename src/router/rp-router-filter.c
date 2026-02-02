@@ -348,12 +348,13 @@ return RpFilterHeadersStatus_StopIteration;
     }
     me->m_cluster = rp_thread_local_cluster_info(cluster);
 
+NOISY_MSG_("calling rp_thread_local_cluster_choose_host(%p, %p)", cluster, self);
     RpHostSelectionResponse host_selection_response = rp_thread_local_cluster_choose_host(cluster, RP_LOAD_BALANCER_CONTEXT(self));
     if (!host_selection_response.m_cancelable /*|| TODO....*/)
     {
         return continue_decode_headers(me, cluster, request_headers, end_stream,
                                         modify_headers, NULL,
-                                        host_selection_response.m_host, host_selection_response.m_details);
+                                        g_steal_pointer(&host_selection_response.m_host), host_selection_response.m_details);
     }
 
 //TODO...async host selection

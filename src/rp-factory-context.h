@@ -40,6 +40,7 @@ struct _RpCommonFactoryContextInterface {
     RpSlotAllocator* (*thread_local)(RpCommonFactoryContext*);
     RpClusterManager* (*cluster_manager)(RpCommonFactoryContext*);
     //TODO...TimeSource& timeSource() PURE;
+    RpTimeSource* (*time_source)(RpCommonFactoryContext*);
     //TODO...
     //TODO...Regex::Engine regexEngine() PURE;
 };
@@ -75,6 +76,12 @@ rp_common_factory_context_cluster_manager(RpCommonFactoryContext* self)
 {
     return RP_IS_COMMON_FACTORY_CONTEXT(self) ?
         RP_COMMON_FACTORY_CONTEXT_GET_IFACE(self)->cluster_manager(self) : NULL;
+}
+static inline RpTimeSource*
+rp_common_factory_context_time_source(RpCommonFactoryContext* self)
+{
+    return RP_IS_COMMON_FACTORY_CONTEXT(self) ?
+        RP_COMMON_FACTORY_CONTEXT_GET_IFACE(self)->time_source(self) : NULL;
 }
 
 

@@ -44,7 +44,6 @@ struct _RpClusterManagerImpl {
 
     RpServerInstance* m_server;
     RpClusterManagerFactory* m_factory;
-    //TODO...ThreadLocal::TypedSlot<ThreadLocalClusterManagerImpl> tls_;
     RpSlotPtr m_tls;
     RpDispatcher* m_dispatcher;
     RpTimeSource* m_time_source;
@@ -68,22 +67,38 @@ G_DEFINE_FINAL_TYPE_WITH_CODE(RpClusterManagerImpl, rp_cluster_manager_impl, G_T
     G_IMPLEMENT_INTERFACE(RP_TYPE_CLUSTER_MANAGER, cluster_manager_iface_init)
 )
 
-#if 0
-static bool
-deferral_is_supported_for_cluster(RpClusterManagerImpl* self, RpClusterInfoConstSharedPtr info)
+/* FNV-1a 64-bit - simple, fast, good distribution */
+static inline guint64
+fnv1a_64_update(guint64 hash, const void* data, gsize len)
 {
-    NOISY_MSG_("(%p, %p)", self, info);
-
-    if (!self->m_deferred_cluster_creation)
+    const guint8 *bytes = data;
+    for (size_t i = 0; i < len; i++)
     {
-        NOISY_MSG_("nope");
-        return false;
+        hash ^= bytes[i];
+        hash *= 0x100000001b3ULL;
     }
-
-    //TODO..."envoy.cluster.static"...
-return false;
+    return hash;
 }
-#endif//0
+#define FNV1A_64_INIT 0xcbf29ce484222325ULL
+static inline guint64
+config_hash(const RpClusterCfg* cluster)
+{
+    NOISY_MSG_("(%p)", cluster);
+    return fnv1a_64_update(FNV1A_64_INIT, cluster, sizeof(*cluster));
+}
+
+static void
+cluster_warming_to_active(RpClusterManagerImpl* self, const char* cluster_name)
+{
+    NOISY_MSG_("(%p, %p(%s))", self, cluster_name, cluster_name);
+    RpClusterDataPtr warming = g_hash_table_lookup(self->m_warming_clusters, cluster_name);
+    g_assert(warming);
+
+    //TODO...updates_map_.erase(cluster_name);
+
+    g_hash_table_replace(self->m_active_clusters, g_strdup(cluster_name), warming);
+    g_hash_table_remove(self->m_warming_clusters, cluster_name);
+}
 
 typedef struct _RpUpdateCbCtx RpUpdateCbCtx;
 struct _RpUpdateCbCtx {
@@ -145,7 +160,15 @@ update_cb(RpThreadLocalObjectSharedPtr obj, gpointer arg)
 
     if (new_cluster)
     {
-        //TODO...
+        //TODO...ThreadLocalClusterCommand command = [&new_cluster]() ->...
+        const char* name = rp_cluster_info_name(info);
+        GList* update_callbacks_ = rp_thread_local_cluster_manager_impl_update_callbacks_(cluster_manager);
+        for (GList* cb_it = update_callbacks_; cb_it; )
+        {
+            GList* curr_cb_it = cb_it;
+            cb_it = cb_it->next;
+            rp_cluster_update_callbacks_on_cluster_add_or_update(RP_CLUSTER_UPDATE_CALLBACKS(curr_cb_it->data), name, NULL/*TODO...command*/);
+        }
     }
 }
 
@@ -182,7 +205,7 @@ return NULL;
 static void
 post_thread_local_cluster_update(RpClusterManagerImpl* self, RpClusterManagerCluster* cm_cluster, RpThreadLocalClusterUpdateParams params)
 {
-    NOISY_MSG_("(%p, %p, ...)", self, cm_cluster);
+    NOISY_MSG_("(%p, %p(%p), ...)", self, cm_cluster, rp_cluster_manager_cluster_cluster(cm_cluster));
 
     bool add_or_update_cluster = false;
     if (!rp_cluster_manager_cluster_added_or_updated(cm_cluster))
@@ -196,23 +219,69 @@ post_thread_local_cluster_update(RpClusterManagerImpl* self, RpClusterManagerClu
     {
         NOISY_MSG_("getting load_balancer_factory");
         load_balancer_factory = rp_cluster_manager_cluster_load_balancer_factory(cm_cluster);
-NOISY_MSG_("load balancer factory %p", load_balancer_factory);
     }
 
     //TODO...
 
     IF_NOISY_(RpHostMapConstSharedPtr host_map = rp_priority_set_cross_priority_host_map(
-                                            rp_cluster_priority_set(
-                                                rp_cluster_manager_cluster_cluster(cm_cluster)));)
-NOISY_MSG_("host map %p", host_map);
+                                                    rp_cluster_priority_set(
+                                                        rp_cluster_manager_cluster_cluster(cm_cluster)));)
 
     //TODO...pending_cluster_creations_.erase(...)
 
     RpClusterInfoConstSharedPtr info = rp_cluster_info(
-                                            rp_cluster_manager_cluster_cluster(cm_cluster));
+                                        rp_cluster_manager_cluster_cluster(cm_cluster));
     RpUpdateCbCtx* ctx = rp_update_cb_ctx_new(info, params, load_balancer_factory, add_or_update_cluster);
     rp_slot_run_on_all_threads_completed(self->m_tls, update_cb, completed_cb, ctx);
 }
+
+static RpStatusCode_e
+on_cluster_init(RpClusterManager* self, RpClusterManagerCluster* cm_cluster)
+{
+    NOISY_MSG_("(%p, %p)", self, cm_cluster);
+    RpClusterManagerImpl* me = RP_CLUSTER_MANAGER_IMPL(self);
+    RpCluster* cluster = rp_cluster_manager_cluster_cluster(cm_cluster);
+    const char* name = rp_cluster_info_name(rp_cluster_info(cluster));
+    RpClusterDataPtr cluster_data = g_hash_table_lookup(me->m_warming_clusters, name);
+    if (cluster_data)
+    {
+        cluster_warming_to_active(me, name);
+        //TODO...updateClusterCounts();
+    }
+    cluster_data = g_hash_table_lookup(me->m_active_clusters, name);
+
+    if (*rp_cluster_data_thread_aware_lb_(cluster_data))
+    {
+        RpStatusCode_e status = rp_thread_aware_load_balancer_initialize(*rp_cluster_data_thread_aware_lb_(cluster_data));
+        if (status != RpStatusCode_Ok)
+        {
+            LOGE("failed");
+            return status;
+        }
+    }
+    //TODO...
+
+    RpThreadLocalClusterUpdateParams params = rp_thread_local_cluster_update_params_ctor(RpResourcePriority_Default, NULL, NULL);
+    post_thread_local_cluster_update(me, cm_cluster, params);
+    return RpStatusCode_Ok;
+}
+
+#if 0
+static bool
+deferral_is_supported_for_cluster(RpClusterManagerImpl* self, RpClusterInfoConstSharedPtr info)
+{
+    NOISY_MSG_("(%p, %p)", self, info);
+
+    if (!self->m_deferred_cluster_creation)
+    {
+        NOISY_MSG_("nope");
+        return false;
+    }
+
+    //TODO..."envoy.cluster.static"...
+return false;
+}
+#endif//0
 
 static inline RpLbPolicy_e
 translate_lb_policy(rule_cfg_t* cfg)
@@ -259,19 +328,6 @@ translate_discovery_type(rule_cfg_t* cfg)
     }
 }
 
-static void
-cluster_warming_to_active(RpClusterManagerImpl* self, const char* cluster_name)
-{
-    NOISY_MSG_("(%p, %p(%s))", self, cluster_name, cluster_name);
-    RpClusterDataPtr warming = g_hash_table_lookup(self->m_warming_clusters, cluster_name);
-    g_assert(warming);
-
-    //TODO...updates_map_.erase(cluster_name);
-
-    g_hash_table_replace(self->m_active_clusters, g_strdup(cluster_name), warming);
-    g_hash_table_remove(self->m_warming_clusters, cluster_name);
-}
-
 static inline RpLocalClusterParams*
 get_local_cluster_params(RpLocalClusterParams* local_cluster_params)
 {
@@ -290,9 +346,10 @@ initialize_cb(RpDispatcher* dispatcher, gpointer arg)
 }
 
 static RpClusterDataPtr
-load_cluster(RpClusterManagerImpl* self, RpClusterCfg* cluster, bool added_via_api, RpClusterMap cluster_map, GError** err)
+load_cluster(RpClusterManagerImpl* self, RpClusterCfg* cluster,
+                guint64 cluster_hash, bool added_via_api, RpClusterMap cluster_map, GError** err)
 {
-    NOISY_MSG_("(%p, %p, %u, %p, %p)", self, cluster, added_via_api, cluster_map, err);
+    NOISY_MSG_("(%p, %p, %zu, %u, %p, %p)", self, cluster, cluster_hash, added_via_api, cluster_map, err);
 
     PairClusterSharedPtrThreadAwareLoadBalancerPtr
         new_cluster_pair = rp_cluster_manager_factory_cluster_from_proto(self->m_factory,
@@ -320,7 +377,26 @@ load_cluster(RpClusterManagerImpl* self, RpClusterCfg* cluster, bool added_via_a
         }
     }
 
-    RpClusterDataPtr new_cluster_data = rp_cluster_data_new(cluster, added_via_api, g_steal_pointer(&new_cluster), self->m_time_source);
+    RpTypedLoadBalancerFactory* typed_lb_factory = rp_cluster_info_load_balancer_factory(cluster_info);
+    bool cluster_provided_lb = g_ascii_strcasecmp(
+                                rp_typed_load_balancer_factory_name(typed_lb_factory), "rproxy.load_balancing_policies.cluster_provided") == 0;
+
+    if (cluster_provided_lb && lb == NULL)
+    {
+        g_set_error(err, G_FILE_ERROR, G_FILE_ERROR_INVAL,
+            "cluster manager: cluster provided LB specified but cluster \"%s\" did not provided one. Check cluster documentation.",
+                rp_cluster_info_name(cluster_info));
+        return NULL;
+    }
+    if (!cluster_provided_lb && lb != NULL)
+    {
+        g_set_error(err, G_FILE_ERROR, G_FILE_ERROR_INVAL,
+            "cluster manager: cluster provided LB not specified but cluster \"%s\" provided one. Check cluster documentation.",
+                rp_cluster_info_name(cluster_info));
+        return NULL;
+    }
+
+    RpClusterDataPtr new_cluster_data = rp_cluster_data_new(cluster, cluster_hash, added_via_api, g_steal_pointer(&new_cluster), self->m_time_source);
     RpClusterDataPtr result = g_hash_table_lookup(cluster_map, name);
     if (g_hash_table_replace(cluster_map, g_strdup(name), new_cluster_data))
     {
@@ -328,9 +404,19 @@ load_cluster(RpClusterManagerImpl* self, RpClusterCfg* cluster, bool added_via_a
         result = NULL;
     }
 
-    //TODO...more complete lb stuff...
     RpThreadAwareLoadBalancerPtr* thread_aware_lb_ = rp_cluster_data_thread_aware_lb_(new_cluster_data);
-    *thread_aware_lb_ = g_steal_pointer(&lb);
+    if (cluster_provided_lb)
+    {
+        *thread_aware_lb_ = g_steal_pointer(&lb);
+    }
+    else
+    {
+        *thread_aware_lb_ = rp_typed_load_balancer_factory_create(typed_lb_factory,
+                                                                    rp_cluster_info_load_balancer_config(cluster_info),
+                                                                    cluster_info,
+                                                                    rp_cluster_priority_set(new_cluster),
+                                                                    self->m_time_source);
+    }
 
     //TODO..updateClusterCounts();
     return result;
@@ -395,91 +481,184 @@ rp_process_rule_cb_ctx_ctor(RpClusterManagerImpl* cluster_manager, GError** err)
     return self;
 }
 
+static inline void
+init_socket_address_cfg(RpSocketAddressCfg* self, upstream_t* upstream)
+{
+    // upstream->config->host might be null in the case of strict dns and
+    // dynamic forward proxy clusters.
+    const char* src = upstream->config->host ?
+                        upstream->config->host : "0.0.0.0";
+    rp_socket_address_cfg_set_address(self, src);
+    rp_socket_address_cfg_set_port_value(self, upstream->config->port);
+    self->ipv4_compat = true;
+    self->network_namespace_filepath[0] = NUL;
+    self->protocol = RpProtocol_TCP;
+    self->resolver_name[0] = NUL;
+}
 
-#if 0
-static RpLbEndpointCfg*
-rp_lb_endpoint_cfg_new(RpEndpointCfg endpoint, guint32 load_balancing_weight)
+static inline void
+init_address_cfg(RpAddressCfg* self, upstream_t* upstream)
 {
-    RpLbEndpointCfg* self = g_new(RpLbEndpointCfg, 1);
-    self->host_identifier.endpoint = endpoint;
-    self->load_balancing_weight = load_balancing_weight;
-    return self;
+    init_socket_address_cfg(&self->address.socket_address, upstream);
 }
-static RpLocalityLbEndpointsCfg*
-rp_locality_lb_endpoints_new(rule_t* rule, guint32 load_balancing_weight, guint32 priority)
+
+static inline void
+init_endpoint_cfg(RpEndpointCfg* self, upstream_t* upstream)
 {
-    RpLocalityLbEndpointsCfg* self = g_new(RpLocalityLbEndpointsCfg, 1);
-    self->lb_endpoints = g_ptr_array_new_full(lztq_size(rule->upstreams), g_free);
-    return self;
+    init_address_cfg(&self->address, upstream);
+    rp_endpoint_cfg_clear_additional_addresses(self);
+    g_strlcpy(self->hostname, upstream->config->name, sizeof(self->hostname));
 }
-static void
-rp_locality_lb_endpoints_free(gpointer arg)
+
+static inline void
+init_lb_endpoint_cfg(RpLbEndpointCfg* self, upstream_t* upstream)
 {
-    RpLocalityLbEndpointsCfg* self = arg;
-    g_ptr_array_free(self->lb_endpoints, true);
-    g_free(self);
+    init_endpoint_cfg(rp_lb_endpoint_cfg_mutable_endpoint(self), upstream);
+    self->load_balancing_weight = 1;
+    self->metadata = upstream;
 }
-static GPtrArray*
-create_cluster_load_assignment_endpoints(rule_t* rule)
+
+static inline void
+init_locality_lb_endpoints_cfg(RpLocalityLbEndpointsCfg* self, rule_t* rule)
 {
-    NOISY_MSG_("(%p)", rule);
-    g_autoptr(GPtrArray) endpoints = g_ptr_array_new_full(lztq_size(rule->upstreams), rp_locality_lb_endpoints_free);
-    for (lztq_elem* elem = lztq_first(rule->upstreams); elem; elem = lztq_next(elem))
+    for (GSList* itr = rule->upstreams; itr; itr = itr->next)
     {
-        upstream_t* upstream = lztq_elem_data(elem);
-        g_ptr_array_add(endpoints, rp_locality_lb_endpoints_new(rule, 1, 0));
+        upstream_t* upstream = itr->data;
+        RpLbEndpointCfg* lb_endpoint = rp_locality_lb_endpoints_cfg_add_lb_endpoints(self);
+        if (!lb_endpoint)
+        {
+            LOGE("too many upstreams!");
+            break;
+        }
+        init_lb_endpoint_cfg(lb_endpoint, upstream);
     }
-    return g_steal_pointer(&endpoints);
+    self->load_balancing_weight = 1;
+    self->priority = 0;
 }
-#endif//0
 
-static int
-process_rule_cb(lztq_elem* elem, gpointer arg)
+static inline void
+init_preconnect_policy_cfg(RpPreconnectPolicyCfg* self)
 {
-    NOISY_MSG_("(%p, %p)", elem, arg);
+    self->per_upstream_preconnect_ratio = 1.0;
+    self->predictive_preconnect_ratio = 1.0;
+}
+
+static inline void
+init_lb_policy_cfg(RpLbPolicyCfg* self)
+{
+    self->overprovisioning_factor = 1;
+    self->endpoint_stale_after = 60/*REVISIT*/;
+    self->weighted_priority_health = 1;
+}
+
+static inline void
+init_cluster_load_assignment_cfg(RpClusterLoadAssignmentCfg* self, rule_t* rule)
+{
+    NOISY_MSG_("(%p, %p)", self, rule);
+    init_lb_policy_cfg(&self->policy);
+    rp_cluster_load_assignment_cfg_clear_endpoints(self);
+    RpLocalityLbEndpointsCfg* lb_endpoint = rp_cluster_load_assignment_cfg_add_endpoints(self);
+    init_locality_lb_endpoints_cfg(lb_endpoint, rule);
+    g_snprintf(self->cluster_name, sizeof(self->cluster_name), "%p", rule->config);
+}
+
+static inline void
+init_dfp_sub_clusters_config(RpDfpSubClustersCfg* self, dfp_sub_clusters_cfg_t* cfg)
+{
+    NOISY_MSG_("(%p, %p)", self, cfg);
+//    self->lb_policy = cfg->lb_policy;
+self->lb_policy = RpLbPolicy_CLUSTER_PROVIDED;//REVISIT to be config-driven.
+    self->max_sub_clusters = cfg->max_sub_clusters;
+    self->sub_cluster_ttl = cfg->sub_cluster_ttl;
+}
+
+static inline void
+init_dfp_dns_cache_config(RpDfpDnsCacheCfg* self, dfp_dns_cache_cfg_t* cfg)
+{
+    NOISY_MSG_("(%p, %p)", self, cfg);
+    g_strlcpy(self->name, cfg->name, sizeof(self->name));
+    self->dns_lookup_family = cfg->dns_lookup_family;
+    self->host_ttl = cfg->host_ttl;
+    self->max_hosts = cfg->max_hosts;
+}
+
+static inline void
+init_dfp_cluster_config(RpDfpClusterCfg* self, dfp_cluster_cfg_t* cfg)
+{
+    NOISY_MSG_("(%p, %p)", self, cfg);
+    if (cfg->sub_clusters_cfg)
+    {
+        init_dfp_sub_clusters_config(&self->implementation_specifier.sub_clusters_config, cfg->sub_clusters_cfg);
+        self->implementation_specifier_type = RpDfpImplementationSpecifierType_SUB_CLUSTER_TYPE;
+    }
+    else if (cfg->dns_cache_cfg)
+    {
+        init_dfp_dns_cache_config(&self->implementation_specifier.dns_cache_config, cfg->dns_cache_cfg);
+        self->implementation_specifier_type = RpDfpImplementationSpecifierType_DNS_CACHE_CONFIG_TYPE;
+    }
+}
+
+static inline void
+init_cluster_type_cfg(RpCustomClusterTypeCfg* self, cluster_type_cfg_t* cfg)
+{
+    NOISY_MSG_("(%p, %p)", self, cfg);
+    g_strlcpy(self->name, cfg->name, sizeof(self->name));
+    if (cfg->dfp_cluster_config)
+    {
+        init_dfp_cluster_config(&self->typed_config.dfp_cluster_config, cfg->dfp_cluster_config);
+        self->typed_config_type = RpTypedConfigType_DFP_CLUSTER_CONFIG;
+    }
+    //TODO...else if (...) {...}
+}
+
+static inline void
+init_cluster_cfg(RpClusterCfg* self, rule_t* rule)
+{
+    NOISY_MSG_("(%p, %p)", self, rule);
+    rule_cfg_t* rule_cfg = rule->config;
+    init_preconnect_policy_cfg(&self->preconnect_policy);
+    init_cluster_load_assignment_cfg(&self->load_assignment, rule);
+    if (rule_cfg->cluster_type)
+    {
+        init_cluster_type_cfg(&self->cluster_discovery_type.cluster_type, rule_cfg->cluster_type);
+        self->cluster_discovery_type_type = RpClusterDiscoveryTypeType_CLUSTER_TYPE;
+    }
+    else
+    {
+        self->cluster_discovery_type.type = translate_discovery_type(rule_cfg);
+        self->cluster_discovery_type_type = RpClusterDiscoveryTypeType_TYPE;
+    }
+    self->connect_timeout_secs = 5;
+    self->per_connection_buffer_limit_bytes = 1024*1024;
+//    self->lb_policy = translate_lb_policy(rule_cfg);
+rp_cluster_cfg_set_lb_policy(self, RpLbPolicy_CLUSTER_PROVIDED);
+    self->dns_lookup_family = RpDnsLookupFamily_AUTO;
+    self->connection_pool_per_downstream_connection = false;
+    self->rule = rule;
+}
+
+static void
+process_rule_cb(gpointer data, gpointer arg)
+{
+    NOISY_MSG_("(%p, %p)", data, arg);
     RpProcessRuleCbCtx* ctx = arg;
     RpClusterManagerImpl* me = ctx->cluster_manager;
     GError** err = ctx->err;
-    rule_t* rule = lztq_elem_data(elem);
-    rule_cfg_t* rule_cfg = rule->config;
-    RpDiscoveryType_e cluster_discovery_type = translate_discovery_type(rule_cfg);
-    gchar* name = g_strdup_printf("%p", rule_cfg);
+    rule_t* rule = data;
 
-    NOISY_MSG_("rule %p, rule->config %p, name %p(%s)", rule, rule_cfg, name, name);
+    RpClusterCfg cluster = *rp_cluster_cfg_empty();
+    init_cluster_cfg(&cluster, rule);
 
-    RpLocalityLbEndpointsCfg locality_lb_endpoints = {
-        .lb_endpoints = rule->upstreams,
-        .load_balancing_weight = 1,
-        .priority = 0
-    };
-    RpClusterCfg cluster = {
-        .preconnect_policy = {
-            .per_upstream_preconnect_ratio = 1.0,
-            .predictive_preconnect_ratio = 1.0
-        },
-        .name = name,
-        .type = cluster_discovery_type,
-        .connect_timeout_secs = 5,
-        .per_connection_buffer_limit_bytes = 1024*1024,
-        .lb_policy = translate_lb_policy(rule_cfg),
-        .dns_lookup_family = RpDnsLookupFamily_AUTO,
-        .connection_pool_per_downstream_connection = false,
-        .endpoints = locality_lb_endpoints,
-        .rule = rule
-    };
-
-    RpClusterDataPtr new_cluster = load_cluster(me, &cluster, /*added_via_api=*/false, me->m_active_clusters, err);
+    RpClusterDataPtr new_cluster = load_cluster(me, &cluster, config_hash(&cluster), /*added_via_api=*/false, me->m_active_clusters, err);
     if (err && *err)
     {
         LOGE("error %d(%s)", (*err)->code, (*err)->message);
-        return -1;
     }
-    if (new_cluster)
+    else if (new_cluster)
     {
         NOISY_MSG_("replaced cluster data %p", new_cluster);
         g_clear_object(&new_cluster);
     }
-    return 0;
 }
 
 static bool
@@ -494,11 +673,7 @@ initialize_i(RpClusterManager* self, rproxy_t* bootstrap, GError** err)
     //TODO...
 
     RpProcessRuleCbCtx ctx = rp_process_rule_cb_ctx_ctor(me, err);
-    if (lztq_for_each(bootstrap->rules, process_rule_cb, &ctx) != 0)
-    {
-        LOGE("failed");
-        return false;
-    }
+    g_slist_foreach(bootstrap->rules, process_rule_cb, &ctx);
 
     RpLocalClusterParams local_cluster_params = {0};
     if (me->m_local_cluster_name && me->m_local_cluster_name[0])
@@ -534,26 +709,105 @@ initialized_i(RpClusterManager* self)
     return RP_CLUSTER_MANAGER_IMPL(self)->m_initialized;
 }
 
+typedef struct _RpClusterInitializeCbCtx RpClusterInitializeCbCtx;
+struct _RpClusterInitializeCbCtx {
+    RpClusterManager* this_;
+    char* cluster_name;
+};
+static inline RpClusterInitializeCbCtx
+rp_cluster_initialize_cb_ctx_ctor(RpClusterManager* this_, char* cluster_name)
+{
+    RpClusterInitializeCbCtx self = {
+        .this_ = this_,
+        .cluster_name = cluster_name
+    };
+    return self;
+}
+static inline RpClusterInitializeCbCtx*
+rp_cluster_initialize_cb_ctx_new(RpClusterManager* this_, const char* cluster_name)
+{
+    RpClusterInitializeCbCtx* self = g_new(RpClusterInitializeCbCtx, 1);
+    *self = rp_cluster_initialize_cb_ctx_ctor(this_, g_strdup(cluster_name));
+    return self;
+}
+static inline RpClusterInitializeCbCtx
+rp_cluster_initialize_cb_captured(RpClusterInitializeCbCtx* self)
+{
+    RpClusterInitializeCbCtx captured = rp_cluster_initialize_cb_ctx_ctor(self->this_, self->cluster_name);
+    g_free(self);
+    return captured;
+}
+static RpStatusCode_e
+rp_cluster_initialize_cb(gpointer arg)
+{
+    NOISY_MSG_("(%p)", arg);
+    RpClusterInitializeCbCtx* ctx = arg;
+    RpClusterInitializeCbCtx captured = rp_cluster_initialize_cb_captured(ctx);
+    RpClusterManager* self = captured.this_;
+    RpClusterManagerImpl* me = RP_CLUSTER_MANAGER_IMPL(self);
+    char* cluster_name = captured.cluster_name;
+    RpClusterDataPtr state_changed_cluster_entry = g_hash_table_lookup(me->m_warming_clusters, cluster_name);
+    NOISY_MSG_("warming state changed cluster %p(%s) complete", state_changed_cluster_entry, cluster_name);
+    g_free(cluster_name);
+    //TODO...
+    return on_cluster_init(self, RP_CLUSTER_MANAGER_CLUSTER(state_changed_cluster_entry));
+}
+
 static bool
 add_or_update_cluster_i(RpClusterManager* self, RpClusterCfg* cluster, const char* version_info)
 {
     NOISY_MSG_("(%p, %p, %p(%s))", self, cluster, version_info, version_info);
 
-    const char* name = cluster->name;
-    NOISY_MSG_("name \"%s\"", name);
+    const char* cluster_name = rp_cluster_cfg_name(cluster);
+    NOISY_MSG_("cluster name \"%s\"", cluster_name);
     RpClusterManagerImpl* me = RP_CLUSTER_MANAGER_IMPL(self);
-    RpClusterDataPtr existing_active_cluster = g_hash_table_lookup(me->m_active_clusters, name);
-    //TODO...warming_clusters
-    if (existing_active_cluster)
+    RpClusterDataPtr existing_active_cluster = g_hash_table_lookup(me->m_active_clusters, cluster_name);
+    RpClusterDataPtr existing_warming_cluster = g_hash_table_lookup(me->m_warming_clusters, cluster_name);
+    guint64 new_hash = config_hash(cluster);
+    if (existing_warming_cluster)
     {
-        //TODO...init_helper_.removeCluster(*existing_active_cluster->second);
+        NOISY_MSG_("warming cluster %p(%s)", existing_warming_cluster, cluster_name);
+        if (rp_cluster_data_block_update(existing_warming_cluster, new_hash))
+        {
+            NOISY_MSG_("return false");
+            return false;
+        }
+    }
+    else if (existing_active_cluster && rp_cluster_data_block_update(existing_active_cluster, new_hash))
+    {
+        NOISY_MSG_("active cluster %p(%s), returning false", existing_active_cluster, cluster_name);
+        return false;
+    }
+
+    if (existing_active_cluster || existing_warming_cluster)
+    {
+        if (existing_active_cluster)
+        {
+            NOISY_MSG_("active cluster %p(%s)", existing_active_cluster, cluster_name);
+            rp_cluster_manager_init_helper_remove_cluster(me->m_init_helper, RP_CLUSTER_MANAGER_CLUSTER(existing_active_cluster));
+        }
         //TODO...cm_stats_.cluster_modified_.inc();
     }
     else
     {
         //TODO...cm_stats_.cluster_added_.inc();
     }
-    RpClusterDataPtr previous_cluster = load_cluster(me, cluster, /*added_via_api*/true, me->m_warming_clusters, NULL);
+
+    bool all_clusters_initialized = rp_cluster_manager_init_helper_all_clusters_initialized(me->m_init_helper);
+    RpClusterDataPtr previous_cluster = load_cluster(me, cluster, config_hash(cluster), /*added_via_api*/true, me->m_warming_clusters, NULL);
+    RpClusterDataPtr cluster_entry = g_hash_table_lookup(me->m_warming_clusters, cluster_name);
+    if (!all_clusters_initialized)
+    {
+        NOISY_MSG_("add/update cluster %p(%s) during init", cluster_entry, cluster_name);
+        rp_cluster_manager_init_helper_add_cluster(me->m_init_helper, RP_CLUSTER_MANAGER_CLUSTER(cluster_entry));
+    }
+    else
+    {
+        NOISY_MSG_("add/update cluster %p(%s) starting warming", cluster_entry, cluster_name);
+        RpClusterInitializeCbCtx* ctx = rp_cluster_initialize_cb_ctx_new(self, cluster_name);
+        rp_cluster_initialize(
+            rp_cluster_manager_cluster_cluster(RP_CLUSTER_MANAGER_CLUSTER(cluster_entry)), rp_cluster_initialize_cb, ctx);
+    }
     if (previous_cluster)
     {
         NOISY_MSG_("replaced cluster %p",
@@ -607,32 +861,6 @@ rp_cluster_manager_impl_class_init(RpClusterManagerImplClass* klass)
 
     GObjectClass* object_class = G_OBJECT_CLASS(klass);
     object_class->dispose = dispose;
-}
-
-static RpStatusCode_e
-on_cluster_init(RpClusterManager* self, RpClusterManagerCluster* cm_cluster)
-{
-    NOISY_MSG_("(%p, %p)", self, cm_cluster);
-    RpClusterManagerImpl* me = RP_CLUSTER_MANAGER_IMPL(self);
-    RpCluster* cluster = rp_cluster_manager_cluster_cluster(cm_cluster);
-    const char* name = rp_cluster_info_name(rp_cluster_info(cluster));
-    RpClusterDataPtr cluster_data = g_hash_table_lookup(me->m_warming_clusters, name);
-    if (cluster_data)
-    {
-        cluster_warming_to_active(me, name);
-        //TODO...updateClusterCounts();
-    }
-    cluster_data = g_hash_table_lookup(me->m_active_clusters, name);
-
-    if (rp_cluster_data_thread_aware_lb_(cluster_data))
-    {
-        //TODO...RETURN_IF_NOT_OK(cluster_data->second->thread_aware_lb_->initialize());
-    }
-    //TODO...
-
-    RpThreadLocalClusterUpdateParams params = rp_thread_local_cluster_update_params_ctor(RpResourcePriority_Default, NULL, NULL);
-    post_thread_local_cluster_update(me, cm_cluster, params);
-    return RpStatusCode_Ok;
 }
 
 static void

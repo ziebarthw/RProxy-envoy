@@ -17,7 +17,6 @@
 #include "rp-active-stream-encoder-filter.h"
 #include "rp-net-connection.h"
 #include "rp-stream-reset-handler.h"
-#include "lzq.h"
 
 G_BEGIN_DECLS
 
@@ -71,7 +70,7 @@ struct _RpFilterManagerCallbacksInterface {
     RpDownstreamStreamFilterCallbacks* (*downstream_callbacks)(RpFilterManagerCallbacks*);
     void (*on_local_reply)(RpFilterManagerCallbacks*, evhtp_res);
     bool (*is_half_close_enabled)(RpFilterManagerCallbacks*);
-    lztq* (*rules)(RpFilterManagerCallbacks*);
+    GSList* (*rules)(RpFilterManagerCallbacks*);
 };
 
 void rp_filter_manager_callbacks_encode_headers(RpFilterManagerCallbacks* self,
@@ -177,7 +176,7 @@ rp_filter_manager_callbacks_is_half_close_enabled(RpFilterManagerCallbacks* self
         RP_FILTER_MANAGER_CALLBACKS_GET_IFACE(self)->is_half_close_enabled(self) :
         false;
 }
-static inline lztq*
+static inline GSList*
 rp_filter_manager_callbacks_rules(RpFilterManagerCallbacks* self)
 {
     return RP_IS_FILTER_MANAGER_CALLBACKS(self) ?

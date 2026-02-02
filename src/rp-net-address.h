@@ -137,17 +137,20 @@ rp_network_address_ip_is_unicast_address(RpNetworkAddressIp* self)
 static inline RpNetworkAddressIpv4*
 rp_network_address_ip_ipv4(RpNetworkAddressIp* self)
 {
-    return RP_IS_NETWORK_ADDRESS_IP(self) ? RP_NETWORK_ADDRESS_IP_GET_IFACE(self)->ipv4(self) : NULL;
+    return RP_IS_NETWORK_ADDRESS_IP(self) ?
+        RP_NETWORK_ADDRESS_IP_GET_IFACE(self)->ipv4(self) : NULL;
 }
 static inline RpNetworkAddressIpv6*
 rp_network_address_ip_ipv6(RpNetworkAddressIp* self)
 {
-    return RP_IS_NETWORK_ADDRESS_IP(self) ? RP_NETWORK_ADDRESS_IP_GET_IFACE(self)->ipv6(self) : NULL;
+    return RP_IS_NETWORK_ADDRESS_IP(self) ?
+        RP_NETWORK_ADDRESS_IP_GET_IFACE(self)->ipv6(self) : NULL;
 }
 static inline guint32
 rp_network_address_ip_port(RpNetworkAddressIp* self)
 {
-    return RP_IS_NETWORK_ADDRESS_IP(self) ? RP_NETWORK_ADDRESS_IP_GET_IFACE(self)->port(self) : 0;
+    return RP_IS_NETWORK_ADDRESS_IP(self) ?
+        RP_NETWORK_ADDRESS_IP_GET_IFACE(self)->port(self) : 0;
 }
 static inline RpIpVersion_e
 rp_network_address_ip_version(RpNetworkAddressIp* self)
@@ -211,10 +214,10 @@ rp_rproxy_internal_address_endpoint_id(RpNetworkAddressRProxyInternalAddress* se
 }
 
 typedef enum {
-    RpAddressType_IP,
-    RpAddressType_PIPE,
-    RpAddressType_RPROXY_INTERNAL
-} RpAddressType_e;
+    RpNetworkAddressType_IP,
+    RpNetworkAddressType_PIPE,
+    RpNetworkAddressType_RPROXY_INTERNAL
+} RpNetworkAddressType_e;
 
 
 /**
@@ -229,14 +232,14 @@ struct _RpNetworkAddressInstanceInterface {
     const char* (*as_string)(RpNetworkAddressInstance*);
     string_view (*as_string_view)(RpNetworkAddressInstance*);
     const char* (*logical_name)(RpNetworkAddressInstance*);
-    const RpNetworkAddressIp* (*ip)(RpNetworkAddressInstance*);
-    const RpNetworkAddressPipe* (*pipe)(RpNetworkAddressInstance*);
-    const RpNetworkAddressRProxyInternalAddress* (*rproxy_internal_address)(RpNetworkAddressInstance*);
+    RpNetworkAddressIp* (*ip)(RpNetworkAddressInstance*);
+    RpNetworkAddressPipe* (*pipe)(RpNetworkAddressInstance*);
+    RpNetworkAddressRProxyInternalAddress* (*rproxy_internal_address)(RpNetworkAddressInstance*);
     const struct sockaddr* (*sock_addr)(RpNetworkAddressInstance*);
     socklen_t (*sock_addr_len)(RpNetworkAddressInstance*);
-    RpAddressType_e (*type)(RpNetworkAddressInstance*);
+    RpNetworkAddressType_e (*type)(RpNetworkAddressInstance*);
     string_view (*address_type)(RpNetworkAddressInstance*);
-    const RpNetworkAddressSocketInterface* (*socket_interface)(RpNetworkAddressInstance*);
+    RpNetworkAddressSocketInterface* (*socket_interface)(RpNetworkAddressInstance*);
 };
 
 static inline const char*
@@ -258,19 +261,19 @@ rp_network_address_instance_logical_name(RpNetworkAddressInstance* self)
     return RP_IS_NETWORK_ADDRESS_INSTANCE(self) ?
         RP_NETWORK_ADDRESS_INSTANCE_GET_IFACE(self)->logical_name(self) : NULL;
 }
-static inline const RpNetworkAddressIp*
+static inline RpNetworkAddressIp*
 rp_network_address_instance_ip(RpNetworkAddressInstance* self)
 {
     return RP_IS_NETWORK_ADDRESS_INSTANCE(self) ?
         RP_NETWORK_ADDRESS_INSTANCE_GET_IFACE(self)->ip(self) : NULL;
 }
-static inline const RpNetworkAddressPipe*
+static inline RpNetworkAddressPipe*
 rp_network_address_instance_pipe(RpNetworkAddressInstance* self)
 {
     return RP_IS_NETWORK_ADDRESS_INSTANCE(self) ?
         RP_NETWORK_ADDRESS_INSTANCE_GET_IFACE(self)->pipe(self) : NULL;
 }
-static inline const RpNetworkAddressRProxyInternalAddress*
+static inline RpNetworkAddressRProxyInternalAddress*
 rp_network_address_instance_rproxy_internal_address(RpNetworkAddressInstance* self)
 {
     return RP_IS_NETWORK_ADDRESS_INSTANCE(self) ?
@@ -289,11 +292,12 @@ rp_network_address_instance_sock_addr_len(RpNetworkAddressInstance* self)
     return RP_IS_NETWORK_ADDRESS_INSTANCE(self) ?
         RP_NETWORK_ADDRESS_INSTANCE_GET_IFACE(self)->sock_addr_len(self) : 0;
 }
-static inline RpAddressType_e
+static inline RpNetworkAddressType_e
 rp_network_address_instance_type(RpNetworkAddressInstance* self)
 {
     return RP_IS_NETWORK_ADDRESS_INSTANCE(self) ?
-        RP_NETWORK_ADDRESS_INSTANCE_GET_IFACE(self)->type(self) : RpAddressType_IP;
+        RP_NETWORK_ADDRESS_INSTANCE_GET_IFACE(self)->type(self) :
+        RpNetworkAddressType_IP;
 }
 static inline string_view
 rp_network_address_instance_address_type(RpNetworkAddressInstance* self)
@@ -302,11 +306,12 @@ rp_network_address_instance_address_type(RpNetworkAddressInstance* self)
         RP_NETWORK_ADDRESS_INSTANCE_GET_IFACE(self)->address_type(self) :
         string_view_ctor("", 0);
 }
-static inline const RpNetworkAddressSocketInterface*
+static inline RpNetworkAddressSocketInterface*
 rp_network_address_instance_socket_interface(RpNetworkAddressInstance* self)
 {
     return RP_IS_NETWORK_ADDRESS_INSTANCE(self) ?
-        RP_NETWORK_ADDRESS_INSTANCE_GET_IFACE(self)->socket_interface(self) : NULL;
+        RP_NETWORK_ADDRESS_INSTANCE_GET_IFACE(self)->socket_interface(self) :
+        NULL;
 }
 
 

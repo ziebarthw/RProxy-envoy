@@ -83,12 +83,12 @@ io_handle_i(RpSocket* self)
     return PRIV(self)->m_io_handle;
 }
 
-static int
-connect_i(RpSocket* self, RpNetworkAddressInstanceConstSharedPtr address, const char* requested_server_name)
+static RpSysCallIntResult
+connect_i(RpSocket* self, RpNetworkAddressInstanceConstSharedPtr address)
 {
-    NOISY_MSG_("(%p, %p, %p(%s))", self, address, requested_server_name, requested_server_name);
+    NOISY_MSG_("(%p, %p)", self, address);
     RpSocketImplPrivate* me = PRIV(self);
-    int result = rp_io_handle_connect(me->m_io_handle, address, requested_server_name);
+    RpSysCallIntResult result = rp_io_handle_connect(me->m_io_handle, address);
     RpConnectionInfoSetter* info_provider = RP_CONNECTION_INFO_SETTER(me->m_connection_info_provider);
     rp_connection_info_setter_set_local_address(info_provider, rp_io_handle_local_address(me->m_io_handle));
     return result;

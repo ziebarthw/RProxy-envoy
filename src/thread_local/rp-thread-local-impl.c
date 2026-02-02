@@ -28,7 +28,7 @@ struct _RpThreadLocalInstanceImpl {
     UNIQUE_PTR(GList) m_registerd_threads;
     SHARED_PTR(RpDispatcher) m_main_thread_dispatcher;
     GMutex m_register_lock;
-    volatile gint m_shutdown;
+    _Atomic bool m_shutdown;
 };
 
 static void slot_allocator_iface_init(RpSlotAllocatorInterface* iface);
@@ -43,7 +43,7 @@ static bool
 is_shutdown(RpThreadLocalInstance* self)
 {
     NOISY_MSG_("(%p)", self);
-    return g_atomic_int_get(&RP_THREAD_LOCAL_INSTANCE_IMPL(self)->m_shutdown) != 0;
+    return RP_THREAD_LOCAL_INSTANCE_IMPL(self)->m_shutdown;
 }
 
 static void
@@ -158,7 +158,7 @@ shutdown_global_threading_i(RpThreadLocalInstance* self)
 {
     NOISY_MSG_("(%p)", self);
     g_assert(!RP_THREAD_LOCAL_INSTANCE_IMPL(self)->m_shutdown);
-    g_atomic_int_set(&RP_THREAD_LOCAL_INSTANCE_IMPL(self)->m_shutdown, true);
+    RP_THREAD_LOCAL_INSTANCE_IMPL(self)->m_shutdown = true;
 }
 
 static void
@@ -279,7 +279,7 @@ rp_thread_local_instance_impl_remove_slot(RpThreadLocalInstanceImpl* self, guint
 {
     LOGD("(%p, %u)", self, index);
     g_return_if_fail(RP_IS_THREAD_LOCAL_INSTANCE_IMPL(self));
-    if (g_atomic_int_get(&self->m_shutdown))
+    if (self->m_shutdown)
     {
         NOISY_MSG_("shut down");
         return;
@@ -320,7 +320,7 @@ rp_thread_local_instance_impl_shutdown_(RpThreadLocalInstanceImpl* self)
 {
     LOGD("(%p)", self);
     g_return_val_if_fail(RP_IS_THREAD_LOCAL_INSTANCE_IMPL(self), true);
-    return g_atomic_int_get(&self->m_shutdown) != 0;
+    return self->m_shutdown;
 }
 
 RpDispatcher*

@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_http1_client_connection_impl_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_http1_client_connection_impl_NOISY)
@@ -142,7 +139,7 @@ headers_set_status(evhtp_headers_t* headers, evhtp_res status_code)
         evhtp_header_new(RpHeaderValues.Status, buf, false, true));
 }
 
-OVERRIDE RpStatusCode_e
+OVERRIDE RpStatusOrCallbackResult
 on_headers_complete_base(RpHttp1ConnectionImpl* self)
 {
     NOISY_MSG_("(%p)", self);
@@ -152,7 +149,7 @@ on_headers_complete_base(RpHttp1ConnectionImpl* self)
     {
 //TODO...
 NOISY_MSG_("No pending response and reset stream not called - premature response?");
-return RpStatusCode_PrematureResponseError;
+return rp_status_or_callback_result_ctor(RpStatusCode_PrematureResponseError, 0);
     }
     else if (me->m_pending_response)
     {
@@ -174,9 +171,9 @@ g_assert(!me->m_pending_response_done);
         {
             if (evhtp_header_find(headers, RpHeaderValues.TransferEncoding))
             {
-                RETURN_IF_ERROR(
+                RETURN_IF_ERROR_2(
                     rp_http1_connection_impl_send_protocol_error(self, "transfer_encoding_not_allowed"));
-                return RpStatusCode_CodecProtocolError;
+                return rp_status_or_callback_result_ctor(RpStatusCode_CodecProtocolError, 0);
             }
 
             evhtp_header_t* content_length = evhtp_headers_find_header(headers, RpHeaderValues.ContentLength);
@@ -184,9 +181,9 @@ g_assert(!me->m_pending_response_done);
             {
                 if (content_length->vlen != 1 || content_length->val[0] != '0')
                 {
-                    RETURN_IF_ERROR(
+                    RETURN_IF_ERROR_2(
                         rp_http1_connection_impl_send_protocol_error(self, "content_length_not_allowed"));
-                    return RpStatusCode_CodecProtocolError;
+                    return rp_status_or_callback_result_ctor(RpStatusCode_CodecProtocolError, 0);
                 }
 
                 evhtp_header_rm_and_free(headers, content_length);
@@ -209,7 +206,9 @@ g_assert(!me->m_pending_response_done);
         //TODO...
     }
 
-    return RpStatusCode_Ok;
+    return rp_http1_client_connection_impl_cannot_have_body(me) ?
+        rp_status_or_callback_result_ctor(RpStatusCode_Ok, RpCallbackResult_NoBody) :
+        rp_status_or_callback_result_ctor(RpStatusCode_Ok, RpCallbackResult_Success);
 }
 
 OVERRIDE void
@@ -223,7 +222,7 @@ on_body(RpHttp1ConnectionImpl* self, evbuf_t* data)
     }
 }
 
-OVERRIDE RpCallbackResult_e
+OVERRIDE RpStatusOrCallbackResult
 on_message_complete_base(RpHttp1ConnectionImpl* self)
 {
     NOISY_MSG_("(%p)", self);
@@ -231,7 +230,7 @@ on_message_complete_base(RpHttp1ConnectionImpl* self)
     if (me->m_ignore_message_complete_for_1xx)
     {
         me->m_ignore_message_complete_for_1xx = false;
-        return RpCallbackResult_Success;
+        return rp_status_or_callback_result_ctor(RpStatusCode_Ok, RpCallbackResult_Success);
     }
     if (me->m_pending_response)
     {
@@ -263,7 +262,7 @@ on_message_complete_base(RpHttp1ConnectionImpl* self)
         me->m_headers_or_trailers = NULL;
     }
 
-    return rp_parser_pause(rp_http1_connection_impl_get_parser(self));
+    return rp_status_or_callback_result_ctor(RpStatusCode_Ok, rp_parser_pause(rp_http1_connection_impl_get_parser(self)));
 }
 
 OVERRIDE void
@@ -366,6 +365,7 @@ rp_http1_client_connection_impl_cannot_have_body(RpHttp1ClientConnectionImpl* se
     PendingResponse* pending_response = self->m_pending_response;
     if (pending_response && rp_request_encoder_impl_head_request(pending_response->m_encoder))
     {
+        g_assert(!self->m_pending_response_done);
         return true;
     }
     else if ((status_code = parser_status_code(self)) == EVHTP_RES_NOCONTENT ||

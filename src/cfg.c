@@ -108,19 +108,66 @@ static cfg_opt_t       headers_opts[] = {
     CFG_END()
 };
 
+static cfg_opt_t       socket_address_opts[] = {
+    CFG_STR("protocol",                   "TCP",     CFGF_NONE), /* TCP, UDP */
+    CFG_STR("address",                    "0.0.0.0", CFGF_NONE),
+    CFG_INT("port-value",                 -1,        CFGF_NODEFAULT),
+    CFG_STR("named-port",                 NULL,      CFGF_NONE),
+    CFG_STR("resolver-name",              NULL,      CFGF_NODEFAULT),
+    CFG_BOOL("ipv4-compat",               cfg_false, CFGF_NONE),
+    CFG_STR("network-namespace-filepath", NULL,      CFGF_NONE),
+    CFG_END()
+};
+
+static cfg_opt_t       dfp_dns_cache_config_opts[] = {
+    CFG_STR("name",                 NULL,                CFGF_NODEFAULT),
+    CFG_STR("dns-lookup-family",    "AUTO",              CFGF_NONE), /* AUTO, V4_ONLY, V6_ONLY, V4_PREFERRED, ALL */
+    CFG_INT_LIST("host-ttl",        "{ 300, 0 }",        CFGF_NONE),
+    CFG_INT("max-hosts",            1024,                CFGF_NONE),
+    CFG_SEC("preresolve-hostnames", socket_address_opts, CFGF_MULTI),
+    CFG_END()
+};
+
+static cfg_opt_t       dfp_sub_clusters_config_opts[] = {
+    CFG_STR("lb-policy",            "roundrobin",        CFGF_NONE), /* rtt, roundrobin(rr), rand, most_idle, none */
+    CFG_INT("max-sub-clusters",     1024,                CFGF_NONE),
+    CFG_INT_LIST("sub-cluster-ttl", "{ 300, 0 }",        CFGF_NONE),
+    CFG_SEC("preresolve-clusters",  socket_address_opts, CFGF_MULTI),
+    CFG_END()
+};
+
+static cfg_opt_t       dfp_cluster_config_opts[] = {
+    CFG_SEC("dns-cache-config",    dfp_dns_cache_config_opts,    CFGF_NODEFAULT|CFGF_IGNORE_UNKNOWN),
+    CFG_SEC("sub-clusters-config", dfp_sub_clusters_config_opts, CFGF_NODEFAULT|CFGF_IGNORE_UNKNOWN),
+    CFG_END()
+};
+
+static cfg_opt_t       typed_config_opts[] = {
+    CFG_SEC("dfp-cluster-config", dfp_cluster_config_opts, CFGF_NODEFAULT|CFGF_IGNORE_UNKNOWN),
+    CFG_END()
+};
+
+static cfg_opt_t       cluster_type_opts[] = {
+    CFG_STR("name",         "rproxy.clusters.dynamic_forward_proxy", CFGF_NONE),
+    CFG_SEC("typed-config", typed_config_opts,                       CFGF_NODEFAULT|CFGF_IGNORE_UNKNOWN),
+    CFG_END()
+};
+
 static cfg_opt_t       rule_opts[] = {
-    CFG_STR("uri-match",                   NULL,         CFGF_NODEFAULT),
-    CFG_STR("uri-gmatch",                  NULL,         CFGF_NODEFAULT),
-    CFG_STR("uri-rmatch",                  NULL,         CFGF_NODEFAULT),
-    CFG_STR_LIST("upstreams",              NULL,         CFGF_NODEFAULT),
-    CFG_STR("lb-method",                   "rtt",        CFGF_NONE),
-    CFG_STR("discovery-type",              "static",     CFGF_NONE),
-    CFG_SEC("headers",                     headers_opts, CFGF_NODEFAULT),
-    CFG_INT_LIST("upstream-read-timeout",  NULL,         CFGF_NODEFAULT),
-    CFG_INT_LIST("upstream-write-timeout", NULL,         CFGF_NODEFAULT),
-    CFG_BOOL("passthrough",                cfg_false,    CFGF_NONE),
-    CFG_BOOL("allow-redirect",             cfg_false,    CFGF_NONE),
-    CFG_STR_LIST("redirect-filter",        NULL,         CFGF_NODEFAULT),
+    CFG_STR("uri-match",                   NULL,              CFGF_NODEFAULT),
+    CFG_STR("uri-gmatch",                  NULL,              CFGF_NODEFAULT),
+    CFG_STR("uri-rmatch",                  NULL,              CFGF_NODEFAULT),
+    CFG_STR_LIST("upstreams",              NULL,              CFGF_NODEFAULT),
+    CFG_STR("lb-method",                   "roundrobin",      CFGF_NONE),
+    CFG_STR("type",                        NULL,              CFGF_NONE), /* STATIC, STRICT_DNS, LOGICAL_DNS, EDS, ORIGINAL_HOST */
+    CFG_SEC("cluster-type",                cluster_type_opts, CFGF_NODEFAULT|CFGF_IGNORE_UNKNOWN),
+    CFG_INT_LIST("connect-timeout",        "{ 5, 0 }",        CFGF_NONE),
+    CFG_SEC("headers",                     headers_opts,      CFGF_NODEFAULT),
+    CFG_INT_LIST("upstream-read-timeout",  NULL,              CFGF_NODEFAULT),
+    CFG_INT_LIST("upstream-write-timeout", NULL,              CFGF_NODEFAULT),
+    CFG_BOOL("passthrough",                cfg_false,         CFGF_NONE),
+    CFG_BOOL("allow-redirect",             cfg_false,         CFGF_NONE),
+    CFG_STR_LIST("redirect-filter",        NULL,              CFGF_NODEFAULT),
     CFG_END()
 };
 
@@ -145,7 +192,7 @@ static cfg_opt_t       server_opts[] = {
     CFG_INT("high-watermark",            0,               CFGF_NONE),
     CFG_INT("max-pending",               0,               CFGF_NONE),
     CFG_INT("backlog",                   1024,            CFGF_NONE),
-    CFG_SEC("upstream",                  upstream_opts, CFGF_MULTI | CFGF_TITLE | CFGF_NO_TITLE_DUPES),
+    CFG_SEC("upstream",                  upstream_opts,   CFGF_MULTI | CFGF_TITLE | CFGF_NO_TITLE_DUPES),
     CFG_SEC("vhost",                     vhost_opts,      CFGF_MULTI | CFGF_TITLE | CFGF_NO_TITLE_DUPES),
     CFG_SEC("ssl",                       ssl_opts,        CFGF_NODEFAULT|CFGF_IGNORE_UNKNOWN),
     CFG_SEC("logging",                   logging_opts,    CFGF_NODEFAULT|CFGF_IGNORE_UNKNOWN),
@@ -167,41 +214,6 @@ static cfg_opt_t       rproxy_opts[] = {
     CFG_SEC("server",     server_opts,  CFGF_MULTI | CFGF_TITLE | CFGF_NO_TITLE_DUPES),
     CFG_END()
 };
-
-#ifdef WITH_JSON
-
-{
-    "daemonize": false,
-    "rootdir": "/tmp",
-    "user": null,
-    "group": null,
-    "max-nofile", 1024,
-    "logging": {
-        "request": {
-            "enabled": false,
-            "output": "file:/dev/stdout",
-            "level": "error",
-            "format": "{SRC} {HOST} {URI} {HOST}"
-        },
-        "error": {
-            "enabled": false,
-            "output": "file:/dev/stderr",
-            "level": "error",
-            "format": "{SRC} {HOST} {URI} {HOST}"
-        },
-        "general": {
-            "enabled": false,
-            "output": "file:/dev/stdout",
-            "level": "error",
-            "format": "{SRC} {HOST} {URI} {HOST}"
-        },
-    },
-    "server": {
-
-    }
-}
-
-#endif//WITH_JSON
 
 struct {
     int          facility;
@@ -231,6 +243,11 @@ struct {
 };
 
 static void ssl_cfg_free(evhtp_ssl_cfg_t * c);
+static void x509_ext_cfg_free(gpointer arg);
+static void rule_cfg_free(gpointer arg);
+static void server_cfg_free(gpointer arg);
+static void cluster_type_cfg_free(cluster_type_cfg_t* self);
+static void upstream_cfg_free(gpointer arg);
 
 /**
  * @brief Convert the config value of "lb-method" to a lb_method enum type.
@@ -247,7 +264,7 @@ lbstr_to_lbtype(const char* lbstr)
     if (!lbstr)
     {
         LOGD("lbstr is null");
-        return lb_method_rtt;
+        return lb_method_rr;
     }
 
     if (!strcasecmp(lbstr, "rtt"))
@@ -256,7 +273,7 @@ lbstr_to_lbtype(const char* lbstr)
         return lb_method_rtt;
     }
 
-    if (!strcasecmp(lbstr, "roundrobin"))
+    if (!strcasecmp(lbstr, "roundrobin") || !strcasecmp(lbstr, "rr"))
     {
         LOGD("roundrobin");
         return lb_method_rr;
@@ -280,8 +297,8 @@ lbstr_to_lbtype(const char* lbstr)
         return lb_method_none;
     }
 
-    LOGD("defaulting to rtt");
-    return lb_method_rtt;
+    LOGD("defaulting to rr");
+    return lb_method_rr;
 }
 
 static discovery_type
@@ -295,31 +312,31 @@ discovery_type_str_to_discovery_type(const char* str)
         return discovery_type_static;
     }
 
-    if (g_ascii_strcasecmp(str, "static") == 0)
+    if (g_ascii_strcasecmp(str, "STATIC") == 0)
     {
         LOGD("static");
         return discovery_type_static;
     }
 
-    if (g_ascii_strcasecmp(str, "strict_dns") == 0)
+    if (g_ascii_strcasecmp(str, "STRICT_DNS") == 0)
     {
         LOGD("strict_dns");
         return discovery_type_strict_dns;
     }
 
-    if (g_ascii_strcasecmp(str, "local_dns") == 0)
+    if (g_ascii_strcasecmp(str, "LOCAL_DNS") == 0)
     {
         LOGD("local_dns");
         return discovery_type_local_dns;
     }
 
-    if (g_ascii_strcasecmp(str, "eds") == 0)
+    if (g_ascii_strcasecmp(str, "EDS") == 0)
     {
         LOGD("eds");
         return discovery_type_eds;
     }
 
-    if (g_ascii_strcasecmp(str, "original_dst") == 0)
+    if (g_ascii_strcasecmp(str, "ORIGINAL_DST") == 0)
     {
         LOGD("original_dst");
         return discovery_type_original_dst;
@@ -359,12 +376,8 @@ rproxy_cfg_new(const char* filename)
     LOGD("(%p(%s))", filename, filename);
 
     rproxy_cfg_t* cfg = g_new0(rproxy_cfg_t, 1);
-    g_assert(cfg != NULL);
-
     cfg->filename = filename;
-
-    cfg->servers = lztq_new();
-    g_assert(cfg->servers != NULL);
+    cfg->servers = NULL;
 
     LOGD("cfg %p", cfg);
     return cfg;
@@ -384,7 +397,8 @@ rproxy_cfg_free(rproxy_cfg_t* cfg)
     g_clear_pointer(&cfg->rootdir, g_free);
     g_clear_pointer(&cfg->user, g_free);
     g_clear_pointer(&cfg->group, g_free);
-    g_clear_pointer(&cfg->servers, lztq_free);
+    g_clear_pointer(&cfg->log, logger_cfg_free);
+    g_slist_free_full(g_steal_pointer(&cfg->servers), server_cfg_free);
     g_free(cfg);
 }
 
@@ -404,8 +418,7 @@ headers_cfg_new(void)
     c->x_ssl_cipher      = false;
     c->x_ssl_certificate = false;
 
-    c->x509_exts         = lztq_new();
-    g_assert(c->x509_exts != NULL);
+    c->x509_exts         = NULL;
 
     LOGD("c %p", c);
     return c;
@@ -422,7 +435,7 @@ headers_cfg_free(headers_cfg_t* cfg)
         return;
     }
 
-    g_clear_pointer(&cfg->x509_exts, lztq_free);
+    g_slist_free_full(g_steal_pointer(&cfg->x509_exts), x509_ext_cfg_free);
     g_free(cfg);
 }
 
@@ -432,16 +445,10 @@ vhost_cfg_new(void)
     LOGD("()");
 
     vhost_cfg_t* cfg = g_new0(vhost_cfg_t, 1);
-    g_assert(cfg != NULL);
 
-    cfg->rule_cfgs = lztq_new();
-    g_assert(cfg->rule_cfgs != NULL);
-
-    cfg->rules     = lztq_new();
-    g_assert(cfg->rules != NULL);
-
-    cfg->aliases   = lztq_new();
-    g_assert(cfg->aliases != NULL);
+    cfg->rule_cfgs = NULL;
+    cfg->rules     = NULL;
+    cfg->aliases   = NULL;
 
     LOGD("cfg %p", cfg);
     return cfg;
@@ -460,10 +467,13 @@ vhost_cfg_free(void* arg)
     }
 
     g_clear_pointer(&cfg->ssl_cfg, ssl_cfg_free);
-    g_clear_pointer(&cfg->rules, lztq_free);
-    g_clear_pointer(&cfg->rule_cfgs, lztq_free);
-    g_clear_pointer(&cfg->strip_hdrs, lztq_free);
-    g_clear_pointer(&cfg->rewrite_urls, lztq_free);
+    g_clear_pointer(&cfg->err_log, logger_cfg_free);
+    g_clear_pointer(&cfg->req_log, logger_cfg_free);
+    g_slist_free(g_steal_pointer(&cfg->rules)); // rules container does not own rule.
+    g_slist_free_full(g_steal_pointer(&cfg->rule_cfgs), rule_cfg_free);
+    g_slist_free_full(g_steal_pointer(&cfg->aliases), g_free);
+    g_slist_free_full(g_steal_pointer(&cfg->strip_hdrs), g_free);
+    g_slist_free_full(g_steal_pointer(&cfg->rewrite_urls), g_free);
     g_free(cfg);
 }
 
@@ -475,15 +485,10 @@ server_cfg_new(void)
     server_cfg_t* cfg = g_new0(server_cfg_t, 1);
     g_assert(cfg != NULL);
 
-    cfg->upstreams = lztq_new();
-    g_assert(cfg->upstreams != NULL);
-
-    cfg->vhosts = lztq_new();
-    g_assert(cfg->vhosts != NULL);
+    cfg->upstream_cfgs = NULL;
+    cfg->vhosts = NULL;
 
     cfg->worker_num = 0;
-
-    /* cfg->rules = lztq_new(); */
 
     LOGD("cfg %p", cfg);
     return cfg;
@@ -504,8 +509,10 @@ server_cfg_free(void* arg)
     g_clear_pointer(&cfg->name, g_free);
     g_clear_pointer(&cfg->bind_addr, g_free);
     g_clear_pointer(&cfg->ssl_cfg, ssl_cfg_free);
-    g_clear_pointer(&cfg->vhosts, lztq_free);
-    g_clear_pointer(&cfg->upstreams, lztq_free);
+    g_clear_pointer(&cfg->err_log_cfg, logger_cfg_free);
+    g_clear_pointer(&cfg->req_log_cfg, logger_cfg_free);
+    g_slist_free_full(g_steal_pointer(&cfg->vhosts), vhost_cfg_free);
+    g_slist_free_full(g_steal_pointer(&cfg->upstream_cfgs), upstream_cfg_free);
     g_free(cfg);
 }
 
@@ -517,15 +524,15 @@ rule_cfg_new(void)
     rule_cfg_t* cfg = g_new0(rule_cfg_t, 1);
     g_assert(cfg != NULL);
 
-    cfg->upstreams = lztq_new();
-    g_assert(cfg != NULL);
+    cfg->upstream_names = NULL;
+    cfg->redirect_filter = NULL;
 
     LOGD("cfg %p", cfg);
     return cfg;
 }
 
 void
-rule_cfg_free(void* arg)
+rule_cfg_free(gpointer arg)
 {
     LOGD("(%p)", arg);
 
@@ -535,11 +542,12 @@ rule_cfg_free(void* arg)
         LOGD("cfg is null");
         return;
     }
-
     g_clear_pointer(&cfg->headers, headers_cfg_free);
-    g_clear_pointer(&cfg->upstreams, lztq_free);
+    g_slist_free_full(g_steal_pointer(&cfg->upstream_names), g_free);
     g_clear_pointer(&cfg->matchstr, g_free);
-    g_clear_pointer(&cfg->redirect_filter, lztq_free);
+    g_slist_free_full(g_steal_pointer(&cfg->redirect_filter), g_free);
+    g_clear_pointer(&cfg->name, g_free);
+    g_clear_pointer(&cfg->cluster_type, cluster_type_cfg_free);
     g_free(cfg);
 }
 
@@ -1034,9 +1042,10 @@ headers_cfg_parse(cfg_t* cfg)
         x509_ext_cfg_t* x509cfg = x509_ext_cfg_parse(cfg_getnsec(cfg, "x509-extension", i));
         g_assert(x509cfg != NULL);
 
-        lztq_elem* elem = lztq_append(hcfg->x509_exts, x509cfg, sizeof(x509cfg), x509_ext_cfg_free);
-        g_assert(elem != NULL);
+        hcfg->x509_exts = g_slist_prepend(hcfg->x509_exts, x509cfg);
     }
+
+    hcfg->x509_exts = g_slist_reverse(hcfg->x509_exts);
 
     LOGD("hcfg %p", hcfg);
     return hcfg;
@@ -1068,6 +1077,165 @@ do_headers_section(cfg_t* cfg, headers_cfg_t** hdr_cfg)
         *hdr_cfg = hdr_cfg_;
     }
     return true;
+}
+
+dfp_dns_cache_cfg_t*
+dfp_dns_cache_cfg_new(void)
+{
+    dfp_dns_cache_cfg_t* self = g_new0(dfp_dns_cache_cfg_t, 1);
+    return self;
+}
+
+void
+dfp_dns_cache_cfg_free(dfp_dns_cache_cfg_t* self)
+{
+    LOGD("(%p)", self);
+    g_clear_pointer(&self->name, g_free);
+    g_free(self);
+}
+
+static inline RpDnsLookupFamily_e
+str_to_dns_lookup_family(const char* str)
+{
+LOGD("(%p(%s))", str, str);
+    if (g_ascii_strcasecmp(str, "V4_ONLY") == 0)
+    {
+        return RpDnsLookupFamily_V4_ONLY;
+    }
+    else if (g_ascii_strcasecmp(str, "V6_ONLY") == 0)
+    {
+        return RpDnsLookupFamily_V6_ONLY;
+    }
+    else if (g_ascii_strcasecmp(str, "V4_PREFERRED") == 0)
+    {
+        return RpDnsLookupFamily_V4_PREFERRED;
+    }
+    else if (g_ascii_strcasecmp(str, "ALL") == 0)
+    {
+        return RpDnsLookupFamily_ALL;
+    }
+    return RpDnsLookupFamily_AUTO;
+}
+
+dfp_dns_cache_cfg_t*
+dfp_dns_cache_cfg_parse(cfg_t* cfg)
+{
+    LOGD("(%p)", cfg);
+    dfp_dns_cache_cfg_t* self = dfp_dns_cache_cfg_new();
+    const char* name = cfg_getstr(cfg, "name");
+    g_assert(name != NULL);
+    self->name = g_strdup(name);
+    self->dns_lookup_family = str_to_dns_lookup_family(cfg_getstr(cfg, "dns-lookup-family"));
+    self->host_ttl.tv_sec = cfg_getnint(cfg, "host-ttl", 0);
+    self->host_ttl.tv_usec = cfg_getnint(cfg, "host-ttl", 1);
+    self->max_hosts = cfg_getint(cfg, "max-hosts");
+    //TODO...self->preresolve_hostnames = ....
+    return self;
+}
+
+dfp_sub_clusters_cfg_t*
+dfp_sub_clusters_cfg_new(void)
+{
+    dfp_sub_clusters_cfg_t* self = g_new0(dfp_sub_clusters_cfg_t, 1);
+    return self;
+}
+
+void
+dfp_sub_clusters_cfg_free(dfp_sub_clusters_cfg_t* self)
+{
+    LOGD("(%p)", self);
+    g_free(self);
+}
+
+dfp_sub_clusters_cfg_t*
+dfp_sub_clusters_cfg_parse(cfg_t* cfg)
+{
+    LOGD("(%p)", cfg);
+    dfp_sub_clusters_cfg_t* self = dfp_sub_clusters_cfg_new();
+    self->lb_policy = lbstr_to_lbtype(cfg_getstr(cfg, "lb-policy"));
+    self->max_sub_clusters = cfg_getint(cfg, "max-sub-clusters");
+    self->sub_cluster_ttl.tv_sec = cfg_getnint(cfg, "sub-cluster-ttl", 0);
+    self->sub_cluster_ttl.tv_usec = cfg_getnint(cfg, "sub-cluster-ttl", 1);
+    //TODO...self->preresolve_clusters = ...
+    return self;
+}
+
+dfp_cluster_cfg_t*
+dfp_cluster_cfg_new(void)
+{
+    dfp_cluster_cfg_t* self = g_new0(dfp_cluster_cfg_t, 1);
+    return self;
+}
+
+void
+dfp_cluster_cfg_free(dfp_cluster_cfg_t* self)
+{
+    g_clear_pointer(&self->dns_cache_cfg, dfp_dns_cache_cfg_free);
+    g_clear_pointer(&self->sub_clusters_cfg, dfp_sub_clusters_cfg_free);
+    g_free(self);
+}
+
+dfp_cluster_cfg_t*
+dfp_cluster_cfg_parse(cfg_t* cfg)
+{
+    LOGD("(%p)", cfg);
+
+    dfp_cluster_cfg_t* self = dfp_cluster_cfg_new();
+    cfg_t* scfg;
+    if (section_exists(cfg, "dns-cache-config", &scfg))
+    {
+        self->dns_cache_cfg = dfp_dns_cache_cfg_parse(scfg);
+    }
+    else if (section_exists(cfg, "sub-clusters-config", &scfg))
+    {
+        self->sub_clusters_cfg = dfp_sub_clusters_cfg_parse(scfg);
+    }
+    else
+    {
+        LOGE("corrupt config");
+        dfp_cluster_cfg_free(g_steal_pointer(&self));
+    }
+    return self;
+}
+
+cluster_type_cfg_t*
+cluster_type_cfg_new(void)
+{
+    LOGD("()");
+    cluster_type_cfg_t* self = g_new0(cluster_type_cfg_t, 1);
+    return self;
+}
+
+void
+cluster_type_cfg_free(cluster_type_cfg_t* self)
+{
+    LOGD("(%p)", self);
+    g_clear_pointer(&self->name, g_free);
+    g_clear_pointer(&self->dfp_cluster_config, dfp_cluster_cfg_free);
+    g_free(self);
+}
+
+cluster_type_cfg_t*
+cluster_type_cfg_parse(cfg_t* cfg)
+{
+    LOGD("(%p)", cfg);
+
+    g_return_val_if_fail(cfg != NULL, NULL);
+
+    cluster_type_cfg_t* self = cluster_type_cfg_new();
+    const char* name = cfg_getstr(cfg, "name");
+    g_assert(name != NULL);
+
+    self->name = g_strdup(name);
+    cfg_t* scfg;
+    g_assert(section_exists(cfg, "typed-config", &scfg));
+
+    if (section_exists(scfg, "dfp-cluster-config", &scfg))
+    {
+        self->dfp_cluster_config = dfp_cluster_cfg_parse(scfg);
+    }
+
+    return self;
 }
 
 /**
@@ -1118,8 +1286,18 @@ rule_cfg_parse(cfg_t* cfg)
         rcfg->type = rule_type_default;
     }
 
+    cfg_t* ctcfg;
     rcfg->lb_method      = lbstr_to_lbtype(cfg_getstr(cfg, "lb-method"));
-    rcfg->discovery_type = discovery_type_str_to_discovery_type(cfg_getstr(cfg, "discovery-type"));
+    if (cfg_getstr(cfg, "type"))
+    {
+        rcfg->discovery_type = discovery_type_str_to_discovery_type(cfg_getstr(cfg, "type"));
+    }
+    else if (section_exists(cfg, "cluster-type", &ctcfg))
+    {
+        rcfg->cluster_type = cluster_type_cfg_parse(ctcfg);
+    }
+    rcfg->connect_timeout.tv_sec = cfg_getnint(cfg, "connect-timeout", 0);
+    rcfg->connect_timeout.tv_usec = cfg_getnint(cfg, "connect-timeout", 1);
     if (!do_headers_section(cfg, &rcfg->headers))
     {
         LOGE("header section failed");
@@ -1161,9 +1339,9 @@ rule_cfg_parse(cfg_t* cfg)
             return NULL;
         }
 
-        lztq_elem* elem = lztq_append(rcfg->upstreams, ds_name, strlen(ds_name), g_free);
-        g_assert(elem != NULL);
+        rcfg->upstream_names = g_slist_prepend(rcfg->upstream_names, ds_name);
     }
+    rcfg->upstream_names = g_slist_reverse(rcfg->upstream_names);
 
     int n_filters;
     if (rcfg->allow_redirect != 0 && ((n_filters = cfg_size(cfg, "redirect-filter")) > 0))
@@ -1172,18 +1350,14 @@ rule_cfg_parse(cfg_t* cfg)
          * if the redirect option is enabled, optionally an administrator can
          * add a list of allowed hosts it may communicate with.
          */
-        rcfg->redirect_filter = lztq_new();
-        g_assert(rcfg->redirect_filter != NULL);
-
         for (int i = 0; i < n_filters; i++)
         {
             char* host_ent = g_strdup(cfg_getnstr(cfg, "redirect-filter", i));
             g_assert(host_ent != NULL);
 
-            lztq_elem* elem = lztq_append(rcfg->redirect_filter, host_ent,
-                                   strlen(host_ent), g_free);
-            g_assert(elem != NULL);
+            rcfg->redirect_filter = g_slist_prepend(rcfg->redirect_filter, host_ent);
         }
+        rcfg->redirect_filter = g_slist_reverse(rcfg->redirect_filter);
     }
 
     LOGD("rcfg %p", rcfg);
@@ -1342,9 +1516,9 @@ vhost_cfg_parse(cfg_t* cfg)
             return NULL;
         }
 
-        lztq_elem* elem = lztq_append(vcfg->rule_cfgs, rule_cfg, sizeof(rule_cfg), rule_cfg_free);
-        g_assert(elem != NULL);
+        vcfg->rule_cfgs = g_slist_prepend(vcfg->rule_cfgs, rule_cfg);
     }
+    vcfg->rule_cfgs = g_slist_reverse(vcfg->rule_cfgs);
 
     for (int i = 0; i < cfg_size(cfg, "aliases"); i++)
     {
@@ -1353,43 +1527,31 @@ vhost_cfg_parse(cfg_t* cfg)
         char* name = g_strdup(cfg_getnstr(cfg, "aliases", i));
         g_assert(name != NULL);
 
-        lztq_elem* elem = lztq_append(vcfg->aliases, name, strlen(name), g_free);
-        g_assert(elem != NULL);
+        vcfg->aliases = g_slist_prepend(vcfg->aliases, name);
     }
+    vcfg->aliases = g_slist_reverse(vcfg->aliases);
 
-    if (cfg_size(cfg, "strip-headers"))
+    for (int i = 0; i < cfg_size(cfg, "strip-headers"); i++)
     {
-        vcfg->strip_hdrs = lztq_new();
-        g_assert(vcfg->strip_hdrs != NULL);
+        g_assert(cfg_getnstr(cfg, "strip-headers", i) != NULL);
 
-        for (int i = 0; i < cfg_size(cfg, "strip-headers"); i++)
-        {
-            g_assert(cfg_getnstr(cfg, "strip-headers", i) != NULL);
+        char* hdr_name = g_strdup(cfg_getnstr(cfg, "strip-headers", i));
+        g_assert(hdr_name != NULL);
 
-            char* hdr_name = g_strdup(cfg_getnstr(cfg, "strip-headers", i));
-            g_assert(hdr_name != NULL);
-
-            lztq_elem* elem = lztq_append(vcfg->strip_hdrs, hdr_name, strlen(hdr_name), g_free);
-            g_assert(elem != NULL);
-        }
+        vcfg->strip_hdrs = g_slist_prepend(vcfg->strip_hdrs, hdr_name);
     }
+    vcfg->strip_hdrs = g_slist_reverse(vcfg->strip_hdrs);
 
-    if (cfg_size(cfg, "rewrite-urls"))
+    for (int i = 0; i < cfg_size(cfg, "rewrite-urls"); i++)
     {
-        vcfg->rewrite_urls = lztq_new();
-        g_assert(vcfg->rewrite_urls != NULL);
+        g_assert(cfg_getnstr(cfg, "rewrite-urls", i) != NULL);
 
-        for (int i = 0; i < cfg_size(cfg, "rewrite-urls"); i++)
-        {
-            g_assert(cfg_getnstr(cfg, "rewrite-urls", i) != NULL);
+        char* rewrite_url = g_strdup(cfg_getnstr(cfg, "rewrite-urls", i));
+        g_assert(rewrite_url != NULL);
 
-            char* rewrite_url = g_strdup(cfg_getnstr(cfg, "rewrite-urls", i));
-            g_assert(rewrite_url != NULL);
-
-            lztq_elem* elem = lztq_append(vcfg->rewrite_urls, rewrite_url, strlen(rewrite_url), g_free);
-            g_assert(elem != NULL);
-        }
+        vcfg->rewrite_urls = g_slist_prepend(vcfg->rewrite_urls, rewrite_url);
     }
+    vcfg->rewrite_urls = g_slist_reverse(vcfg->rewrite_urls);
 
     cfg_t* log_cfg;
     if (section_exists(cfg, "logging", &log_cfg))
@@ -1499,18 +1661,18 @@ server_cfg_parse(cfg_t* cfg)
         upstream_cfg_t* dscfg = upstream_cfg_parse(cfg_getnsec(cfg, "upstream", i));
         g_assert(dscfg != NULL);
 
-        lztq_elem* elem = lztq_append(scfg->upstreams, dscfg, sizeof(dscfg), upstream_cfg_free);
-        g_assert(elem != NULL);
+        scfg->upstream_cfgs = g_slist_prepend(scfg->upstream_cfgs, dscfg);
     }
+    scfg->upstream_cfgs = g_slist_reverse(scfg->upstream_cfgs);
 
     for (int i = 0; i < cfg_size(cfg, "vhost"); i++)
     {
         vhost_cfg_t* vcfg = vhost_cfg_parse(cfg_getnsec(cfg, "vhost", i));
         g_assert(vcfg != NULL);
 
-        lztq_elem* elem = lztq_append(scfg->vhosts, vcfg, sizeof(vcfg), vhost_cfg_free);
-        g_assert(elem != NULL);
+        scfg->vhosts = g_slist_prepend(scfg->vhosts, vcfg);
     }
+    scfg->vhosts = g_slist_reverse(scfg->vhosts);
 
     if (scfg->num_threads <= 0) scfg->num_threads = g_get_num_processors();
 
@@ -1573,9 +1735,7 @@ rproxy_cfg_parse_(cfg_t* cfg, const char* filename)
         g_assert(scfg != NULL);
 
         scfg->rproxy_cfg = rpcfg;
-
-        lztq_elem* elem = lztq_append(rpcfg->servers, scfg, sizeof(scfg), server_cfg_free);
-        g_assert(elem != NULL);
+        rpcfg->servers = g_slist_append(rpcfg->servers, scfg);
     }
 
     /* set our rusage settings from the global one */
@@ -1644,8 +1804,7 @@ rproxy_cfg_parse_server_buf(rproxy_cfg_t* rproxy_cfg, const char* server_cfg_buf
 
     scfg->rproxy_cfg = rproxy_cfg;
 
-    lztq_elem* elem = lztq_append(rproxy_cfg->servers, scfg, sizeof(scfg), server_cfg_free);
-    g_assert(elem != NULL);
+    rproxy_cfg->servers = g_slist_append(rproxy_cfg->servers, scfg);
 
     cfg_free(cfg);
     return true;

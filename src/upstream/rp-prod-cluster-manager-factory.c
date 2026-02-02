@@ -24,6 +24,8 @@ struct _RpProdClusterManagerFactory {
     RpServerFactoryContext* m_context;
     RpServerInstance* m_server;
     RpThreadLocalInstance* m_tls;
+    RpLazyCreateDnsResolver m_dns_resolver_fn;
+    gpointer m_dns_resolver_arg;
 };
 
 static void cluster_manager_factory_iface_init(RpClusterManagerFactoryInterface* iface);
@@ -58,7 +60,12 @@ cluster_from_proto_i(RpClusterManagerFactory* self, const RpClusterCfg* cluster,
 {
     NOISY_MSG_("(%p, %p, %p, %u)", self, cluster, cm, added_via_api);
     RpProdClusterManagerFactory* me = RP_PROD_CLUSTER_MANAGER_FACTORY(self);
-    return rp_cluster_factory_impl_base_create(cluster, me->m_context, cm, added_via_api);
+    return rp_cluster_factory_impl_base_create(cluster,
+                                                me->m_context,
+                                                cm,
+                                                me->m_dns_resolver_fn,
+                                                me->m_dns_resolver_arg,
+                                                added_via_api);
 }
 
 static RpClusterManagerPtr
@@ -118,17 +125,21 @@ rp_prod_cluster_manager_factory_init(RpProdClusterManagerFactory* self G_GNUC_UN
 }
 
 RpProdClusterManagerFactory*
-rp_prod_cluster_manager_factory_new(RpServerFactoryContext* context, RpThreadLocalInstance* tls, RpServerInstance* server)
+rp_prod_cluster_manager_factory_new(RpServerFactoryContext* context, RpThreadLocalInstance* tls,
+                                    RpLazyCreateDnsResolver dns_resolver_fn, gpointer dns_resolver_arg, RpServerInstance* server)
 {
-    LOGD("(%p, %p, %p)", context, tls, server);
+    LOGD("(%p, %p, %p, %p, %p)", context, dns_resolver_fn, dns_resolver_arg, tls, server);
 
     g_return_val_if_fail(RP_IS_SERVER_FACTORY_CONTEXT(context), NULL);
     g_return_val_if_fail(RP_IS_THREAD_LOCAL_INSTANCE(tls), NULL);
+    g_return_val_if_fail(dns_resolver_fn != NULL, NULL);
     g_return_val_if_fail(RP_IS_SERVER_INSTANCE(server), NULL);
 
     RpProdClusterManagerFactory* self = g_object_new(RP_TYPE_PROD_CLUSTER_MANAGER_FACTORY, NULL);
     self->m_context = context;
     self->m_server = server;
     self->m_tls = tls;
+    self->m_dns_resolver_fn = dns_resolver_fn;
+    self->m_dns_resolver_arg = dns_resolver_arg;
     return self;
 }

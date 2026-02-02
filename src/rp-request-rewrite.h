@@ -18,7 +18,7 @@ typedef struct _RpRequestRewrite RpRequestRewrite;
 struct _RpRequestRewrite {
     GRegex* m_regex;
 
-    lztq* m_rewrite_urls;
+    GSList* m_rewrite_urls;
 
     RpHostDescription* m_host_description;
 
@@ -33,7 +33,7 @@ struct _RpRequestRewrite {
 };
 
 RpRequestRewrite rp_request_rewrite_ctor(const gchar* original_uri,
-                                            lztq* rewrite_urls,
+                                            GSList* rewrite_urls,
                                             RpHostDescription* host_description,
                                             bool ssl_connection);
 void rp_request_rewrite_dtor(RpRequestRewrite* self);

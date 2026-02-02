@@ -18,6 +18,32 @@
 G_BEGIN_DECLS
 
 /**
+ * RpStatusOrCallbackResult (i.e. StatusOr<CallbackResult>)
+ */
+typedef struct _RpStatusOrCallbackResult RpStatusOrCallbackResult;
+struct _RpStatusOrCallbackResult {
+    RpStatusCode_e status;
+    RpCallbackResult_e value;
+};
+#define rp_status_or_callback_result_ok(s) ((s)->status == RpStatusCode_Ok)
+// Needs to be function because it is used in a macro that expects a function.
+static inline RpStatusCode_e
+rp_status_or_callback_result_status(RpStatusOrCallbackResult* self)
+{
+    return self->status;
+}
+#define rp_status_or_callback_result_value(s) (s)->value
+#define rp_status_or_callback_result_ctor(s, v) \
+    ((RpStatusOrCallbackResult){.status=s, .value=v})
+
+#define RETURN_IF_ERROR_2(f) \
+    do { \
+        RpStatusCode_e status = (f); \
+        if (status != RpStatusCode_Ok) return rp_status_or_callback_result_ctor(status, 0); \
+    } while (0)
+
+
+/**
  * Base class for HTTP/1.1 client and server connections.
  * Handles the callbacks of http_parser with its own base routine and then
  * virtual dispatches to its subclasses.
@@ -41,8 +67,8 @@ struct _RpHttp1ConnectionImplClass {
     RpStatusCode_e (*on_message_begin_base)(RpHttp1ConnectionImpl*);
     RpStatusCode_e (*on_url_base)(RpHttp1ConnectionImpl*, const char*, size_t);
     RpStatusCode_e (*on_status_base)(RpHttp1ConnectionImpl*);
-    RpStatusCode_e (*on_headers_complete_base)(RpHttp1ConnectionImpl*);
-    RpCallbackResult_e (*on_message_complete_base)(RpHttp1ConnectionImpl*);
+    RpStatusOrCallbackResult (*on_headers_complete_base)(RpHttp1ConnectionImpl*);
+    RpStatusOrCallbackResult (*on_message_complete_base)(RpHttp1ConnectionImpl*);
 
     void (*on_body)(RpHttp1ConnectionImpl*, evbuf_t*);
     void (*on_reset_stream)(RpHttp1ConnectionImpl*, RpStreamResetReason_e);

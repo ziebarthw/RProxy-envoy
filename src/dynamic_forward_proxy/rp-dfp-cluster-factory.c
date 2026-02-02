@@ -16,12 +16,11 @@
 #include "dynamic_forward_proxy/rp-cluster.h"
 
 struct _RpDfpClusterFactory {
-    RpClusterFactoryImplBase parent_instance;
-
+    RpConfigurableClusterFactoryBase parent_instance;
 
 };
 
-G_DEFINE_TYPE(RpDfpClusterFactory, rp_dfp_cluster_factory, RP_TYPE_CLUSTER_FACTORY_IMPL_BASE)
+G_DEFINE_TYPE(RpDfpClusterFactory, rp_dfp_cluster_factory, RP_TYPE_CONFIGURABLE_CLUSTER_FACTORY_BASE)
 
 OVERRIDE void
 dispose(GObject* obj)
@@ -37,14 +36,24 @@ singleton_manager_from_cluster_factory_context(RpClusterFactoryContext* context)
                rp_cluster_factory_context_server_factory_context(context)));
 }
 
+#if 0
+OVERRIDE gpointer
+create_empty_config_proto(RpConfigurableClusterFactoryBase* self G_GNUC_UNUSED)
+{
+    static RpDfpClusterCfg config = {0};
+    NOISY_MSG_("(%p)", self);
+    return rp_dfp_cluster_cfg_new(&config);
+}
+#endif//0
+
 OVERRIDE PairClusterSharedPtrThreadAwareLoadBalancerPtr
-create_cluster_impl(RpClusterFactoryImplBase* self, const RpClusterCfg* cluster_config, RpClusterFactoryContext* context)
+create_cluster_with_config(RpConfigurableClusterFactoryBase* self, const RpClusterCfg* cluster, gconstpointer proto_config, RpClusterFactoryContext* context)
 {
     extern RpDfpClusterStoreFactory* default_cluster_store_factory;
-    NOISY_MSG_("(%p, %p, %p)", self, cluster_config, context);
+    NOISY_MSG_("(%p, %p, %p, %p)", self, cluster, proto_config, context);
 
     RpStatusCode_e creation_status = RpStatusCode_Ok;
-    RpDfpClusterImpl* new_cluster = rp_dfp_cluster_impl_new(cluster_config, context, &creation_status);
+    RpDfpClusterImpl* new_cluster = rp_dfp_cluster_impl_new(cluster, proto_config, context, &creation_status);
     if (creation_status != RpStatusCode_Ok)
     {
         LOGE("failed");
@@ -61,10 +70,13 @@ create_cluster_impl(RpClusterFactoryImplBase* self, const RpClusterCfg* cluster_
 }
 
 static void
-cluster_factory_impl_base_class_init(RpClusterFactoryImplBaseClass* klass)
+cluster_factory_impl_base_class_init(RpConfigurableClusterFactoryBaseClass* klass)
 {
     LOGD("(%p)", klass);
-    klass->create_cluster_impl = create_cluster_impl;
+#if 0
+    klass->create_empty_config_proto = create_empty_config_proto;
+#endif//0
+    klass->create_cluster_with_config = create_cluster_with_config;
 }
 
 static void
@@ -75,7 +87,7 @@ rp_dfp_cluster_factory_class_init(RpDfpClusterFactoryClass* klass)
     GObjectClass* object_class = G_OBJECT_CLASS(klass);
     object_class->dispose = dispose;
 
-    cluster_factory_impl_base_class_init(RP_CLUSTER_FACTORY_IMPL_BASE_CLASS(klass));
+    cluster_factory_impl_base_class_init(RP_CONFIGURABLE_CLUSTER_FACTORY_BASE_CLASS(klass));
 }
 
 static void

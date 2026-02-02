@@ -130,40 +130,22 @@ rp_priority_state_manager_new(RpClusterImplBase* cluster, const RpLocalInfo* loc
                         NULL);
 }
 
-#if 0
 void
-rp_priority_state_manager_register_host_for_priority(RpPriorityStateManager* self,
-                                                        RpUpstreamTransportSocketFactory* socket_factory,
-                                                        const char* hostname,
-                                                        struct sockaddr* address,
-                                                        guint32 initial_weight,
-                                                        bool disable_health_check,
-                                                        guint32 priority,
-                                                        GSList* address_list)
+rp_priority_state_manager_register_host_for_priority_2(RpPriorityStateManager* self, const RpHostSharedPtr host,
+                                                        const RpLocalityLbEndpointsCfg* locality_lb_endpoint)
 {
-    LOGD("(%p, %p, %p(%s), %p, %u, %u, %u, %p)",
-        self, socket_factory, hostname, hostname, address, initial_weight, disable_health_check, priority, address_list);
-    g_return_if_fail(RP_IS_PRIORITY_STATE_MANAGER(self));
-    g_return_if_fail(address != NULL);
-    RpClusterImplBase* parent = self->m_parent;
-    RpClusterInfoConstSharedPtr info = rp_cluster_info(RP_CLUSTER(parent));
-    RpHostImpl* host = rp_host_impl_new(info, socket_factory, hostname, address, initial_weight, disable_health_check, priority, address_list);
-    GArray* priority_state = ensure_priority_state(self);
-    GSList* hosts = g_array_index(priority_state, GSList*, priority);
+    LOGD("(%p, %p, %p)", self, host, locality_lb_endpoint);
 
-    hosts = g_slist_append(hosts, host);
-    self->m_priority_state = g_array_insert_val(priority_state, priority, hosts);
-}
-#endif//0
-static void
-internal_register_host_for_priority(RpPriorityStateManager* self, RpHostSharedPtr host, const RpLocalityLbEndpointsCfg* locality_lb_endpoint)
-{
-    NOISY_MSG_("(%p, %p, %p)", self, host, locality_lb_endpoint);
-    guint32 priority = locality_lb_endpoint->priority;
+    g_return_if_fail(RP_IS_PRIORITY_STATE_MANAGER(self));
+    g_return_if_fail(RP_IS_HOST(host));
+    g_return_if_fail(locality_lb_endpoint != NULL);
+
+    guint32 priority = rp_locality_lb_endpoints_cfg_priority(locality_lb_endpoint);
     g_assert(self->m_priority_state->pdata[priority]);
     RpHostVector* host_vector = g_ptr_array_index(self->m_priority_state, priority);
     g_ptr_array_add(host_vector, host);
 }
+
 #if 0
 const auto host = std::shared_ptr<HostImpl>((
       HostImpl::create(parent_.info(), hostname, address, endpoint_metadata, locality_metadata,
@@ -190,6 +172,8 @@ rp_priority_state_manager_register_host_for_priority(RpPriorityStateManager* sel
     g_return_if_fail(lb_endpoint != NULL);
     g_return_if_fail(RP_IS_TIME_SOURCE(time_source));
 
+NOISY_MSG_("cluster %p, cluster info %p", self->m_parent, rp_cluster_info(RP_CLUSTER(self->m_parent)));
+
     RpHostImpl* host = rp_host_impl_create(rp_cluster_info(RP_CLUSTER(self->m_parent)),
                                             hostname,
                                             address,
@@ -197,7 +181,7 @@ rp_priority_state_manager_register_host_for_priority(RpPriorityStateManager* sel
                                             lb_endpoint->load_balancing_weight,
                                             locality_lb_endpoint->priority,
                                             time_source);
-    internal_register_host_for_priority(self, RP_HOST(host), locality_lb_endpoint);
+    rp_priority_state_manager_register_host_for_priority_2(self, RP_HOST(host), locality_lb_endpoint);
 }
 
 static RpHostVector*

@@ -166,7 +166,9 @@ RpMainPrioritySetImpl* rp_main_priority_set_impl_new(void);
 #define RP_TYPE_CLUSTER_INFO_IMPL rp_cluster_info_impl_get_type()
 G_DECLARE_FINAL_TYPE(RpClusterInfoImpl, rp_cluster_info_impl, RP, CLUSTER_INFO_IMPL, GObject)
 
-RpClusterInfoImpl* rp_cluster_info_impl_new(RpServerFactoryContext* server_context, RpClusterCfg* config, bool added_via_api);
+RpClusterInfoImpl* rp_cluster_info_impl_new(RpServerFactoryContext* server_context,
+                                            const RpClusterCfg* config,
+                                            bool added_via_api);
 
 
 /**
@@ -185,6 +187,8 @@ typedef SHARED_PTR(RpClusterImplBase) RpClusterImplBaseSharedPtr;
 
 void rp_cluster_impl_base_on_pre_init_complete(RpClusterImplBase* self);
 const RpClusterCfg* rp_cluster_impl_base_config_(RpClusterImplBase* self);
+RpTimeSource* rp_cluster_impl_base_time_source_(RpClusterImplBase* self);
+bool rp_cluster_impl_base_wait_for_warm_on_init_(RpClusterImplBase* self);
 
 
 /**
@@ -197,9 +201,48 @@ G_DECLARE_FINAL_TYPE(RpPriorityStateManager, rp_priority_state_manager, RP, PRIO
 
 typedef UNIQUE_PTR(RpPriorityStateManager) RpPriorityStateManagerPtr;
 
-RpPriorityStateManager* rp_priority_state_manager_new(RpClusterImplBase* cluster, const RpLocalInfo* local_info/*,TODO...HostUpdateCb update_cb*/);
-void rp_priority_state_manager_initialize_priority_for(RpPriorityStateManager* self, const RpLocalityLbEndpointsCfg* locality_lb_endpoint);
-void rp_priority_state_manager_register_host_for_priority(RpPriorityStateManager* self, const char* hostname, RpNetworkAddressInstanceConstSharedPtr address/*,std::vector<Network::Address::InstanceConstSharedPtr> address_list*/, const RpLocalityLbEndpointsCfg* locality_lb_endpoint, const RpLbEndpointCfg* lb_endpoint, RpTimeSource* time_source);
+RpPriorityStateManager* rp_priority_state_manager_new(RpClusterImplBase* cluster,
+                                                        const RpLocalInfo* local_info/*,TODO...HostUpdateCb update_cb*/);
+void rp_priority_state_manager_initialize_priority_for(RpPriorityStateManager* self,
+                                                        const RpLocalityLbEndpointsCfg* locality_lb_endpoint);
+void rp_priority_state_manager_register_host_for_priority(RpPriorityStateManager* self,
+                                                            const char* hostname, RpNetworkAddressInstanceConstSharedPtr address/*,std::vector<Network::Address::InstanceConstSharedPtr> address_list*/,
+                                                            const RpLocalityLbEndpointsCfg* locality_lb_endpoint,
+                                                            const RpLbEndpointCfg* lb_endpoint,
+                                                            RpTimeSource* time_source);
+void rp_priority_state_manager_register_host_for_priority_2(RpPriorityStateManager* self,
+                                                            const RpHostSharedPtr host,
+                                                            const RpLocalityLbEndpointsCfg* locality_lb_endpoint);
 RpPriorityState rp_priority_state_manager_priority_state(RpPriorityStateManager* self);
+
+
+/**
+ * Base for all dynamic cluster types.
+ */
+#define RP_TYPE_BASE_DYNAMIC_CLUSTER_IMPL rp_base_dynamic_cluster_impl_get_type()
+G_DECLARE_DERIVABLE_TYPE(RpBaseDynamicClusterImpl, rp_base_dynamic_cluster_impl, RP, BASE_DYNAMIC_CLUSTER_IMPL, RpClusterImplBase)
+
+struct _RpBaseDynamicClusterImplClass {
+    RpClusterImplBaseClass parent_class;
+
+};
+
+bool rp_base_dynamic_cluster_impl_update_dynamic_host_list(RpBaseDynamicClusterImpl* self,
+                                                            const RpHostVector* new_hosts,
+                                                            RpHostVector** current_priority_hosts,
+                                                            RpHostVector** hosts_added_to_current_priorty,
+                                                            RpHostVector** hosts_removed_from_current_priority,
+                                                            const RpHostMap* all_hosts,
+                                                            GHashTable* all_new_hosts);
+
+
+/**
+ * Thread aware load balancer created by the main thread.
+ */
+#define RP_TYPE_SIMPLE_THREAD_AWARE_LOAD_BALANCER rp_simple_thread_aware_load_balancer_get_type()
+G_DECLARE_FINAL_TYPE(RpSimpleThreadAwareLoadBalancer, rp_simple_thread_aware_load_balancer, RP, SIMPLE_THREAD_AWARE_LOAD_BALANCER, GObject)
+
+RpThreadAwareLoadBalancerPtr rp_simple_thread_aware_load_balancer_new(RpLoadBalancerFactorySharedPtr factory);
+
 
 G_END_DECLS

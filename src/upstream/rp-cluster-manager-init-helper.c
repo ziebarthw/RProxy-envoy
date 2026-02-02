@@ -96,13 +96,14 @@ static void
 maybe_finish_initialize(RpClusterManagerInitHelper* self)
 {
     NOISY_MSG_("(%p)", self);
+    NOISY_MSG_("maybe finish initialize state %d", self->m_state);
     if (self->m_state == State_Loading || self->m_state == State_WaitingToStartCdsInitialization)
     {
         NOISY_MSG_("returning");
         return;
     }
 
-    g_assert(self->m_state == State_WaitingForPrimaryInitializationToComplete ||
+    g_assert(self->m_state == State_WaitingToStartSecondaryInitialization ||
                 self->m_state == State_CdsInitialized ||
                 self->m_state == State_WaitingForPrimaryInitializationToComplete);
     if (g_hash_table_size(self->m_primary_init_clusters))
@@ -113,11 +114,13 @@ maybe_finish_initialize(RpClusterManagerInitHelper* self)
     else if (self->m_state == State_WaitingForPrimaryInitializationToComplete)
     {
         self->m_state = State_WaitingToStartSecondaryInitialization;
+NOISY_MSG_("primary clusters initialized callback %p", self->m_primary_clusters_initialized_callback);
         if (self->m_primary_clusters_initialized_callback)
         {
             self->m_primary_clusters_initialized_callback(self->m_primary_clusters_initialized_callback_arg);
         }
-        return;
+self->m_state = State_WaitingToStartCdsInitialization; //REVISIT: Temporary...
+//TODO..        return;
     }
 
     if (self->m_secondary_init_clusters && g_hash_table_size(self->m_secondary_init_clusters))
@@ -246,7 +249,7 @@ NOISY_MSG_("cluster %p(%s)", cluster, name);
     //TODO...cluster.info()->configUpdateStats().warming_state_.set(1);
     if (rp_cluster_initialize_phase(cluster) == RpInitializePhase_Primary)
     {
-NOISY_MSG_("replacing");
+NOISY_MSG_("replacing %p(%s)", cluster, name);
         g_hash_table_replace(self->m_primary_init_clusters, g_strdup(name), cm_cluster);
         rp_cluster_initialize(cluster, initialize_cb, rp_initialize_cb_ctx_new(self, cm_cluster));
     }
@@ -261,4 +264,12 @@ rp_cluster_manager_init_helper_on_static_load_complete(RpClusterManagerInitHelpe
     g_return_if_fail(RP_IS_CLUSTER_MANAGER_INIT_HELPER(self));
     self->m_state = State_WaitingForPrimaryInitializationToComplete;
     maybe_finish_initialize(self);
+}
+
+bool
+rp_cluster_manager_init_helper_all_clusters_initialized(RpClusterManagerInitHelper* self)
+{
+    LOGD("(%p)", self);
+    g_return_val_if_fail(RP_IS_CLUSTER_MANAGER_INIT_HELPER(self), false);
+    return self->m_state == State_AllClustersInitialized;
 }

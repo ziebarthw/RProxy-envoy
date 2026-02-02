@@ -13,7 +13,6 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
-#include "upstream/rp-cluster-factory-context-impl.h"
 #include "upstream/rp-cluster-factory-impl.h"
 
 typedef struct _RpClusterFactoryImplBasePrivate RpClusterFactoryImplBasePrivate;
@@ -121,19 +120,74 @@ rp_cluster_factory_impl_base_init(RpClusterFactoryImplBase* self G_GNUC_UNUSED)
     NOISY_MSG_("(%p)", self);
 }
 
+static inline PairClusterSharedPtrThreadAwareLoadBalancerPtr
+null_pair(void)
+{
+    return PairClusterSharedPtrThreadAwareLoadBalancerPtr_make(NULL, NULL);
+}
+
 PairClusterSharedPtrThreadAwareLoadBalancerPtr
 rp_cluster_factory_impl_base_create(const RpClusterCfg* cluster, RpServerFactoryContext* server_context, RpClusterManager* cm,
-                                    bool added_via_api)
+                                    RpLazyCreateDnsResolver dns_resolver_fn, gpointer dns_resolver_arg, bool added_via_api)
 {
-    extern RpClusterFactory* default_cluster_factory;
-    extern RpClusterFactory* default_dfp_factory;
+    extern RpClusterFactory* default_static_cluster_factory;
+    extern RpClusterFactory* default_strict_dns_cluster_factory;
+    extern RpClusterFactory* default_dfp_cluster_factory;
 
     LOGD("(%p, %p, %p, %u)", cluster, server_context, cm, added_via_api);
 
-    g_return_val_if_fail(cluster != NULL, PairClusterSharedPtrThreadAwareLoadBalancerPtr_make(NULL, NULL));
-    g_return_val_if_fail(RP_IS_SERVER_FACTORY_CONTEXT(server_context), PairClusterSharedPtrThreadAwareLoadBalancerPtr_make(NULL, NULL));
-    g_return_val_if_fail(RP_IS_CLUSTER_MANAGER(cm), PairClusterSharedPtrThreadAwareLoadBalancerPtr_make(NULL, NULL));
+    g_return_val_if_fail(cluster != NULL, null_pair());
+    g_return_val_if_fail(RP_IS_SERVER_FACTORY_CONTEXT(server_context), null_pair());
+    g_return_val_if_fail(RP_IS_CLUSTER_MANAGER(cm), null_pair());
 
+    //TODO...FactoryRegistry...
+
+    const char* cluster_name = NULL;
+
+    RpClusterFactory* factory = NULL;
+    if (rp_cluster_cfg_has_cluster_type(cluster))
+    {
+        NOISY_MSG_("cluster type");
+        cluster_name = rp_cluster_type_cfg_name(rp_cluster_cfg_cluster_type(cluster));
+NOISY_MSG_("cluster name \"%s\"", cluster_name);
+        if (g_ascii_strcasecmp(cluster_name, "rproxy.clusters.dynamic_forward_proxy") == 0)
+        {
+            factory = default_dfp_cluster_factory;
+        }
+    }
+    else
+    {
+NOISY_MSG_("no cluster type");
+        switch (rp_cluster_cfg_type(cluster))
+        {
+            case RpDiscoveryType_STATIC:
+//                cluster_name = "rproxy.cluster.static";
+                factory = default_static_cluster_factory;
+                break;
+            case RpDiscoveryType_STRICT_DNS:
+//                cluster_name = "rproxy.cluster.strict_dns";
+                factory = default_strict_dns_cluster_factory;
+                break;
+            case RpDiscoveryType_EDS:
+                LOGE("RpDiscoveryType_EDS not yet supported");
+                break;
+            case RpDiscoveryType_LOCAL_DNS:
+                LOGE("RpDiscoveryType_LOCAL_DNS not yet supported");
+                break;
+            case RpDiscoveryType_ORIGINAL_DST:
+                LOGE("RpDiscoveryType_ORIGINAL_DST not yet supported");
+                break;
+        }
+    }
+
+    if (!factory)
+    {
+        LOGE("no factory");
+        return PairClusterSharedPtrThreadAwareLoadBalancerPtr_make(NULL, NULL);
+    }
+
+
+#if 0
     RpClusterFactory* factory;
     if (cluster->type == RpDiscoveryType_STRICT_DNS)
     {
@@ -143,8 +197,25 @@ rp_cluster_factory_impl_base_create(const RpClusterCfg* cluster, RpServerFactory
     {
         factory = default_cluster_factory;
     }
+#endif//0
 
     g_autoptr(RpClusterFactoryContext) context = RP_CLUSTER_FACTORY_CONTEXT(
-        rp_cluster_factory_context_impl_new(server_context, cm, added_via_api));
+        rp_cluster_factory_context_impl_new(server_context, cm, dns_resolver_fn, dns_resolver_arg, added_via_api));
     return rp_cluster_factory_create(factory, cluster, context);
+}
+
+RpNetworkDnsResolverSharedPtr
+rp_cluster_factory_impl_base_select_dns_resolver(RpClusterFactoryImplBase* self, const RpClusterCfg* cluster,
+                                                    RpClusterFactoryContext* context)
+{
+    LOGD("(%p, %p, %p)", self, cluster, context);
+
+    g_return_val_if_fail(RP_CLUSTER_FACTORY_IMPL_BASE(self), NULL);
+    g_return_val_if_fail(cluster != NULL, NULL);
+    g_return_val_if_fail(RP_IS_CLUSTER_FACTORY_CONTEXT(context), NULL);
+
+    //TODO...if (cluster.has_typed_dns_resolver_config())...
+    //...return dns_resolver_factory.createDnsResolver(...)...
+
+    return rp_cluster_factory_context_dns_resolver(context);
 }

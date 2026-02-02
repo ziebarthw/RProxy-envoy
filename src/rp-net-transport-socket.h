@@ -10,6 +10,7 @@
 #include <stdbool.h>
 #include <glib-object.h>
 #include "rproxy.h"
+#include "rp-api-os-sys-calls.h"
 #include "rp-io-handle.h"
 #include "rp-net-connection.h"
 #include "rp-listen-socket.h"
@@ -116,7 +117,7 @@ struct _RpNetworkTransportSocketInterface {
     const char* (*protocol)(RpNetworkTransportSocket*);
     const char* (*failure_reason)(RpNetworkTransportSocket*);
     bool (*can_flush_close)(RpNetworkTransportSocket*);
-    int (*connect)(RpNetworkTransportSocket*, RpConnectionSocket*);
+    RpSysCallIntResult (*connect)(RpNetworkTransportSocket*, RpConnectionSocket*);
     void (*close_socket)(RpNetworkTransportSocket*);
     RpIoResult (*do_read)(RpNetworkTransportSocket*, evbuf_t*);
     RpIoResult (*do_write)(RpNetworkTransportSocket*, evbuf_t*, bool);
@@ -154,11 +155,12 @@ rp_network_transport_socket_can_flush_close(RpNetworkTransportSocket* self)
     return RP_IS_NETWORK_TRANSPORT_SOCKET(self) ?
         RP_NETWORK_TRANSPORT_SOCKET_GET_IFACE(self)->can_flush_close(self) : false;
 }
-static inline int
+static inline RpSysCallIntResult
 rp_network_transport_socket_connect(RpNetworkTransportSocket* self, RpConnectionSocket* socket)
 {
     return RP_IS_NETWORK_TRANSPORT_SOCKET(self) ?
-        RP_NETWORK_TRANSPORT_SOCKET_GET_IFACE(self)->connect(self, socket) : -1;
+        RP_NETWORK_TRANSPORT_SOCKET_GET_IFACE(self)->connect(self, socket) :
+        rp_sys_call_int_ctor(-1, EINVAL);
 }
 static inline void
 rp_network_transport_socket_close_socket(RpNetworkTransportSocket* self)

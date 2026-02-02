@@ -19,13 +19,13 @@ G_DECLARE_INTERFACE(RpNetworkAddressSocketInterface, rp_network_address_socket_i
 struct _RpNetworkAddressSocketInterfaceInterface {
     GTypeInterface parent_iface;
 
-    RpIoHandlePtr (*socket)(RpNetworkAddressSocketInterface*, RpSocketType_e, RpAddressType_e, RpIpVersion_e, bool);
+    RpIoHandlePtr (*socket)(RpNetworkAddressSocketInterface*, RpSocketType_e, RpNetworkAddressType_e, RpIpVersion_e, bool);
     RpIoHandlePtr (*socket_2)(RpNetworkAddressSocketInterface*, RpSocketType_e, RpNetworkAddressInstanceConstSharedPtr);
     bool (*ip_family_supported)(RpNetworkAddressSocketInterface*, int);
 };
 
 static inline RpIoHandlePtr
-rp_network_address_socket_interface_socket(RpNetworkAddressSocketInterface* self, RpSocketType_e socket_type, RpAddressType_e addr_type, RpIpVersion_e version, bool ipv6only)
+rp_network_address_socket_interface_socket(RpNetworkAddressSocketInterface* self, RpSocketType_e socket_type, RpNetworkAddressType_e addr_type, RpIpVersion_e version, bool ipv6only)
 {
     return RP_IS_NETWORK_ADDRESS_SOCKET_INTERFACE(self) ?
         RP_NETWORK_ADDRESS_SOCKET_INTERFACE_GET_IFACE(self)->socket(self, socket_type, addr_type, version, ipv6only) :

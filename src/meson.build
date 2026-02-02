@@ -5,7 +5,7 @@ librproxy = static_library('rproxy',
         'rule.c',
         'ssl.c',
         'lzlog.c',
-        'lzq.c',
+        'trafficstats.c',
         'upstream.c',
         'vhost.c',
         'util.c',
@@ -66,6 +66,8 @@ librproxy = static_library('rproxy',
         'rp-net-conn-impl.c',
         'rp-net-conn-impl-base.c',
         'rp-net-connection.c',
+        'rp-net-dns.c',
+        'rp-net-dns-resolver.c',
         'rp-net-filter.c',
         'rp-net-filter-impl.c',
         'rp-net-filter-mgr-impl.c',
@@ -107,11 +109,12 @@ librproxy = static_library('rproxy',
         'rp-time.c',
         'rp-timer.c',
         'rp-transport-socket-config.c',
+        'rp-typed-config.c',
         'rp-upstream.c',
         'clusters/static/rp-static-cluster.c',
         'clusters/static/rp-static-cluster-factory.c',
-        'clusters/static/rp-static-load-balancer-factory.c',
-        'clusters/static/rp-static-thread-aware-load-balancer.c',
+        'clusters/strict_dns/rp-strict-dns-cluster.c',
+        'clusters/strict_dns/rp-strict-dns-cluster-factory.c',
         'common/common/rp-basic-resource-impl.c',
         'common/conn_pool/rp-conn-pool-base.c',
         'common/conn_pool/rp-conn-pool-base-active-client.c',
@@ -160,6 +163,11 @@ librproxy = static_library('rproxy',
         'network/rp-socket-interface.c',
         'network/rp-socket-interface-impl.c',
         'network/rp-socket-interface-impl-factory.c',
+        'network/dns_resolver/rp-dns-factory-util.c',
+        'network/dns_resolver/libevent/rp-addr-info-pending-resolution.c',
+        'network/dns_resolver/libevent/rp-dns-impl.c',
+        'network/dns_resolver/libevent/rp-dns-resolver-factory-impl.c',
+        'network/dns_resolver/libevent/rp-pending-resolution.c',
         'router/rp-codec-bridge.c',
         'router/rp-common-virtual-host-impl.c',
         'router/rp-default-upstream-http-filter-chain-factory.c',
@@ -198,6 +206,7 @@ librproxy = static_library('rproxy',
         'thread_local/rp-thread-local-impl.c',
         'transport_sockets/rp-upstream-raw-buffer.c',
         'transport_sockets/rp-downstream-raw-buffer.c',
+        'upstream/rp-base-dynamic-cluster-impl.c',
         'upstream/rp-cluster-data.c',
         'upstream/rp-cluster-discovery-manager.c',
         'upstream/rp-cluster-impl-base.c',
@@ -209,9 +218,13 @@ librproxy = static_library('rproxy',
         'upstream/rp-cluster-manager-cluster.c',
         'upstream/rp-cluster-manager-impl.c',
         'upstream/rp-cluster-manager-init-helper.c',
+        'upstream/rp-cluster-provided-lb-config.c',
+        'upstream/rp-cluster-provided-lb-factory.c',
         'upstream/rp-cluster-update-callbacks-handle-impl.c',
+        'upstream/rp-configurable-cluster-factory-base.c',
         'upstream/rp-conn-pool-map.c',
         'upstream/rp-conn-pool-map-impl.c',
+        'upstream/rp-delegate-load-balancer-factory.c',
         'upstream/rp-host-description-impl.c',
         'upstream/rp-host-description-impl-base.c',
         'upstream/rp-host-impl.c',
@@ -220,6 +233,7 @@ librproxy = static_library('rproxy',
         'upstream/rp-http-rewrite-upstream.c',
         'upstream/rp-http-upstream.c',
         'upstream/rp-load-balancer-context-base.c',
+        'upstream/rp-load-balancer-factory-base.c',
         'upstream/rp-main-priority-set-impl.c',
         'upstream/rp-managed-resource-impl.c',
         'upstream/rp-priority-conn-pool-map.c',
@@ -228,6 +242,7 @@ librproxy = static_library('rproxy',
         'upstream/rp-priority-state-manager.c',
         'upstream/rp-prod-cluster-manager-factory.c',
         'upstream/rp-resource-manager-impl.c',
+        'upstream/rp-simple-thread-aware-load-balancer.c',
         'upstream/rp-tcp-conn-container.c',
         'upstream/rp-tcp-conn-pool.c',
         'upstream/rp-tcp-upstream.c',
@@ -241,16 +256,14 @@ librproxy = static_library('rproxy',
     c_args: [
         '-DG_LOG_DOMAIN="rproxy"',
         '-D_GNU_SOURCE',
-        '-DML_LOG_LEVEL=DEBUG_LEVEL',
-        '-DALL_NOISY',
+        '-DML_LOG_LEVEL=INFO_LEVEL',
         '-O0',
         '-g3',
         '-I /usr/include'
     ],
     cpp_args: [
         '-DG_LOG_DOMAIN="rproxy"',
-        '-DML_LOG_LEVEL=DEBUG_LEVEL',
-        '-DALL_NOISY',
+        '-DML_LOG_LEVEL=INFO_LEVEL',
         '-O0',
         '-g3',
         '-flto'
@@ -277,7 +290,8 @@ install_headers(
         'rproxy.h',
         'rule.h',
         'lzlog.h',
-        'lzq.h',
+        'tpoolctx.h',
+        'trafficstats.h',
         'vhost.h',
         'gbrotlicompressor.h',
         'gbrotlidecompressor.h',
@@ -287,6 +301,8 @@ install_headers(
         'rp-active-stream-encoder-filter.h',
         'rp-active-stream-filter-base.h',
         'rp-active-tcp-conn.h',
+        'rp-api-os-sys-calls.h',
+        'rp-api-os-sys-calls-common.h',
         'rp-cluster-configuration.h',
         'rp-cluster-factory.h',
         'rp-cluster-manager.h',
@@ -338,6 +354,8 @@ install_headers(
         'rp-net-conn-impl.h',
         'rp-net-conn-impl-base.h',
         'rp-net-connection.h',
+        'rp-net-dns.h',
+        'rp-net-dns-resolver.h',
         'rp-net-filter.h',
         'rp-net-filter-impl.h',
         'rp-net-filter-mgr-impl.h',
@@ -381,6 +399,7 @@ install_headers(
         'rp-time.h',
         'rp-timer.h',
         'rp-transport-socket-config.h',
+        'rp-typed-config.h',
         'rp-upstream.h'
     ],
     subdir: 'rproxy'
@@ -391,6 +410,13 @@ install_headers(
         'clusters/static/rp-static-cluster.h',
     ],
     subdir: 'rproxy/clusters/static'
+)
+
+install_headers(
+    [
+        'clusters/strict_dns/rp-strict-dns-cluster.h',
+    ],
+    subdir: 'rproxy/clusters/strict_dns'
 )
 
 install_headers(
@@ -469,6 +495,20 @@ install_headers(
         'network/rp-socket-interface-impl.h',
     ],
     subdir: 'rproxy/network'
+)
+
+install_headers(
+    [
+        'network/dns_resolver/rp-dns-factory-util.h',
+    ],
+    subdir: 'rproxy/network/dns_resolver'
+)
+
+install_headers(
+    [
+        'network/dns_resolver/libevent/rp-dns-impl.h',
+    ],
+    subdir: 'rproxy/network/dns_resolver/libevent'
 )
 
 install_headers(
@@ -553,12 +593,14 @@ install_headers(
     [
         'upstream/rp-cluster-discovery-manager.h',
         'upstream/rp-cluster-factory-impl.h',
-        'upstream/rp-cluster-factory-context-impl.h',
         'upstream/rp-cluster-manager-impl.h',
+        'upstream/rp-cluster-provided-lb-factory.h',
+        'upstream/rp-delegate-load-balancer-factory.h',
         'upstream/rp-http-conn-pool.h',
         'upstream/rp-http-rewrite-upstream.h',
         'upstream/rp-http-upstream.h',
         'upstream/rp-load-balancer-context-base.h',
+        'upstream/rp-load-balancer-factory-base.h',
         'upstream/rp-managed-resource-impl.h',
         'upstream/rp-resource-manager-impl.h',
         'upstream/rp-tcp-conn-pool.h',

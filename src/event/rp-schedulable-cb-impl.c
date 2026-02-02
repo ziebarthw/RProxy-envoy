@@ -27,6 +27,7 @@ struct _RpSchedulableCallbackImpl {
     gpointer m_arg;
 
     int m_wakeup_fd;
+    bool m_enabled;
     struct event m_wakeup_event;
 };
 
@@ -40,7 +41,7 @@ static inline bool
 internal_enabled(RpSchedulableCallbackImpl* self)
 {
     NOISY_MSG_("(%p)", self);
-    return evtimer_pending(self->m_raw_event, NULL) != 0;
+    return self->m_enabled;
 }
 
 static void
@@ -58,16 +59,11 @@ static void
 current_iteration(RpSchedulableCallbackImpl* self)
 {
     NOISY_MSG_("(%p)", self);
-    if (rp_schedulable_callback_enabled(RP_SCHEDULABLE_CALLBACK(self)))
-    {
-        NOISY_MSG_("already enabled");
-        return;
-    }
     event_active(self->m_raw_event, EV_TIMEOUT, 0);
 }
 
 static void
-wakeup_cb(evutil_socket_t fd, short events, void* arg)
+wakeup_cb(evutil_socket_t fd, short events, gpointer arg)
 {
     NOISY_MSG_("(%d, %d, %p)", fd, events, arg);
     RpSchedulableCallbackImpl* self = arg;
@@ -88,14 +84,18 @@ schedule_callback_current_iteration_i(RpSchedulableCallback* self)
         NOISY_MSG_("already enabled");
         return;
     }
-    eventfd_write(RP_SCHEDULABLE_CALLBACK_IMPL(self)->m_wakeup_fd, 1);
+    RpSchedulableCallbackImpl* me = RP_SCHEDULABLE_CALLBACK_IMPL(self);
+    me->m_enabled = true;
+    eventfd_write(me->m_wakeup_fd, 1);
 }
 
 static void
 schedule_callback_next_iteration_i(RpSchedulableCallback* self)
 {
     NOISY_MSG_("(%p)", self);
-    eventfd_write(RP_SCHEDULABLE_CALLBACK_IMPL(self)->m_wakeup_fd, 2);
+    RpSchedulableCallbackImpl* me = RP_SCHEDULABLE_CALLBACK_IMPL(self);
+    me->m_enabled = true;
+    eventfd_write(me->m_wakeup_fd, 2);
 }
 
 static void
@@ -127,6 +127,7 @@ timer_cb(evutil_socket_t fd, short events, void* arg)
 {
     NOISY_MSG_("(%d, %d, %p)", fd, events, arg);
     RpSchedulableCallbackImpl* self = RP_SCHEDULABLE_CALLBACK_IMPL(arg);
+    self->m_enabled = false;
     self->m_cb(RP_SCHEDULABLE_CALLBACK(self), self->m_arg);
 }
 
@@ -152,9 +153,10 @@ rp_schedulable_callback_impl_class_init(RpSchedulableCallbackImplClass* klass)
 }
 
 static void
-rp_schedulable_callback_impl_init(RpSchedulableCallbackImpl* self G_GNUC_UNUSED)
+rp_schedulable_callback_impl_init(RpSchedulableCallbackImpl* self)
 {
     NOISY_MSG_("(%p)", self);
+    self->m_enabled = false;
 }
 
 static inline RpSchedulableCallbackImpl*

@@ -58,10 +58,12 @@ init_helper(RpNetworkAddressIpv4Instance* self, const struct sockaddr_in* addres
     memset(&self->m_ip.m_ipv4.m_address, 0, sizeof(self->m_ip.m_ipv4.m_address));
     self->m_ip.m_ipv4.m_address = *address;
     self->m_ip.m_friendly_address = rp_network_address_ipv4_sockaddr_to_string(address);
+    char* friendly_address = self->m_ip.m_friendly_address;
     char buf[G_ASCII_DTOSTR_BUF_SIZE];
     gchar* port = g_ascii_dtostr(buf, sizeof(buf), ntohs(address->sin_port));
     gsize port_len = strlen(port);
-    GString* friendly_name = g_string_new_len(self->m_ip.m_friendly_address, strlen(self->m_ip.m_friendly_address) + 1 + port_len);
+    GString* friendly_name = g_string_sized_new(strlen(friendly_address) + 1 + port_len);
+    g_string_append(friendly_name, friendly_address);
     g_string_append_c(friendly_name, ':');
     g_string_append_len(friendly_name, port, port_len);
     *(rp_network_address_instance_base_friendly_name_(RP_NETWORK_ADDRESS_INSTANCE_BASE(self))) = friendly_name;
@@ -146,21 +148,21 @@ network_address_ip_iface_init(RpNetworkAddressIpInterface* iface)
     iface->version = version_i;
 }
 
-static const RpNetworkAddressIp*
+static RpNetworkAddressIp*
 ip_i(RpNetworkAddressInstance* self)
 {
     NOISY_MSG_("(%p)", self);
     return RP_NETWORK_ADDRESS_IP(self);
 }
 
-static const RpNetworkAddressPipe*
+static RpNetworkAddressPipe*
 pipe_i(RpNetworkAddressInstance* self G_GNUC_UNUSED)
 {
     NOISY_MSG_("(%p)", self);
     return NULL;
 }
 
-static const RpNetworkAddressRProxyInternalAddress*
+static RpNetworkAddressRProxyInternalAddress*
 rproxy_internal_address_i(RpNetworkAddressInstance* self G_GNUC_UNUSED)
 {
     NOISY_MSG_("(%p)", self);
@@ -209,7 +211,7 @@ logical_name_i(RpNetworkAddressInstance* self)
     return PARENT_ADDRESS_INSTANCE_IFACE(self)->logical_name(self);
 }
 
-static const RpNetworkAddressSocketInterface*
+static RpNetworkAddressSocketInterface*
 socket_interface_i(RpNetworkAddressInstance* self)
 {
     NOISY_MSG_("(%p)", self);
@@ -264,7 +266,7 @@ rp_network_address_ipv4_instance_new(const struct sockaddr_in* address, const Rp
     LOGD("(%p)", address);
     RpNetworkAddressIpv4Instance* self = g_object_new(RP_TYPE_NETWORK_ADDRESS_IPV4_INSTANCE,
                                                         "sock-interface", rp_network_address_impl_sock_interface_or_default(sock_interface),
-                                                        "type", RpAddressType_IP,
+                                                        "type", RpNetworkAddressType_IP,
                                                         NULL);
     init_helper(self, address);
     return self;
@@ -283,7 +285,7 @@ rp_network_address_ipv4_instance_new_3(const char* address, guint32 port, const 
     LOGD("(%p(%s), %u)", address, address, port);
     RpNetworkAddressIpv4Instance* self = g_object_new(RP_TYPE_NETWORK_ADDRESS_IPV4_INSTANCE,
                                         "sock-interface", rp_network_address_impl_sock_interface_or_default(sock_interface),
-                                        "type", RpAddressType_IP,
+                                        "type", RpNetworkAddressType_IP,
                                         NULL);
     memset(&self->m_ip.m_ipv4.m_address, 0, sizeof(self->m_ip.m_ipv4.m_address));
     self->m_ip.m_ipv4.m_address.sin_family = AF_INET;
@@ -313,7 +315,7 @@ rp_network_address_ipv4_instance_new_4(guint32 port, const RpNetworkAddressSocke
     LOGD("(%u)", port);
     RpNetworkAddressIpv4Instance* self = g_object_new(RP_TYPE_NETWORK_ADDRESS_IPV4_INSTANCE,
                                         "sock-interface", rp_network_address_impl_sock_interface_or_default(sock_interface),
-                                        "type", RpAddressType_IP,
+                                        "type", RpNetworkAddressType_IP,
                                         NULL);
     memset(&self->m_ip.m_ipv4.m_address, 0, sizeof(self->m_ip.m_ipv4.m_address));
     self->m_ip.m_ipv4.m_address.sin_family = AF_INET;
@@ -358,5 +360,5 @@ rp_network_address_ipv4_sockaddr_to_string(const struct sockaddr_in* addr)
         }
     }
     gsize end = str + buffer_size - start;
-    return g_strndup(str, end);
+    return g_strndup(start, end);
 }

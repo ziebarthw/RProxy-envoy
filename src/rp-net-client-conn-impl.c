@@ -43,28 +43,38 @@ G_DEFINE_FINAL_TYPE_WITH_CODE(RpNetworkClientConnectionImpl, rp_network_client_c
 static void
 connect_i(RpNetworkClientConnection* self)
 {
-#if 0
-    int err = errno;
-#endif//0
-
     NOISY_MSG_("(%p)", self);
     RpNetworkClientConnectionImpl* me = RP_NETWORK_CLIENT_CONNECTION_IMPL(self);
-    RpNetworkTransportSocket* transport_socket_ = rp_network_connection_impl_transport_socket_(RP_NETWORK_CONNECTION_IMPL(self));
-    RpConnectionSocket* socket_ = rp_network_connection_impl_socket_(RP_NETWORK_CONNECTION_IMPL(self));
-    int result = rp_network_transport_socket_connect(transport_socket_, socket_);
+    RpNetworkConnectionImpl* conn_impl = RP_NETWORK_CONNECTION_IMPL(self);
+    RpNetworkTransportSocket* transport_socket_ = rp_network_connection_impl_transport_socket_(conn_impl);
+    RpConnectionSocket* socket_ = rp_network_connection_impl_socket_(conn_impl);
+    RpSysCallIntResult result = rp_network_transport_socket_connect(transport_socket_, socket_);
 
     RpStreamInfo* stream_info = RP_STREAM_INFO(me->m_stream_info);
     rp_upstream_timing_on_upstream_connect_start(
         rp_upstream_info_upstream_timing(
             rp_stream_info_upstream_info(stream_info)));
 
-    if (result == 0)
+    if (result.m_return_value == 0)
     {
         NOISY_MSG_("write will become ready");
+        g_assert(rp_network_connection_connecting(RP_NETWORK_CONNECTION(self)));
         return;
     }
 
     //TODO...check error conditions...
+    if (result.m_errno == EINPROGRESS)
+    {
+        g_assert(rp_network_connection_connecting(RP_NETWORK_CONNECTION(self)));
+        NOISY_MSG_("conection %p is in progress", self);
+    }
+    else
+    {
+LOGE("error %d(%s)", result.m_errno, g_strerror(result.m_errno));
+        rp_network_connection_impl_set_immediate_error_event_(conn_impl, RpNetworkConnectionEvent_RemoteClose);
+        rp_network_connection_impl_set_connecting_(conn_impl, false);
+        //TODO...set verbose error messages...
+    }
 }
 
 static void

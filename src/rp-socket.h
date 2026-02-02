@@ -11,6 +11,7 @@
 #include <glib-object.h>
 #include <evhtp.h>
 #include "rproxy.h"
+#include "rp-api-os-sys-calls.h"
 #include "rp-io-handle.h"
 #include "rp-net-address.h"
 
@@ -195,7 +196,8 @@ struct _RpSocketInterface {
     //TODO...
     void (*close)(RpSocket*);
     bool (*is_open)(RpSocket*);
-    int (*connect)(RpSocket*, RpNetworkAddressInstanceConstSharedPtr, const char*);
+    RpSysCallIntResult (*connect)(RpSocket*,
+                                    RpNetworkAddressInstanceConstSharedPtr);
     int (*sockfd)(RpSocket*);
     //TODO...
 };
@@ -232,12 +234,12 @@ rp_socket_is_open(RpSocket* self)
 {
     return RP_IS_SOCKET(self) ? RP_SOCKET_GET_IFACE(self)->is_open(self) : false;
 }
-static inline int
-rp_socket_connect(RpSocket* self, RpNetworkAddressInstanceConstSharedPtr address, const char* requested_server_name)
+static inline RpSysCallIntResult
+rp_socket_connect(RpSocket* self, RpNetworkAddressInstanceConstSharedPtr address)
 {
     return RP_IS_SOCKET(self) ?
-        RP_SOCKET_GET_IFACE(self)->connect(self, address, requested_server_name) :
-        -1;
+        RP_SOCKET_GET_IFACE(self)->connect(self, address) :
+        rp_sys_call_int_ctor(-1, EINVAL);
 }
 static inline int
 rp_socket_sockfd(RpSocket* self)

@@ -1060,3 +1060,19 @@ rp_network_connection_impl_on_connected_(RpNetworkConnectionImpl* self)
     g_return_if_fail(RP_IS_NETWORK_CONNECTION_IMPL(self));
     on_connected(self);
 }
+
+void
+rp_network_connection_impl_set_connecting_(RpNetworkConnectionImpl* self, bool connecting)
+{
+    LOGD("(%p, %u)", self, connecting);
+    g_return_if_fail(RP_IS_NETWORK_CONNECTION_IMPL(self));
+    PRIV(self)->m_connecting = connecting;
+}
+
+void
+rp_network_connection_impl_set_immediate_error_event_(RpNetworkConnectionImpl* self, RpNetworkConnectionEvent_e event)
+{
+    LOGD("(%p, %d)", self, event);
+    g_return_if_fail(RP_IS_NETWORK_CONNECTION_IMPL(self));
+    PRIV(self)->m_immediate_error_event = event;
+}

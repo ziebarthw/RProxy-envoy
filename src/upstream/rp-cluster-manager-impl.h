@@ -15,6 +15,7 @@
 #include "rp-server-instance.h"
 #include "rp-thread-local.h"
 #include "upstream/rp-cluster-discovery-manager.h"
+#include "upstream/rp-cluster-factory-impl.h"
 #include "upstream/rp-priority-conn-pool-map-impl.h"
 #include "upstream/rp-upstream-impl.h"
 
@@ -55,6 +56,8 @@ G_DECLARE_FINAL_TYPE(RpProdClusterManagerFactory, rp_prod_cluster_manager_factor
 
 RpProdClusterManagerFactory* rp_prod_cluster_manager_factory_new(RpServerFactoryContext* context,
                                                                     RpThreadLocalInstance* tls,
+                                                                    RpLazyCreateDnsResolver dns_resolver_fn,
+                                                                    gpointer dns_resolver_arg,
                                                                     RpServerInstance* server);
 
 
@@ -133,6 +136,7 @@ void rp_cluster_manager_init_helper_set_primary_clusters_initialized_cb(RpCluste
 void rp_cluster_manager_init_helper_set_initialized_cb(RpClusterManagerInitHelper* self,
                                                         RpInitializationCompleteCallback cb,
                                                         gpointer arg);
+bool rp_cluster_manager_init_helper_all_clusters_initialized(RpClusterManagerInitHelper* self);
 
 
 /**
@@ -362,15 +366,24 @@ RpClusterManagerImpl* rp_thread_local_cluster_manager_impl_parent_(RpThreadLocal
 RpDispatcher* rp_thread_local_cluster_manager_impl_dispatcher_(RpThreadLocalClusterManagerImpl* self);
 GHashTable* rp_thread_local_cluster_manager_impl_thread_local_clusters_(RpThreadLocalClusterManagerImpl* self);
 GHashTable* rp_thread_local_cluster_manager_impl_host_tcp_conn_pool_map_(RpThreadLocalClusterManagerImpl* self);
+GList* rp_thread_local_cluster_manager_impl_update_callbacks_(RpThreadLocalClusterManagerImpl* self);
 
 
+/**
+ * RpClusterData
+ */
 typedef struct UNIQUE_PTR(_RpClusterData) RpClusterDataPtr;
 
 #define RP_TYPE_CLUSTER_DATA rp_cluster_data_get_type()
 G_DECLARE_FINAL_TYPE(RpClusterData, rp_cluster_data, RP, CLUSTER_DATA, GObject)
 
-RpClusterData* rp_cluster_data_new(RpClusterCfg* cluster_config, bool added_via_api, SHARED_PTR(RpCluster) cluster, RpTimeSource* time_source);
+RpClusterData* rp_cluster_data_new(RpClusterCfg* cluster_config,
+                                    guint64 cluster_config_hash,
+                                    bool added_via_api,
+                                    SHARED_PTR(RpCluster) cluster,
+                                    RpTimeSource* time_source);
 RpThreadAwareLoadBalancerPtr* rp_cluster_data_thread_aware_lb_(RpClusterData* self);
+bool rp_cluster_data_block_update(RpClusterData* self, guint64 hash);
 
 
 /**

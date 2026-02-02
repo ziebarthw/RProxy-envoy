@@ -21,24 +21,16 @@ struct _RpClusterInfoImpl {
 
     RpResourceManagerImpl* m_resource_manager;
     RpServerFactoryContext* m_server_context;
-    char* m_name;
-    RpClusterCfg m_config;
+    RpClusterCfgPtr m_config;
+    const RpCustomClusterTypeCfg* m_cluster_type;
+
+    RpLoadBalancerConfigPtr m_load_balancer_config;
+    RpTypedLoadBalancerFactory* m_load_balancer_factory;
 
     guint64 m_max_requests_per_connection;
 
     bool m_added_via_api;
 };
-
-enum
-{
-    PROP_0, // Reserved.
-    PROP_SERVER_CONTEXT,
-    PROP_CONFIG,
-    PROP_ADDED_VIA_API,
-    N_PROPERTIES
-};
-
-static GParamSpec* obj_properties[N_PROPERTIES] = { NULL, };
 
 static void filter_chain_factory_iface_init(RpFilterChainFactoryInterface* iface);
 static void cluster_info_iface_init(RpClusterInfoInterface* iface);
@@ -74,7 +66,8 @@ static const char*
 name_i(RpClusterInfo* self)
 {
     NOISY_MSG_("(%p)", self);
-    return RP_CLUSTER_INFO_IMPL(self)->m_name;
+    const RpClusterLoadAssignmentCfg* load_assignment = rp_cluster_cfg_load_assignment(RP_CLUSTER_INFO_IMPL(self)->m_config);
+    return rp_cluster_load_assignment_cfg_cluster_name(load_assignment);
 }
 
 static RpResourceManager*
@@ -88,7 +81,7 @@ static float
 per_upstream_preconnect_ratio_i(RpClusterInfo* self)
 {
     NOISY_MSG_("(%p)", self);
-    return RP_CLUSTER_INFO_IMPL(self)->m_config.preconnect_policy.per_upstream_preconnect_ratio;
+    return RP_CLUSTER_INFO_IMPL(self)->m_config->preconnect_policy.per_upstream_preconnect_ratio;
 }
 
 static RpUpstreamLocalAddressSelector*
@@ -110,7 +103,7 @@ static RpDiscoveryType_e
 type_i(RpClusterInfo* self)
 {
     NOISY_MSG_("(%p)", self);
-    return RP_CLUSTER_INFO_IMPL(self)->m_config.type;
+    return rp_cluster_cfg_type(RP_CLUSTER_INFO_IMPL(self)->m_config);
 }
 
 static RpTransportSocketFactoryContextPtr
@@ -142,6 +135,27 @@ upstream_http_protocol_i(RpClusterInfo* self, evhtp_proto downstream_protocol)
     return rval;
 }
 
+static const RpCustomClusterTypeCfg*
+cluster_type_i(RpClusterInfo* self)
+{
+    NOISY_MSG_("(%p)", self);
+    return RP_CLUSTER_INFO_IMPL(self)->m_cluster_type;
+}
+
+static RpLoadBalancerConfig*
+load_balancer_config_i(RpClusterInfo* self)
+{
+    NOISY_MSG_("(%p)", self);
+    return RP_CLUSTER_INFO_IMPL(self)->m_load_balancer_config;
+}
+
+static RpTypedLoadBalancerFactory*
+load_balancer_factory_i(RpClusterInfo* self)
+{
+    NOISY_MSG_("(%p)", self);
+    return RP_CLUSTER_INFO_IMPL(self)->m_load_balancer_factory;
+}
+
 static void
 cluster_info_iface_init(RpClusterInfoInterface* iface)
 {
@@ -155,61 +169,9 @@ cluster_info_iface_init(RpClusterInfoInterface* iface)
     iface->type = type_i;
     iface->transport_socket_context = transport_socket_context_i;
     iface->upstream_http_protocol = upstream_http_protocol_i;
-}
-
-OVERRIDE void
-get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_SERVER_CONTEXT:
-            g_value_set_object(value, RP_CLUSTER_INFO_IMPL(obj)->m_server_context);
-            break;
-        case PROP_CONFIG:
-            g_value_set_pointer(value, &RP_CLUSTER_INFO_IMPL(obj)->m_config);
-            break;
-        case PROP_ADDED_VIA_API:
-            g_value_set_boolean(value, RP_CLUSTER_INFO_IMPL(obj)->m_added_via_api);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
-set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_SERVER_CONTEXT:
-            RP_CLUSTER_INFO_IMPL(obj)->m_server_context = g_value_get_object(value);
-            break;
-        case PROP_CONFIG:
-            RP_CLUSTER_INFO_IMPL(obj)->m_config = *((RpClusterCfg*)g_value_get_pointer(value));
-            break;
-        case PROP_ADDED_VIA_API:
-            RP_CLUSTER_INFO_IMPL(obj)->m_added_via_api = g_value_get_boolean(value);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
-constructed(GObject* obj)
-{
-    NOISY_MSG_("(%p)", obj);
-
-    G_OBJECT_CLASS(rp_cluster_info_impl_parent_class)->constructed(obj);
-
-    RpClusterInfoImpl* self = RP_CLUSTER_INFO_IMPL(obj);
-    self->m_name = g_strdup(self->m_config.name);
-    self->m_resource_manager = rp_resource_manager_impl_new(self->m_name, 1024, 1024, 1024, 3, G_MAXUINT64, G_MAXUINT64);
-self->m_max_requests_per_connection = 1024;//TODO...config...
+    iface->cluster_type = cluster_type_i;
+    iface->load_balancer_config = load_balancer_config_i;
+    iface->load_balancer_factory = load_balancer_factory_i;
 }
 
 OVERRIDE void
@@ -218,8 +180,10 @@ dispose(GObject* obj)
     NOISY_MSG_("(%p)", obj);
 
     RpClusterInfoImpl* self = RP_CLUSTER_INFO_IMPL(obj);
-    g_clear_pointer(&self->m_name, g_free);
+    g_clear_pointer(&self->m_config, g_free);
     g_clear_object(&self->m_resource_manager);
+    g_clear_object(&self->m_load_balancer_config);
+    g_clear_object(&self->m_load_balancer_factory);
 
     G_OBJECT_CLASS(rp_cluster_info_impl_parent_class)->dispose(obj);
 }
@@ -230,44 +194,133 @@ rp_cluster_info_impl_class_init(RpClusterInfoImplClass* klass)
     LOGD("(%p)", klass);
 
     GObjectClass* object_class = G_OBJECT_CLASS(klass);
-    object_class->get_property = get_property;
-    object_class->set_property = set_property;
-    object_class->constructed = constructed;
     object_class->dispose = dispose;
-
-    obj_properties[PROP_SERVER_CONTEXT] = g_param_spec_object("server-context",
-                                                    "Server context",
-                                                    "ServerFactoryContext Instance",
-                                                    RP_TYPE_SERVER_FACTORY_CONTEXT,
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-    obj_properties[PROP_CONFIG] = g_param_spec_pointer("config",
-                                                    "Config",
-                                                    "ClusterCfg",
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-    obj_properties[PROP_ADDED_VIA_API] = g_param_spec_boolean("added-via-api",
-                                                    "Added via api",
-                                                    "Added Via API flag",
-                                                    false,
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-
-    g_object_class_install_properties(object_class, N_PROPERTIES, obj_properties);
 }
 
 static void
-rp_cluster_info_impl_init(RpClusterInfoImpl* self G_GNUC_UNUSED)
+rp_cluster_info_impl_init(RpClusterInfoImpl* self)
 {
     NOISY_MSG_("(%p)", self);
+    self->m_load_balancer_factory = NULL;
+}
+
+static inline bool
+configure_lb_policies(RpClusterInfoImpl* self, RpClusterCfgPtr config, RpServerFactoryContext* context)
+{
+    NOISY_MSG_("(%p, %p, %p)", self, config, context);
+    LOGE("NOT IMPLEMENTED");
+    //TODO...
+    return false;
+}
+
+typedef struct _Result Result;
+struct _Result {
+    RpTypedLoadBalancerFactory* factory;
+    RpLoadBalancerConfigPtr config;
+};
+static inline Result
+result_ctor(RpTypedLoadBalancerFactory* factory, RpLoadBalancerConfigPtr config)
+{
+    Result self = {
+        .factory = factory,
+        .config = config
+    };
+    return self;
+}
+
+static inline Result
+get_typed_lb_config_from_legacy_proto_without_subset(RpClusterInfoImpl*self, RpServerFactoryContext* context, const RpClusterCfg* cluster)
+{
+    extern RpTypedLoadBalancerFactory* default_cluster_provided_lb_factory;
+
+    NOISY_MSG_("(%p, %p, %p)", self, context, cluster);
+    RpTypedLoadBalancerFactory* lb_factory = NULL;
+
+    switch (rp_cluster_cfg_lb_policy(cluster))
+    {
+        case RpLbPolicy_ROUND_ROBIN:
+        case RpLbPolicy_LEAST_REQUEST:
+        case RpLbPolicy_RANDOM:
+        case RpLbPolicy_RING_HASH:
+        case RpLbPolicy_MAGLEV:
+            break;
+        case RpLbPolicy_CLUSTER_PROVIDED:
+            lb_factory = default_cluster_provided_lb_factory;
+            break;
+        case RpLbPolicy_LOAD_BALANCING_POLICY_CONFIG:
+            break;
+    }
+
+    if (!lb_factory)
+    {
+        LOGE("No load balancer factory found LB type %d", rp_cluster_cfg_lb_policy(cluster));
+        return result_ctor(NULL, NULL);
+    }
+
+    RpLoadBalancerConfigPtr lb_config = rp_typed_load_balancer_factory_load_legacy(lb_factory, context, cluster);
+    return result_ctor(lb_factory, lb_config);
+}
+
+static inline Result
+get_typed_lb_config_from_legacy_proto(RpClusterInfoImpl* self, RpServerFactoryContext* context, const RpClusterCfg* cluster)
+{
+    NOISY_MSG_("(%p, %p, %p)", self, context, cluster);
+    if (!rp_cluster_cfg_has_lb_subset_config(cluster)
+        /*TODO... || cluster.lb_subset_config().subset_selectors().empty()*/)
+    {
+        return get_typed_lb_config_from_legacy_proto_without_subset(self, context, cluster);
+    }
+    //TODO...
+    return result_ctor(NULL, NULL);
+}
+
+static inline RpClusterInfoImpl*
+constructed(RpClusterInfoImpl* self)
+{
+    NOISY_MSG_("(%p)", self);
+
+    RpClusterCfgPtr config = self->m_config;
+    const RpClusterLoadAssignmentCfg* load_assignment = rp_cluster_cfg_load_assignment(config);
+    const char* cluster_name = rp_cluster_load_assignment_cfg_cluster_name(load_assignment);
+    self->m_resource_manager = rp_resource_manager_impl_new(cluster_name, 1024, 1024, 1024, 3, G_MAXUINT64, G_MAXUINT64);
+    self->m_cluster_type = rp_cluster_cfg_has_cluster_type(config) ?
+                            rp_cluster_cfg_cluster_type(config) : NULL;
+self->m_max_requests_per_connection = 1024;//TODO...config...
+    if (rp_cluster_cfg_has_load_balancing_policy(config) ||
+        rp_cluster_cfg_lb_policy(config) == RpLbPolicy_LOAD_BALANCING_POLICY_CONFIG)
+    {
+        if (!configure_lb_policies(self, config, self->m_server_context))
+        {
+            LOGE("configure lb policies failed");
+            g_clear_object(&self);
+        }
+    }
+    else
+    {
+        Result lb_pair = get_typed_lb_config_from_legacy_proto(self, self->m_server_context, config);
+        self->m_load_balancer_factory = lb_pair.factory ? g_object_ref(lb_pair.factory) : NULL;
+        self->m_load_balancer_config = lb_pair.config;
+        if (!self->m_load_balancer_factory || !self->m_load_balancer_config)
+        {
+            LOGE("failed");
+            g_clear_object(&self);
+        }
+    }
+
+    return self;
 }
 
 RpClusterInfoImpl*
-rp_cluster_info_impl_new(RpServerFactoryContext* server_context, RpClusterCfg* config, bool added_via_api)
+rp_cluster_info_impl_new(RpServerFactoryContext* server_context, const RpClusterCfg* config, bool added_via_api)
 {
     LOGD("(%p, %p, %u)", server_context, config, added_via_api);
+
     g_return_val_if_fail(RP_IS_SERVER_FACTORY_CONTEXT(server_context), NULL);
     g_return_val_if_fail(config != NULL, NULL);
-    return g_object_new(RP_TYPE_CLUSTER_INFO_IMPL,
-                        "server-context", server_context,
-                        "config", config,
-                        "added-via-api", added_via_api,
-                        NULL);
+
+    RpClusterInfoImpl* self = g_object_new(RP_TYPE_CLUSTER_INFO_IMPL, NULL);
+    self->m_server_context = server_context;
+    self->m_config = rp_cluster_cfg_new(config);
+    self->m_added_via_api = added_via_api;
+    return constructed(self);
 }

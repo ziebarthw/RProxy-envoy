@@ -23,9 +23,9 @@ struct _RpHostImpl {
 
     gint m_initial_weight;
 
-    guint32/*atomic*/ m_health_flags;
-    guint32/*atomic*/ m_weight;
-    guint32/*atomic*/ m_handle_count;
+    _Atomic guint32 m_health_flags;
+    _Atomic guint32 m_weight;
+    _Atomic guint32 m_handle_count;
 
     bool m_disable_active_health_check : 1;
 };

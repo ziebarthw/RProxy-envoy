@@ -220,7 +220,7 @@ route_config_provider_i(RpConnectionManagerConfig* self)
     return RP_ROUTE_CONFIG_PROVIDER(RP_HTTP_CONNECTION_MANAGER_CONFIG(self)->m_route_config_provider);
 }
 
-static lztq*
+static GSList*
 rules_i(RpConnectionManagerConfig* self)
 {
     NOISY_MSG_("(%p)", self);

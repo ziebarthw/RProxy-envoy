@@ -49,5 +49,7 @@ RpClusterUpdateCallbacksHandlerImpl*
 rp_cluster_update_callbacks_handler_impl_new(RpClusterUpdateCallbacks* cb, GList** parent)
 {
     LOGD("(%p, %p)", cb, parent);
-    return g_object_new(RP_TYPE_CLUSTER_UPDATE_CALLBACKS_HANDLER_IMPL, NULL);
+    RpClusterUpdateCallbacksHandlerImpl* self = g_object_new(RP_TYPE_CLUSTER_UPDATE_CALLBACKS_HANDLER_IMPL, NULL);
+    *parent = g_list_append(*parent, cb);
+    return self;
 }

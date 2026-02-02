@@ -55,17 +55,17 @@ create_pattern(RpRequestRewrite* self)
 }
 
 static inline gchar*
-create_replacement(RpRequestRewrite* self, lztq* rewrite_urls)
+create_replacement(RpRequestRewrite* self, GSList* rewrite_urls)
 {
     NOISY_MSG_("(%p, %p)", self, rewrite_urls);
 
     if (rewrite_urls)
     {
-        NOISY_MSG_("rewrite_urls %p, %zu urls", rewrite_urls, lztq_size(rewrite_urls));
+        NOISY_MSG_("rewrite_urls %p, %u urls", rewrite_urls, g_slist_length(rewrite_urls));
 
-        for (lztq_elem* elem = lztq_first(rewrite_urls); elem; elem = lztq_next(elem))
+        for (GSList* itr = rewrite_urls; itr; itr = itr->next)
         {
-            gchar* rewrite_url = lztq_elem_data(elem);
+            gchar* rewrite_url = itr->data;
             LOGD("rewrite_url %p(%s)", rewrite_url, rewrite_url);
 
             g_autofree gchar* scheme = NULL;
@@ -177,7 +177,7 @@ rewrite_header_cb_(evhtp_header_t* header, gpointer arg)
 }
 
 RpRequestRewrite
-rp_request_rewrite_ctor(const gchar* original_uri, lztq* rewrite_urls, RpHostDescription* host_description, bool ssl_connection)
+rp_request_rewrite_ctor(const gchar* original_uri, GSList* rewrite_urls, RpHostDescription* host_description, bool ssl_connection)
 {
     LOGD("(%p(%s), %p, %p, %u)",
         original_uri, original_uri, rewrite_urls, host_description, ssl_connection);

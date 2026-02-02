@@ -90,21 +90,19 @@ do_read_i(RpNetworkTransportSocket* self, evbuf_t* buffer)
     RpPostIoAction_e action = RpPostIoAction_KeepOpen;
     guint64 bytes_read = 0;
     bool end_stream = false;
-    int err = 0;
-    int result = rp_io_handle_read(io_handle, buffer);
+    RpSysCallIntResult result = rp_io_handle_read(io_handle, buffer);
 
-    if (result == 0)
+    if (result.m_return_value == 0)
     {
         end_stream = true;
     }
-    else if (result < 0)
+    else if (result.m_return_value < 0)
     {
-        err = ECONNRESET;
         action = RpPostIoAction_Close;
     }
     else
     {
-        bytes_read = result;
+        bytes_read = result.m_return_value;
         if (rp_network_transport_socket_callbacks_should_drain_read_buffer(callbacks_))
         {
             NOISY_MSG_("setting readable");
@@ -112,7 +110,7 @@ do_read_i(RpNetworkTransportSocket* self, evbuf_t* buffer)
         }
     }
 
-    return rp_io_result_ctor(action, bytes_read, end_stream, err);
+    return rp_io_result_ctor(action, bytes_read, end_stream, result.m_errno);
 }
 
 static RpIoResult
@@ -126,7 +124,7 @@ do_write_i(RpNetworkTransportSocket* self, evbuf_t* buffer, bool end_stream)
     guint64 bytes_written = 0;
     size_t bytes_to_write = evbuffer_get_length(buffer);
     RpPostIoAction_e action = RpPostIoAction_KeepOpen;
-    int err = 0;
+    RpSysCallIntResult result = rp_sys_call_int_ctor(0, 0);
 
     if (bytes_to_write == 0)
     {
@@ -136,37 +134,31 @@ do_write_i(RpNetworkTransportSocket* self, evbuf_t* buffer, bool end_stream)
             me->m_shutdown = true;
         }
     }
-    else if (rp_io_handle_write(io_handle, buffer) == 0)
-    {
-        bytes_to_write -= evbuffer_get_length(buffer);
-        bytes_written += bytes_to_write;
-    }
     else
     {
-        action = RpPostIoAction_Close;
-        err = ECONNRESET;
+        result = rp_io_handle_write(io_handle, buffer);
+        if (result.m_return_value == 0)
+        {
+            bytes_to_write -= evbuffer_get_length(buffer);
+            bytes_written += bytes_to_write;
+        }
+        else
+        {
+            action = RpPostIoAction_Close;
+        }
     }
 
-    return rp_io_result_ctor(action, bytes_written, false, err);
+    return rp_io_result_ctor(action, bytes_written, false, result.m_errno);
 }
 
-static int
+static RpSysCallIntResult
 connect_i(RpNetworkTransportSocket* self, RpConnectionSocket* socket)
 {
     NOISY_MSG_("(%p, %p)", self, socket);
     RpNetworkAddressInstanceConstSharedPtr addr = rp_connection_info_provider_remote_address(
                                                     RP_CONNECTION_INFO_PROVIDER(
                                                         rp_socket_connection_info_provider(RP_SOCKET(socket))));
-RpNetworkConnection* connection = rp_network_transport_socket_callbacks_connection(RP_RAW_BUFFER_SOCKET(self)->m_callbacks);
-NOISY_MSG_("connection %p", connection);
-RpStreamInfo* stream_info = rp_network_connection_stream_info(connection);
-NOISY_MSG_("stream info %p", stream_info);
-RpConnectionInfoProvider* info_provider = rp_stream_info_downstream_address_provider(stream_info);
-NOISY_MSG_("info provider %p", info_provider);
-const char* requested_server_name = rp_connection_info_provider_requested_server_name(info_provider);
-NOISY_MSG_("requested server name %p(%s)", requested_server_name, requested_server_name);
-
-    return rp_socket_connect(RP_SOCKET(socket), addr, requested_server_name);
+    return rp_socket_connect(RP_SOCKET(socket), addr);
 }
 
 static evdns_base_t*

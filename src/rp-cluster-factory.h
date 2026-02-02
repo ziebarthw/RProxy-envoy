@@ -14,6 +14,7 @@
 #include "rp-codec.h"
 #include "rp-factory-context.h"
 #include "rp-load-balancer.h"
+#include "rp-net-dns.h"
 
 G_BEGIN_DECLS
 
@@ -31,6 +32,7 @@ struct _RpClusterFactoryContextInterface {
     RpClusterManager* (*cluster_manager)(RpClusterFactoryContext*);
     //TODO...
     bool (*added_via_api)(RpClusterFactoryContext*);
+    RpNetworkDnsResolverSharedPtr (*dns_resolver)(RpClusterFactoryContext*);
     //TODO...
 };
 
@@ -53,6 +55,12 @@ rp_cluster_factory_context_added_via_api(RpClusterFactoryContext* self)
 {
     return RP_IS_CLUSTER_FACTORY_CONTEXT(self) ?
         RP_CLUSTER_FACTORY_CONTEXT_GET_IFACE(self)->added_via_api(self) : false;
+}
+static inline RpNetworkDnsResolverSharedPtr
+rp_cluster_factory_context_dns_resolver(RpClusterFactoryContext* self)
+{
+    return RP_IS_CLUSTER_FACTORY_CONTEXT(self) ?
+        RP_CLUSTER_FACTORY_CONTEXT_GET_IFACE(self)->dns_resolver(self) : NULL;
 }
 
 
