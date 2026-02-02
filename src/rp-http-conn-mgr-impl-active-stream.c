@@ -15,6 +15,7 @@
 #   define IF_NOISY_(x, ...)
 #endif
 
+#include "trafficstats.h"
 #include "router/rp-route-config-impl.h"
 #include "stream_info/rp-stream-info-impl.h"
 #include "rp-codec.h"
@@ -471,6 +472,31 @@ mutate_request_headers(evhtp_headers_t* request_headers, RpNetworkConnection* co
     return mutate_request_headers_result_ctor();
 }
 
+IF_NOISY_(
+static inline guint32
+local_port(RpHttpConnMgrImplActiveStream* self)
+{
+    NOISY_MSG_("(%p)", self);
+    RpNetworkAddressIp* ip = rp_network_address_instance_ip(
+                                rp_connection_info_provider_local_address(
+                                    rp_network_connection_connection_info_provider(
+                                        rp_network_filter_callbacks_connection(
+                                            RP_NETWORK_FILTER_CALLBACKS(
+                                                rp_http_connection_manager_impl_read_callbacks_(self->m_connection_manager))))));
+    return ip ? rp_network_address_ip_port(ip) : 0;
+}
+)
+
+#if 0
+static guint32
+connection_manager_utility_maybe_normalize_host(evhtp_headers_t* request_headers, RpConnectionManagerConfig* config, guint32 port)
+{
+    LOGD("(%p, %p, %u)", request_headers, config, port);
+    //TODO...if (config.shouldStripTrailingHostDot())...
+    return 0;
+}
+#endif//0
+
 static void
 decode_headers_i(RpRequestDecoder* self, evhtp_headers_t* request_headers, bool end_stream)
 {
@@ -574,6 +600,9 @@ decode_headers_i(RpRequestDecoder* self, evhtp_headers_t* request_headers, bool 
     }
 
     //TODO...auto optional_port...
+    IF_NOISY_(guint32 port = local_port(me);)
+    NOISY_MSG_("port %u", port);
+
 
     //!!!!!!!!!!!!!
     //TODO...if (!state_.is_internally_created_) { mutateRequestHeaders() }
@@ -953,7 +982,7 @@ send_go_away_and_close_i(RpFilterManagerCallbacks* self)
 
 }
 
-static lztq*
+static GSList*
 rules_i(RpFilterManagerCallbacks* self)
 {
     NOISY_MSG_("(%p)", self);

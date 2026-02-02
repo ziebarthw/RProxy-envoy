@@ -14,7 +14,6 @@
 #include "rp-net-connection.h"
 #include "rp-filter-factory.h"
 #include "rp-rds.h"
-#include "lzq.h"
 
 G_BEGIN_DECLS
 
@@ -82,7 +81,7 @@ struct _RpConnectionManagerConfigInterface {
     bool (*append_local_overload)(RpConnectionManagerConfig*);
     //TODO...addProxyProtocolConnectionState()
 
-    lztq* (*rules)(RpConnectionManagerConfig*);
+    GSList* (*rules)(RpConnectionManagerConfig*);
 };
 
 static inline RpHttpServerConnection*
@@ -157,7 +156,7 @@ rp_connection_manager_config_max_requests_per_connection(RpConnectionManagerConf
         RP_CONNECTION_MANAGER_CONFIG_GET_IFACE(self)->max_requests_per_connection(self) :
         0;
 }
-static inline lztq*
+static inline GSList*
 rp_connection_manager_config_rules(RpConnectionManagerConfig* self)
 {
     return RP_IS_CONNECTION_MANAGER_CONFIG(self) ?

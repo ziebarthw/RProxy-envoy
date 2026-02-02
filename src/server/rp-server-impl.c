@@ -84,6 +84,14 @@ singleton_manager_i(RpCommonFactoryContext* self)
     return rp_server_instance_singleton_manager(SERVER(self));
 }
 
+static RpTimeSource*
+time_source_i(RpCommonFactoryContext* self)
+{
+    NOISY_MSG_("(%p)", self);
+    return rp_dispatcher_time_source(
+            rp_common_factory_context_main_thread_dispatcher(self));
+}
+
 static void
 common_factory_iface_init(RpCommonFactoryContextInterface* iface)
 {
@@ -93,6 +101,7 @@ common_factory_iface_init(RpCommonFactoryContextInterface* iface)
     iface->main_thread_dispatcher = main_thread_dispatcher_i;
     iface->thread_local = thread_local_i;
     iface->singleton_manager = singleton_manager_i;
+    iface->time_source = time_source_i;
 }
 
 static RpTransportSocketFactoryContext*

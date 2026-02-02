@@ -24,8 +24,9 @@ struct _RpClusterImplBasePrivate {
 
     UNIQUE_PTR(RpMainPrioritySetImpl) m_priority_set;
 
-    RpClusterCfg m_config;
+    RpClusterCfgPtr m_config;
     RpClusterFactoryContext* m_cluster_context;
+    RpTimeSource* m_time_source;
     RpTransportSocketFactoryContextImplPtr m_transport_factory_context;
 
     RpClusterInitializeCb m_initialize_complete_callback;
@@ -63,7 +64,7 @@ G_DEFINE_ABSTRACT_TYPE_WITH_CODE(RpClusterImplBase, rp_cluster_impl_base, G_TYPE
 static void
 finish_initialization(RpClusterImplBase* self)
 {
-    NOISY_MSG_("(%p)", self);
+    NOISY_MSG_("(%p(%s))", self, G_OBJECT_TYPE_NAME(self));
     RpClusterImplBasePrivate* me = PRIV(self);
     g_assert(me->m_initialize_complete_callback != NULL);
     g_assert(me->m_initialization_started);
@@ -88,13 +89,13 @@ finish_initialization(RpClusterImplBase* self)
 static void
 on_init_done(RpClusterImplBase* self)
 {
-    NOISY_MSG_("(%p)", self);
+    NOISY_MSG_("(%p(%s))", self, G_OBJECT_TYPE_NAME(self));
     //TODO...init()->configUpdateStats().warming_state_.set(0);
     //TODO...if (health_checker_)...
 
     if (PRIV(self)->m_pending_initialize_health_checks == 0)
     {
-        NOISY_MSG_("finished");
+        NOISY_MSG_("finished %p(%s)", self, G_OBJECT_TYPE_NAME(self));
         finish_initialization(self);
     }
 }
@@ -109,7 +110,7 @@ info_i(RpCluster* self)
 static void
 initialize_i(RpCluster* self, RpClusterInitializeCb cb, gpointer arg)
 {
-    NOISY_MSG_("(%p, %p, %p)", self, cb, arg);
+    NOISY_MSG_("(%p(%s), %p, %p)", self, G_OBJECT_TYPE_NAME(self), cb, arg);
     RpClusterImplBasePrivate* me = PRIV(self);
     me->m_initialize_complete_callback = cb;
     me->m_initialize_complete_callback_arg = arg;
@@ -142,7 +143,7 @@ get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
             g_value_set_object(value, PRIV(obj)->m_cluster_context);
             break;
         case PROP_CONFIG:
-            g_value_set_pointer(value, &PRIV(obj)->m_config);
+            g_value_set_pointer(value, PRIV(obj)->m_config);
             break;
         case PROP_CREATION_STATUS:
             g_value_set_pointer(value, &PRIV(obj)->m_creation_status);
@@ -163,8 +164,12 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
             PRIV(obj)->m_cluster_context = g_value_get_object(value);
             break;
         case PROP_CONFIG:
-            PRIV(obj)->m_config = *((RpClusterCfg*)g_value_get_pointer(value));
+        {
+            RpClusterImplBasePrivate* me = PRIV(obj);
+            g_clear_pointer(&me->m_config, g_free);
+            me->m_config = rp_cluster_cfg_new(g_value_get_pointer(value));
             break;
+        }
         case PROP_CREATION_STATUS:
             PRIV(obj)->m_creation_status = g_value_get_pointer(value);
             break;
@@ -179,19 +184,20 @@ cluster_info_impl_create(RpClusterImplBasePrivate* me, RpServerFactoryContext* s
 {
     NOISY_MSG_("(%p, %p)", me, server_context);
     return rp_cluster_info_impl_new(server_context,
-                                    &me->m_config,
+                                    me->m_config,
                                     rp_cluster_factory_context_added_via_api(me->m_cluster_context));
 }
 
 OVERRIDE void
 constructed(GObject* obj)
 {
-    NOISY_MSG_("(%p)", obj);
+    NOISY_MSG_("(%p(%s))", obj, G_OBJECT_TYPE_NAME(obj));
 
     G_OBJECT_CLASS(rp_cluster_impl_base_parent_class)->constructed(obj);
 
     RpClusterImplBasePrivate* me = PRIV(obj);
     RpServerFactoryContext* server_context = rp_cluster_factory_context_server_factory_context(me->m_cluster_context);
+    me->m_time_source = rp_common_factory_context_time_source(RP_COMMON_FACTORY_CONTEXT(server_context));
     me->m_transport_factory_context = rp_transport_socket_factory_context_impl_new(server_context,
                                                 rp_cluster_factory_context_cluster_manager(me->m_cluster_context));
     me->m_info = RP_CLUSTER_INFO(cluster_info_impl_create(me, server_context));
@@ -207,6 +213,7 @@ dispose(GObject* obj)
 
     RpClusterImplBasePrivate* me = PRIV(obj);
     g_clear_object(&me->m_priority_set);
+    g_clear_pointer(&me->m_config, g_free);
 
     G_OBJECT_CLASS(rp_cluster_impl_base_parent_class)->dispose(obj);
 }
@@ -242,18 +249,22 @@ rp_cluster_impl_base_class_init(RpClusterImplBaseClass* klass)
 static void
 rp_cluster_impl_base_init(RpClusterImplBase* self)
 {
-    LOGD("(%p)", self);
-    PRIV(self)->m_pending_initialize_health_checks = 0;
+    LOGD("(%p(%s))", self, G_OBJECT_TYPE_NAME(self));
+    RpClusterImplBasePrivate* me = PRIV(self);
+    me->m_pending_initialize_health_checks = 0;
+    me->m_wait_for_warm_on_init = true; //REVISIT - config-driven;
 }
 
 void
 rp_cluster_impl_base_on_pre_init_complete(RpClusterImplBase* self)
 {
-    LOGD("(%p)", self);
+    LOGD("(%p(%s))", self, G_OBJECT_TYPE_NAME(self));
     g_return_if_fail(RP_IS_CLUSTER_IMPL_BASE(self));
     RpClusterImplBasePrivate* me = PRIV(self);
+NOISY_MSG_("initialization started %u", me->m_initialization_started);
     if (me->m_initialization_started)
     {
+        NOISY_MSG_("returning");
         return;
     }
     me->m_initialization_started = true;
@@ -267,5 +278,21 @@ rp_cluster_impl_base_config_(RpClusterImplBase* self)
 {
     LOGD("(%p)", self);
     g_return_val_if_fail(RP_IS_CLUSTER_IMPL_BASE(self), NULL);
-    return &PRIV(self)->m_config;
+    return PRIV(self)->m_config;
+}
+
+RpTimeSource*
+rp_cluster_impl_base_time_source_(RpClusterImplBase* self)
+{
+    LOGD("(%p)", self);
+    g_return_val_if_fail(RP_IS_CLUSTER_IMPL_BASE(self), NULL);
+    return PRIV(self)->m_time_source;
+}
+
+bool
+rp_cluster_impl_base_wait_for_warm_on_init_(RpClusterImplBase* self)
+{
+    LOGD("(%p)", self);
+    g_return_val_if_fail(RP_IS_CLUSTER_IMPL_BASE(self), true);
+    return PRIV(self)->m_wait_for_warm_on_init;
 }

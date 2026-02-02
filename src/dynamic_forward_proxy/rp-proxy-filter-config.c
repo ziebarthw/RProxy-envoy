@@ -155,7 +155,6 @@ rp_add_or_update_cluster_cb_ctx_dtor(RpAddOrUpdateClusterCbCtx* self)
 {
     NOISY_MSG_("(%p)", self);
     g_clear_object(&self->filter_config);
-    rp_cluster_cfg_dtor(&self->config);
 }
 static inline RpAddOrUpdateClusterCbCtx*
 rp_add_or_update_cluster_cb_ctx_new(RpProxyFilterConfig* filter_config, const RpClusterCfg* config, const char* version_info)
@@ -173,29 +172,28 @@ rp_add_or_update_cluster_cb_ctx_free(RpAddOrUpdateClusterCbCtx* self)
     rp_add_or_update_cluster_cb_ctx_dtor(self);
     g_free(self);
 }
+static inline RpAddOrUpdateClusterCbCtx
+rp_add_or_update_cluster_cb_ctx_captures(RpAddOrUpdateClusterCbCtx* self)
+{
+    NOISY_MSG_("(%p)", self);
+    RpAddOrUpdateClusterCbCtx captured = rp_add_or_update_cluster_cb_ctx_ctor(self->filter_config, &self->config, self->version_info);
+    rp_add_or_update_cluster_cb_ctx_free(self);
+    return captured;
+}
 
 static void
 add_or_update_cluster_cb(gpointer arg)
 {
     NOISY_MSG_("(%p)", arg);
     RpAddOrUpdateClusterCbCtx* ctx = arg;
-    RpProxyFilterConfig* self = ctx->filter_config;
-    RpClusterCfg config = ctx->config;
-    const char* version_info = ctx->version_info;
+    RpAddOrUpdateClusterCbCtx captures = rp_add_or_update_cluster_cb_ctx_captures(ctx);
+    RpProxyFilterConfig* self = captures.filter_config;
+    RpClusterCfg config = captures.config;
+    const char* version_info = captures.version_info;
     if (!rp_cluster_manager_add_or_update_cluster(self->m_cluster_manager, &config, version_info))
     {
         LOGE("failed");
     }
-#if 0
-    {
-        upstream_t* upstream = lztq_elem_data(lztq_first(config->lb_endpoints));
-        upstream_cfg_t* dscfg = upstream->config;
-        g_autofree gchar* cluster_name = create_cluster_name(dscfg->name, dscfg->port);
-        RpDfpClusterSharedPtr new_cluster = rp_dfp_cluster_store_load(self->m_cluster_store, cluster_name);
-        return true;
-    }
-#endif//0
-    rp_add_or_update_cluster_cb_ctx_free(ctx);
 }
 
 static inline bool
@@ -219,8 +217,8 @@ rp_proxy_filter_config_add_dynamic_cluster(RpProxyFilterConfig* self, RpDfpClust
                                             const char* cluster_name, const char* host, int port,
                                             RpLoadClusterEntryCallbacks* callbacks)
 {
-    LOGD("(%p, %p, %p(%s), %p(%s), %d, %p)",
-        self, cluster, cluster_name, cluster_name, host, host, port, callbacks);
+    LOGD("(%p, %p(%s), %p(%s), %p(%s), %d, %p)",
+        self, cluster, G_OBJECT_TYPE_NAME(cluster), cluster_name, cluster_name, host, host, port, callbacks);
 
     g_return_val_if_fail(valid_add_dynamic_cluster_params(self, cluster, cluster_name, host, port, callbacks), NULL);
 
@@ -232,8 +230,6 @@ rp_proxy_filter_config_add_dynamic_cluster(RpProxyFilterConfig* self, RpDfpClust
         return false;
     }
 
-//TODO...this is more complicated than necessary
-
     if (sub_cluster_pair.config)
     {
         RpClusterCfg* cluster_ = &sub_cluster_pair.config_;
@@ -242,6 +238,10 @@ rp_proxy_filter_config_add_dynamic_cluster(RpProxyFilterConfig* self, RpDfpClust
         rp_dispatcher_base_post(RP_DISPATCHER_BASE(self->m_main_thread_dispatcher),
                                 add_or_update_cluster_cb,
                                 rp_add_or_update_cluster_cb_ctx_new(self, cluster_, version_info));
+    }
+    else
+    {
+        NOISY_MSG_("cluster \"%s\" already created, waiting for warming", cluster_name);
     }
 
     LOGD("adding pending cluster for \"%s\"", cluster_name);

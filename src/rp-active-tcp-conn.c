@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_active_tcp_conn_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_active_tcp_conn_NOISY)
@@ -16,6 +13,8 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
+#include "tpoolctx.h"
+#include "trafficstats.h"
 #include "rp-active-tcp-conn.h"
 
 struct _RpActiveTcpConn {
@@ -73,7 +72,7 @@ dispose(GObject* obj)
     g_clear_object(&self->m_connection);
     g_clear_object(&self->m_stream_info);
 
-    g_atomic_int_dec_and_test(&self->m_tpool_ctx->n_processing);
+    atomic_fetch_sub_explicit(&self->m_tpool_ctx->n_processing, 1, memory_order_relaxed);
 
     stats_dec(g_traffic_stats.downstream_cx_active);
     stats_inc(g_traffic_stats.downstream_cx_destroy);

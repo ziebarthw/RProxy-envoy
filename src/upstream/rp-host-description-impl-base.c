@@ -14,6 +14,7 @@
 #endif
 
 #include <stdio.h>
+#include <stdatomic.h>
 #include "rp-net-transport-socket.h"
 #include "rp-factory-context.h"
 #include "upstream/rp-upstream-impl.h"
@@ -32,7 +33,7 @@ struct _RpHostDescriptionImplBasePrivate {
     RpTimeSource* m_time_source;
     RpMonotonicTime m_creation_time;
 
-    guint32/*atomic*/ m_priority;
+    _Atomic guint32 m_priority;
 
     guint32 m_cx_active;
 };
@@ -94,14 +95,14 @@ static guint32
 priority_i(RpHostDescription* self)
 {
     NOISY_MSG_("(%p)", self);
-    return __atomic_load_n(&PRIV(self)->m_priority, __ATOMIC_ACQUIRE);
+    return PRIV(self)->m_priority;
 }
 
 static void
 set_priority_i(RpHostDescription* self, guint32 priority)
 {
     NOISY_MSG_("(%p, %u)", self, priority);
-    __atomic_store_n(&PRIV(self)->m_priority, priority, __ATOMIC_RELEASE);
+    PRIV(self)->m_priority = priority;
 }
 
 static RpMetadataConstSharedPtr

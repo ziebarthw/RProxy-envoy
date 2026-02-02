@@ -65,7 +65,7 @@ make_friendly_address(const struct sockaddr_in6* address)
         gchar* scrope_id = g_ascii_dtostr(buf, sizeof(buf), ntohs(address->sin6_scope_id));
         g_string_append(s, scrope_id);
     }
-    return g_string_free_and_steal(s);
+    return g_string_free_and_steal(g_steal_pointer(&s));
 }
 static inline char*
 rp_ipv6_helper_make_friendly_address(RpNetworkAddressIpv6Helper* self)
@@ -240,21 +240,21 @@ network_address_ip_iface_init(RpNetworkAddressIpInterface* iface)
     iface->version = version_i;
 }
 
-static const RpNetworkAddressIp*
+static RpNetworkAddressIp*
 ip_i(RpNetworkAddressInstance* self)
 {
     NOISY_MSG_("(%p)", self);
     return RP_NETWORK_ADDRESS_IP(self);
 }
 
-static const RpNetworkAddressPipe*
+static RpNetworkAddressPipe*
 pipe_i(RpNetworkAddressInstance* self G_GNUC_UNUSED)
 {
     NOISY_MSG_("(%p)", self);
     return NULL;
 }
 
-static const RpNetworkAddressRProxyInternalAddress*
+static RpNetworkAddressRProxyInternalAddress*
 rproxy_internal_address_i(RpNetworkAddressInstance* self G_GNUC_UNUSED)
 {
     NOISY_MSG_("(%p)", self);
@@ -296,14 +296,14 @@ logical_name_i(RpNetworkAddressInstance* self)
     return PARENT_ADDRESS_INSTANCE_IFACE(self)->logical_name(self);
 }
 
-static const RpNetworkAddressSocketInterface*
+static RpNetworkAddressSocketInterface*
 socket_interface_i(RpNetworkAddressInstance* self)
 {
     NOISY_MSG_("(%p)", self);
     return PARENT_ADDRESS_INSTANCE_IFACE(self)->socket_interface(self);
 }
 
-static RpAddressType_e
+static RpNetworkAddressType_e
 type_i(RpNetworkAddressInstance* self)
 {
     NOISY_MSG_("(%p)", self);
@@ -359,7 +359,7 @@ rp_network_address_ipv6_instance_new(const struct sockaddr_in6* address, bool v6
     LOGD("(%p, %u, %p)", address, v6only, sock_interface);
     RpNetworkAddressIpv6Instance* self = g_object_new(RP_TYPE_NETWORK_ADDRESS_IPV6_INSTANCE,
                                                         "sock-interface", rp_network_address_impl_sock_interface_or_default(sock_interface),
-                                                        "type", RpAddressType_IP,
+                                                        "type", RpNetworkAddressType_IP,
                                                         NULL);
     init_helper(self, address, v6only);
     return self;
@@ -375,16 +375,16 @@ rp_network_address_ipv6_instance_new_2(const char* address, const RpNetworkAddre
 RpNetworkAddressIpv6Instance*
 rp_network_address_ipv6_instance_new_3(const char* address, guint32 port, const RpNetworkAddressSocketInterface* sock_interface, bool v6only/* = true*/)
 {
-    LOGD("(%p(%s), %u, %p, %u)", address, address, v6only, sock_interface, v6only);
+    LOGD("(%p(%s), %u, %p, %u)", address, address, port, sock_interface, v6only);
     RpNetworkAddressIpv6Instance* self = g_object_new(RP_TYPE_NETWORK_ADDRESS_IPV6_INSTANCE,
                                                         "sock-interface", rp_network_address_impl_sock_interface_or_default(sock_interface),
-                                                        "type", RpAddressType_IP,
+                                                        "type", RpNetworkAddressType_IP,
                                                         NULL);
     struct sockaddr_in6 addr_in;
     memset(&addr_in, 0, sizeof(addr_in));
     addr_in.sin6_family = AF_INET6;
     addr_in.sin6_port = htons(port);
-    if (!address || !address[0]) // !address.empty()
+    if (address && address[0]) // !address.empty()
     {
         if (inet_pton(AF_INET6, address, &addr_in.sin6_addr) != 1)
         {

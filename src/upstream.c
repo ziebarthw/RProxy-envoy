@@ -38,6 +38,13 @@
 #include "rp-headers.h"
 #include "utils/header_value_parser.h"
 
+static gint
+compare_name(gconstpointer a, gconstpointer b)
+{
+    const upstream_t* u = a;
+    return strcmp(u->config->name, b);
+}
+
 /**
  * @brief search through a list of upstream_t's and attempt to find one that
  *        has a name that matches the string.
@@ -48,27 +55,13 @@
  * @return
  */
 upstream_t*
-upstream_find_by_name(lztq* upstreams, const char* name)
+upstream_find_by_name(GSList* upstreams, const char* name)
 {
     LOGD("(%p, %p(%s))", upstreams, name, name);
-
     g_return_val_if_fail(upstreams != NULL, NULL);
     g_return_val_if_fail(name != NULL, NULL);
-
-    for (lztq_elem* elem = lztq_first(upstreams); elem; elem = lztq_next(elem))
-    {
-        upstream_t* upstream = lztq_elem_data(elem);
-        g_assert(upstream != NULL);
-
-        if (!strcmp(upstream->config->name, name))
-        {
-            LOGD("found %p", upstream);
-            return upstream;
-        }
-    }
-
-    LOGD("not found");
-    return NULL;
+    GSList* itr = g_slist_find_custom(upstreams, name, compare_name);
+    return itr ? itr->data : NULL;
 }
 
 /**
@@ -87,10 +80,9 @@ upstream_get_most_idle(rule_t* rule)
     g_assert(rule->upstreams != NULL);
 
     upstream_t* most_idle = NULL;
-    for (lztq_elem* elem = lztq_first(rule->upstreams); elem; elem = lztq_next(elem))
+    for (GSList* itr = rule->upstreams; itr; itr = itr->next)
     {
-        upstream_t* upstream = lztq_elem_data(elem);
-        g_assert(upstream != NULL);
+        upstream_t* upstream = itr->data;
 
         if (!most_idle)
         {
@@ -130,10 +122,9 @@ upstream_get_lowest_rtt(rule_t* rule)
     g_assert(rule->upstreams != NULL);
 
     upstream_t* save = NULL;
-    for (lztq_elem* elem = lztq_first(rule->upstreams); elem; elem = lztq_next(elem))
+    for (GSList* itr = rule->upstreams; itr; itr = itr->next)
     {
-        upstream_t* upstream = lztq_elem_data(elem);
-        g_assert(upstream != NULL);
+        upstream_t* upstream = itr->data;
 
         if (!save)
         {
@@ -165,10 +156,9 @@ upstream_get_none(rule_t* rule)
     g_assert(rule != NULL);
     g_assert(rule->upstreams != NULL);
 
-    for (lztq_elem* elem = lztq_first(rule->upstreams); elem; elem = lztq_next(elem))
+    for (GSList* itr = rule->upstreams; itr; itr = itr->next)
     {
-        upstream_t* upstream = lztq_elem_data(elem);
-        g_assert(upstream != NULL);
+        upstream_t* upstream = itr->data;
 
         if (upstream->num_idle == 0)
         {
@@ -179,7 +169,7 @@ upstream_get_none(rule_t* rule)
         return upstream;
     }
 
-    return (upstream_t*)lztq_first(rule->upstreams);
+    return (upstream_t*)rule->upstreams->data;
 }
 
 /**
@@ -199,36 +189,34 @@ upstream_get_rr(rule_t* rule)
     g_assert(rule != NULL);
     g_assert(rule->upstreams != NULL);
 
-    if (lztq_size(rule->upstreams) < 2)
+    if (g_slist_length(rule->upstreams) < 2)
     {
         LOGD("getting lowest rtt");
-        return (upstream_t*)lztq_elem_data(lztq_first(rule->upstreams));
+        return (upstream_t*)rule->upstreams->data;
     }
 
-    lztq_elem* last_used_elem = rule->last_upstream_used;
+    GSList* last_used_elem = rule->last_upstream_used;
     LOGD("last_used_elem %p", last_used_elem);
 
-    lztq_elem* upstream_elem;
+    GSList* upstream_elem;
     if (!last_used_elem)
     {
-        upstream_elem = lztq_first(rule->upstreams);
-        last_used_elem  = lztq_last(rule->upstreams);
+        upstream_elem = rule->upstreams;
+        last_used_elem  = g_slist_last(rule->upstreams);
     }
     else
     {
-        upstream_elem = lztq_next(last_used_elem);
+        upstream_elem = last_used_elem->next;
     }
 
     if (!upstream_elem)
     {
         LOGD("end of list");
         /* we're at the end of the list, circle back to the first */
-        upstream_elem = lztq_first(rule->upstreams);
+        upstream_elem = rule->upstreams;
     }
 
-    upstream_t* upstream = lztq_elem_data(upstream_elem);
-    g_assert(upstream != NULL);
-
+    upstream_t* upstream = upstream_elem->data;
     rule->last_upstream_used = upstream_elem;
 
     return upstream;

@@ -15,7 +15,6 @@
 
 #pragma once
 
-#include <stdatomic.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <syslog.h>
@@ -32,7 +31,6 @@
 #include <glib.h>
 #include <gio/gio.h>
 
-#include "lzq.h"
 #include "lzlog.h"
 
 G_BEGIN_DECLS
@@ -99,6 +97,14 @@ G_BEGIN_DECLS
 * configuration structure definitions
 ************************************************/
 
+typedef enum {
+    RpDnsLookupFamily_AUTO,
+    RpDnsLookupFamily_V4_ONLY,
+    RpDnsLookupFamily_V6_ONLY,
+    RpDnsLookupFamily_V4_PREFERRED,
+    RpDnsLookupFamily_ALL
+} RpDnsLookupFamily_e;
+
 enum rule_type {
     rule_type_exact,
     rule_type_regex,
@@ -135,6 +141,7 @@ enum discovery_type {
 };
 
 typedef struct evdns_base evdns_base_t;
+typedef struct evdns_request evdns_request_t;
 
 typedef struct _RpHttpConnectionManagerConfig RpHttpConnectionManagerConfig;
 typedef struct _RpDispatcher RpDispatcher;
@@ -168,23 +175,59 @@ struct logger_cfg {
     int         facility;
 };
 
+static inline void
+dummy_freefn(gpointer arg G_GNUC_UNUSED)
+{
+}
+
+typedef struct dfp_dns_cache_cfg dfp_dns_cache_cfg_t;
+struct dfp_dns_cache_cfg {
+    char * name;                           /**< the name of the cache */
+    RpDnsLookupFamily_e dns_lookup_family; /**< the DNS lookup family to use during resolution */
+    struct timeval host_ttl;               /**< the TTL for hosts that are unused */
+    guint32 max_hosts;                     /**< the maximum number of hosts that the cache will hold */
+    GSList * preresolve_hostnames;         /**< hostnames that should be preresolved into the cache upon creation */
+};
+
+typedef struct dfp_sub_clusters_cfg dfp_sub_clusters_cfg_t;
+struct dfp_sub_clusters_cfg {
+    lb_method lb_policy;            /**< the load balancer type to use when picking a host in a sub cluster */
+    guint32 max_sub_clusters;       /**< the maximum number of sub clusters that the DFP cluster will hold */
+    struct timeval sub_cluster_ttl; /**< the TTL for sub clusters that are unused */
+    GSList * preresolve_clusters;   /**< sub clusters that should be created & warmed upon creation */
+};
+
+typedef struct dfp_cluster_cfg dfp_cluster_cfg_t;
+struct dfp_cluster_cfg {
+    dfp_dns_cache_cfg_t* dns_cache_cfg;
+    dfp_sub_clusters_cfg_t* sub_clusters_cfg;
+};
+
+typedef struct cluster_type_cfg cluster_type_cfg_t;
+struct cluster_type_cfg {
+    char * name;
+    dfp_cluster_cfg_t* dfp_cluster_config;
+};
+
 struct rule_cfg {
-    char          * name;            /**< the name of the rule */
-    rule_type       type;            /**< what type of rule this is (regex/exact/glob) */
-    lb_method       lb_method;       /**< method of load-balacinging (defaults to RTT) */
-    discovery_type  discovery_type;
-    char          * matchstr;        /**< the uri to match on */
-    headers_cfg_t * headers;         /**< headers which are added to the backend request */
-    lztq          * upstreams;       /**< list of upstream names (as supplied by upstream_cfg_t->name */
-    logger_cfg_t  * req_log;         /**< request logging config */
-    logger_cfg_t  * err_log;         /**< error logging config */
-    bool            passthrough;     /**< if set to true, a pipe between the upstream and upstream is established */
-    bool            allow_redirect;  /**< if true, the upstream can send a redirect to connect to a different upstream */
-    lztq          * redirect_filter; /**< a list of hostnames that redirects are can connect to */
-    int             has_up_read_timeout;
-    int             has_up_write_timeout;
-    struct timeval  up_read_timeout;
-    struct timeval  up_write_timeout;
+    char               * name;            /**< the name of the rule */
+    rule_type            type;            /**< what type of rule this is (regex/exact/glob) */
+    lb_method            lb_method;       /**< method of load-balacinging (defaults to RTT) */
+    discovery_type       discovery_type;
+    char               * matchstr;        /**< the uri to match on */
+    headers_cfg_t      * headers;         /**< headers which are added to the backend request */
+    GSList             * upstream_names;  /**< list of upstream names (as supplied by upstream_cfg_t->name */
+    logger_cfg_t       * req_log;         /**< request logging config */
+    logger_cfg_t       * err_log;         /**< error logging config */
+    bool                 passthrough;     /**< if set to true, a pipe between the upstream and upstream is established */
+    bool                 allow_redirect;  /**< if true, the upstream can send a redirect to connect to a different upstream */
+    GSList             * redirect_filter; /**< a list of hostnames that redirects are can connect to */
+    int                  has_up_read_timeout;
+    int                  has_up_write_timeout;
+    struct timeval       up_read_timeout;
+    struct timeval       up_write_timeout;
+    struct timeval       connect_timeout;
+    cluster_type_cfg_t * cluster_type;    /**< custom cluster type */
 };
 
 /**
@@ -206,16 +249,16 @@ struct ssl_crl_cfg {
  * @brief which headers to add to the upstream request if avail.
  */
 struct headers_cfg {
-    bool   x_forwarded_for;
-    bool   x_ssl_subject;
-    bool   x_ssl_issuer;
-    bool   x_ssl_notbefore;
-    bool   x_ssl_notafter;
-    bool   x_ssl_sha1;
-    bool   x_ssl_serial;
-    bool   x_ssl_cipher;
-    bool   x_ssl_certificate;
-    lztq * x509_exts;
+    bool     x_forwarded_for;
+    bool     x_ssl_subject;
+    bool     x_ssl_issuer;
+    bool     x_ssl_notbefore;
+    bool     x_ssl_notafter;
+    bool     x_ssl_sha1;
+    bool     x_ssl_serial;
+    bool     x_ssl_cipher;
+    bool     x_ssl_certificate;
+    GSList * x509_exts;
 };
 
 /**
@@ -238,17 +281,17 @@ struct upstream_cfg {
 
 
 struct vhost_cfg {
-    evhtp_ssl_cfg_t * ssl_cfg;
-    lztq            * rule_cfgs;        /**< list of rule_cfg_t's */
-    lztq            * rules;            /**< list of rule_t's */
-    char            * server_name;
-    lztq            * aliases;          /**< other hostnames this vhost is associated with */
-    lztq            * strip_hdrs;       /**< headers to strip out from upstream responses */
-    lztq            * rewrite_urls;     /**< urls to rewrite (incoming and outgoing?) */
-    logger_cfg_t    * req_log;          /**< request logging configuration */
-    logger_cfg_t    * err_log;          /**< error logging configuration */
-    headers_cfg_t   * headers;          /**< headers which are added to the backend request */
-    server_cfg_t    * server_cfg;       /**< parent server configuration */
+    evhtp_ssl_cfg_t  * ssl_cfg;
+    GSList           * rule_cfgs;        /**< list of rule_cfg_t's */
+    GSList           * rules;            /**< list of rule_t's */
+    char             * server_name;
+    GSList           * aliases;          /**< other hostnames this vhost is associated with */
+    GSList           * strip_hdrs;       /**< headers to strip out from upstream responses */
+    GSList           * rewrite_urls;     /**< urls to rewrite (incoming and outgoing?) */
+    logger_cfg_t     * req_log;          /**< request logging configuration */
+    logger_cfg_t     * err_log;          /**< error logging configuration */
+    headers_cfg_t    * headers;          /**< headers which are added to the backend request */
+    server_cfg_t     * server_cfg;       /**< parent server configuration */
 };
 
 /**
@@ -271,8 +314,8 @@ struct server_cfg {
 
     rproxy_cfg_t    * rproxy_cfg;       /**< parent rproxy configuration */
     evhtp_ssl_cfg_t * ssl_cfg;          /**< if enabled, the ssl configuration */
-    lztq            * upstreams;        /**< list of upstream_cfg_t's */
-    lztq            * vhosts;           /**< list of vhost_cfg_t's */
+    GSList          * upstream_cfgs;    /**< list of upstream_cfg_t's */
+    GSList          * vhosts;           /**< list of vhost_cfg_t's */
     logger_cfg_t    * req_log_cfg;
     logger_cfg_t    * err_log_cfg;
 
@@ -321,7 +364,7 @@ struct rproxy_cfg {
     char          * rootdir;            /**< root dir to daemonize */
     char          * user;               /**< user to run as */
     char          * group;              /**< group to run as */
-    lztq          * servers;            /**< list of server_cfg_t's */
+    GSList        * servers;            /**< list of server_cfg_t's */
     const char    * filename;           /**< config file name */
     logger_cfg_t  * log;                /**< generic log configuration */
     rproxy_rusage_t rusage;             /**< the needed resource totals */
@@ -351,8 +394,7 @@ enum logger_argtype {
     logger_argtype_printable
 };
 
-typedef struct traffic_stats     traffic_stats_t;
-typedef struct tpool_ctx        tpool_ctx_t;
+typedef struct tpool_ctx         tpool_ctx_t;
 typedef struct upstream          upstream_t;
 typedef struct upstream_c        upstream_c_t;
 typedef struct vhost             vhost_t;
@@ -364,40 +406,6 @@ typedef struct ssl_crl_ent       ssl_crl_ent_t;
 typedef struct request_hooks     request_hooks_t;
 
 typedef enum logger_argtype      logger_argtype;
-
-struct traffic_stats {
-    guint64 downstream_cx_total;
-    guint64 downstream_cx_active;
-    guint64 downstream_cx_destroy;
-    guint64 downstream_rq_total;
-    guint64 downstream_rq_active;
-    guint64 upstream_cx_total;
-    guint64 upstream_cx_active;
-    guint64 upstream_rq_total;
-    guint64 upstream_rq_active;
-};
-
-static inline traffic_stats_t
-traffic_stats_ctor(void)
-{
-    traffic_stats_t self = {
-        .downstream_cx_total = 0,
-        .downstream_cx_active = 0,
-        .downstream_cx_destroy = 0,
-        .downstream_rq_total  = 0,
-        .downstream_rq_active = 0,
-        .upstream_cx_total   = 0,
-        .upstream_cx_active  = 0,
-        .upstream_rq_total    = 0,
-        .upstream_rq_active   = 0
-    };
-    return self;
-}
-extern traffic_stats_t g_traffic_stats;
-
-#define stats_inc(x) __atomic_add_fetch(&(x), 1, __ATOMIC_RELAXED)
-#define stats_dec(x) __atomic_sub_fetch(&(x), 1, __ATOMIC_RELAXED)
-#define stats_read(x) __atomic_load_n(&(x), __ATOMIC_ACQUIRE)
 
 struct logger_arg {
     logger_argtype type;
@@ -468,8 +476,8 @@ struct upstream {
 struct rule {
     rule_cfg_t * config;
     vhost_t    * parent_vhost;         /**< the vhost this rule is under */
-    lztq       * upstreams;            /**< list of upstream_t's configured for this rule */
-    lztq_elem  * last_upstream_used;   /**< the last upstream used to service a request. Used for round-robin loadbalancing */
+    GSList     * upstreams;            /**< list of upstream_t's configured for this rule */
+    GSList     * last_upstream_used;   /**< the last upstream used to service a request. Used for round-robin loadbalancing */
 #ifdef WITH_LOGGER
     logger_t   * req_log;              /**< rule specific request log */
     logger_t   * err_log;              /**< rule specific error log */
@@ -484,7 +492,7 @@ typedef enum
 
 struct rproxy {
     rproxy_t          * m_parent;
-    tpool_ctx_t      * m_tpool_ctx;
+    tpool_ctx_t       * m_tpool_ctx;
     rproxy_cfg_t      * config;
     evhtp_t           * htp;
     server_cfg_t      * server_cfg;
@@ -492,8 +500,8 @@ struct rproxy {
     logger_t          * request_log;              /* server specific request logging */
     logger_t          * error_log;                /* server specific error logging */
 #endif//WITH_LOGGER
-    lztq              * rules;
-    lztq              * upstreams;                /**< list of all upstream_t's */
+    GSList            * rules;
+    GSList            * upstreams;                /**< list of all upstream_t's */
     int                 n_pending;                /**< number of pending requests */
     int                 n_processing;             /**< number of in-flight requests */
     uint16_t worker_num;
@@ -533,7 +541,7 @@ upstream_t     * upstream_get(rule_t *);
 void             upstream_conn_free(upstream_c_t *);
 int              upstream_conn_init(evbase_t *, upstream_t *);
 
-upstream_t     * upstream_find_by_name(lztq *, const char *);
+upstream_t     * upstream_find_by_name(GSList *, const char *);
 
 /********************************************
 * SSL verification callback functions
@@ -569,9 +577,9 @@ evbuf_t * util_response_to_evbuffer(evhtp_request_t* request, evbuf_t* obuf);
 int       util_write_header_to_evbuffer(evhtp_header_t * hdr, void * arg);
 
 bool      util_glob_match(const char * pattern, const char * string);
-bool      util_glob_match_lztq(lztq *, const char *);
+bool      util_glob_match_slist(GSList *, const char *);
 
-int       util_rm_headers_via_lztq(lztq * tq, evhtp_headers_t * headers);
+int       util_rm_headers_via_slist(GSList * list, evhtp_headers_t * headers);
 
 bool      util_uri_to_evbuffer(const evhtp_request_t* req,
                                 const char* hostname,
@@ -680,14 +688,6 @@ rp_cond_wait(RpCond* self)
     g_mutex_unlock(&self->m_mutex);
 }
 
-struct tpool_ctx {
-    rproxy_t* m_parent;
-    server_cfg_t* m_server_cfg;
-    const rproxy_hooks_t* m_hooks;
-    RpThreadLocalInstance* m_tls;
-    volatile gint n_processing;     /**< number of in-flight requests */
-};
-
 #define RP_DEFINE_PAIR_STRICT(Name, T1, T2) \
   typedef struct {                          \
     T1 first;                               \
@@ -699,5 +699,33 @@ struct tpool_ctx {
   {                                        \
     return (Name){ a, b };                 \
   }
+
+
+/**
+ * Interface for host application to extend configuration properties in key
+ * libconfuse sections (currently server, server:vhost, server:vhost:rule).
+ */
+#if 0
+typedef void (*rproxy_rule_ext_parse_fn)(rule_cfg_t *dst, cfg_t *rule_cfg, void *u);
+
+typedef struct rproxy_cfg_ext_s rproxy_cfg_ext_t;
+struct rproxy_cfg_ext_s {
+  const cfg_opt_t *server_extra; /* appended inside server { } */
+  const cfg_opt_t *vhost_extra;  /* appended inside vhost <title> { } */
+  const cfg_opt_t *rule_extra;   /* appended inside rule <title> { } (applies to BOTH server:rule and vhost:rule) */
+
+  rproxy_rule_ext_parse_fn rule_cb; /* optional: consume rule_extra into rule_cfg_t */
+  gpointer arg;
+};
+
+rproxy_cfg_t* rproxy_cfg_parse_ex(const char* filename, const rproxy_cfg_ext_t* ext);
+#endif//0
+
+// ::google::protobuf::Duration internal representation.
+typedef struct duration duration_t;
+struct duration {
+    gint64 seconds;
+    gint32 nanos;
+};
 
 G_END_DECLS

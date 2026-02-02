@@ -13,7 +13,7 @@
 
 G_BEGIN_DECLS
 
-typedef void (*RpOnNewStreamFn)(RpHttpConnectionPoolInstance*, gconstpointer);
+typedef void (*RpOnNewStreamFn)(RpHttpConnectionPoolInstance*, gpointer);
 
 /*
  * HttpPoolData returns information about a given pool as well as a function
@@ -23,7 +23,7 @@ typedef void (*RpOnNewStreamFn)(RpHttpConnectionPoolInstance*, gconstpointer);
 G_DECLARE_FINAL_TYPE(RpHttpPoolData, rp_http_pool_data, RP, HTTP_POOL_DATA, GObject)
 
 RpHttpPoolData* rp_http_pool_data_new(RpOnNewStreamFn on_new_stream,
-                                        void* arg,
+                                        gpointer arg,
                                         RpHttpConnectionPoolInstance* pool);
 RpCancellable* rp_http_pool_data_new_stream(RpHttpPoolData* self,
                                             RpResponseDecoder* response_decoder,

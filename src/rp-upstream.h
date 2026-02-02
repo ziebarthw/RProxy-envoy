@@ -18,6 +18,8 @@
 
 G_BEGIN_DECLS
 
+typedef struct _RpLoadBalancerConfig RpLoadBalancerConfig;
+typedef struct _RpTypedLoadBalancerFactory RpTypedLoadBalancerFactory;
 typedef struct _RpTransportSocketFactoryContext RpTransportSocketFactoryContext;
 typedef SHARED_PTR(RpTransportSocketFactoryContext) RpTransportSocketFactoryContextPtr;
 
@@ -171,7 +173,10 @@ struct _RpClusterInfoInterface {
     guint64 (*features)(RpClusterInfo*);
     Http1SettingsPtr (*http1_settings)(RpClusterInfo*);
     //TODO...
+    RpLoadBalancerConfig* (*load_balancer_config)(RpClusterInfo*);
+    RpTypedLoadBalancerFactory* (*load_balancer_factory)(RpClusterInfo*);
     RpDiscoveryType_e (*type)(RpClusterInfo*);
+    const RpCustomClusterTypeCfg* (*cluster_type)(RpClusterInfo*);
     //TODO...
     bool (*maintenance_mode)(RpClusterInfo*);
     guint64 (*max_requests_per_connection)(RpClusterInfo*);
@@ -208,11 +213,29 @@ rp_cluster_info_per_upstream_preconnect_ratio(RpClusterInfo* self)
         RP_CLUSTER_INFO_GET_IFACE(self)->per_upstream_preconnect_ratio(self) :
         1.0;
 }
+static inline RpLoadBalancerConfig*
+rp_cluster_info_load_balancer_config(RpClusterInfo* self)
+{
+    return RP_IS_CLUSTER_INFO(self) ?
+        RP_CLUSTER_INFO_GET_IFACE(self)->load_balancer_config(self) : NULL;
+}
+static inline RpTypedLoadBalancerFactory*
+rp_cluster_info_load_balancer_factory(RpClusterInfo* self)
+{
+    return RP_IS_CLUSTER_INFO(self) ?
+        RP_CLUSTER_INFO_GET_IFACE(self)->load_balancer_factory(self) : NULL;
+}
 static inline RpDiscoveryType_e
 rp_cluster_info_type(RpClusterInfo* self)
 {
     return RP_IS_CLUSTER_INFO(self) ?
         RP_CLUSTER_INFO_GET_IFACE(self)->type(self) : RpDiscoveryType_STATIC;
+}
+static inline const RpCustomClusterTypeCfg*
+rp_cluster_info_cluster_type(RpClusterInfo* self)
+{
+    return RP_IS_CLUSTER_INFO(self) ?
+        RP_CLUSTER_INFO_GET_IFACE(self)->cluster_type(self) : NULL;
 }
 static inline RpResourceManager*
 rp_cluster_info_resource_manager(RpClusterInfo* self, RpResourcePriority_e priority)

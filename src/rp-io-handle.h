@@ -11,6 +11,7 @@
 #include <glib-object.h>
 #include <evhtp.h>
 #include "rproxy.h"
+#include "rp-api-os-sys-calls.h"
 #include "rp-file-event.h"
 #include "rp-net-address.h"
 
@@ -31,9 +32,10 @@ struct _RpIoHandleInterface {
     void (*close)(RpIoHandle*);
     bool (*is_open)(RpIoHandle*);
     bool (*was_connected)(RpIoHandle*);
-    int (*read)(RpIoHandle*, evbuf_t*);
-    int (*write)(RpIoHandle*, evbuf_t*);
-    int (*connect)(RpIoHandle*, RpNetworkAddressInstanceConstSharedPtr, const char*);
+    RpSysCallIntResult (*read)(RpIoHandle*, evbuf_t*);
+    RpSysCallIntResult (*write)(RpIoHandle*, evbuf_t*);
+    RpSysCallIntResult (*connect)(RpIoHandle*,
+                                    RpNetworkAddressInstanceConstSharedPtr);
     RpNetworkAddressInstanceConstSharedPtr (*local_address)(RpIoHandle*);
     RpNetworkAddressInstanceConstSharedPtr (*peer_address)(RpIoHandle*);
     void (*initialize_file_event)(RpIoHandle*,
@@ -51,6 +53,8 @@ int (*sockfd)(RpIoHandle*);
 };
 
 typedef UNIQUE_PTR(RpIoHandle) RpIoHandlePtr;
+
+#define INVALID_ARG_RESULT rp_sys_call_int_ctor(-1, EINVAL)
 
 static inline void
 rp_io_handle_close(RpIoHandle* self)
@@ -70,24 +74,24 @@ rp_io_handle_was_connected(RpIoHandle* self)
     return RP_IS_IO_HANDLE(self) ?
         RP_IO_HANDLE_GET_IFACE(self)->was_connected(self) : false;
 }
-static inline int
+static inline RpSysCallIntResult
 rp_io_handle_read(RpIoHandle* self, evbuf_t* buffer)
 {
     return RP_IS_IO_HANDLE(self) ?
-        RP_IO_HANDLE_GET_IFACE(self)->read(self, buffer) : -1;
+        RP_IO_HANDLE_GET_IFACE(self)->read(self, buffer) : INVALID_ARG_RESULT;
 }
-static inline int
+static inline RpSysCallIntResult
 rp_io_handle_write(RpIoHandle* self, evbuf_t* buffer)
 {
     return RP_IS_IO_HANDLE(self) ?
-        RP_IO_HANDLE_GET_IFACE(self)->write(self, buffer) : -1;
+        RP_IO_HANDLE_GET_IFACE(self)->write(self, buffer) : INVALID_ARG_RESULT;
 }
-static inline int
-rp_io_handle_connect(RpIoHandle* self, RpNetworkAddressInstanceConstSharedPtr address, const char* requested_server_name)
+static inline RpSysCallIntResult
+rp_io_handle_connect(RpIoHandle* self, RpNetworkAddressInstanceConstSharedPtr address)
 {
     return RP_IS_IO_HANDLE(self) ?
-        RP_IO_HANDLE_GET_IFACE(self)->connect(self, address, requested_server_name) :
-        -1;
+        RP_IO_HANDLE_GET_IFACE(self)->connect(self, address) :
+        INVALID_ARG_RESULT;
 }
 static inline RpNetworkAddressInstanceConstSharedPtr
 rp_io_handle_local_address(RpIoHandle* self)

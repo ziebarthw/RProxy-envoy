@@ -167,7 +167,16 @@ on_hdrs_complete(htparser* self)
 {
     NOISY_MSG_("(%p)", self);
     RpLegacyHttpParserImpl* me = htparser_get_userdata(self);
-    return rp_parser_callbacks_on_headers_complete(me->m_callbacks);
+    switch (rp_parser_callbacks_on_headers_complete(me->m_callbacks))
+    {
+        case RpCallbackResult_Error:
+            return -1;
+        case RpCallbackResult_Success:
+        case RpCallbackResult_NoBody:
+        case RpCallbackResult_NoBodyData:
+        default:
+            return 0;
+    }
 }
 
 static int
@@ -239,12 +248,14 @@ execute_i(RpParser* self, const char* data, int length)
 
     NOISY_MSG_("(%p, %p, %d)", self, data, length);
     RpLegacyHttpParserImpl* me = RP_LEGACY_HTTP_PARSER_IMPL(self);
+if (me->m_paused) NOISY_MSG_("paused");
     return !me->m_paused ? htparser_run(me->m_parser, &parser_hooks, data, length) : 0;
 }
 
 static inline RpParserStatus_e
 error_to_status(htpparse_error error)
 {
+NOISY_MSG_("(%d)", error);
     switch (error)
     {
         case htparse_error_none:
@@ -259,6 +270,8 @@ get_status_i(RpParser* self)
 {
     NOISY_MSG_("(%p)", self);
     RpLegacyHttpParserImpl* me = RP_LEGACY_HTTP_PARSER_IMPL(self);
+NOISY_MSG_("paused %u", me->m_paused);
+NOISY_MSG_("parser error \"%s\"", htparser_get_strerror(me->m_parser));
     return me->m_paused ?
         RpParserStatus_Paused :
         error_to_status(htparser_get_error(me->m_parser));

@@ -90,8 +90,7 @@ do_bufferevent_error(evbev_t* bev, int errcode)
     if (errcode)
     {
         const char* errmsg = evutil_socket_error_to_string(errcode);
-        LOGE("Socket error %d(%s)", errcode, errmsg);
-g_assert(errcode != 111);
+        if (errcode != 104) LOGE("Socket error %d(%s)", errcode, errmsg);
     }
 
     int fd = bufferevent_getfd(bev);
@@ -195,7 +194,7 @@ file_event_assign_events(RpIoBevSocketHandleImpl* self, guint32 events)
 #endif//0
 }
 
-static void
+static inline void
 file_event_activate(RpIoBevSocketHandleImpl* self, guint32 events)
 {
     NOISY_MSG_("(%p(fd %d), %u)", self, SOCKFD(self), events);
@@ -210,7 +209,7 @@ file_event_activate(RpIoBevSocketHandleImpl* self, guint32 events)
     self->m_injected_activation_events |= events;
 }
 
-static void
+static inline void
 file_event_update_events(RpIoBevSocketHandleImpl* self, guint32 events)
 {
     NOISY_MSG_("(%p(fd %d), %u)", self, SOCKFD(self), events);
@@ -223,7 +222,7 @@ file_event_update_events(RpIoBevSocketHandleImpl* self, guint32 events)
     file_event_assign_events(self, events);
 }
 
-static void
+static inline void
 file_event_set_enabled(RpIoBevSocketHandleImpl* self, guint32 events)
 {
     NOISY_MSG_("(%p(fd %d), %u)", self, SOCKFD(self), events);
@@ -295,52 +294,40 @@ close_i(RpIoHandle* self)
     }
 }
 
-static inline guint16
-default_port(RpIoBevSocketHandleImpl* self)
+static inline void
+make_connecting_socket(RpIoBevSocketHandleImpl* self, RpNetworkAddressInstanceConstSharedPtr address)
 {
-    NOISY_MSG_("(%p(fd %d))", self, SOCKFD(self));
-    return bufferevent_openssl_get_ssl(self->m_bev) ? 443 : 80;
+    NOISY_MSG_("(%p, %p(%s))", self, address, rp_network_address_instance_as_string(address));
+    // NOTE: This shouldn't be necessary since bufferevent_socket_connect() will
+    //       create the socket fd (if necesssary).
+    //       However, some of the error handling requires the socket be "open"
+    //       to properly tear down the connection. A refactoring of that logic
+    //       would be required to skip this step.
+    if (bufferevent_getfd(self->m_bev) == EVUTIL_INVALID_SOCKET)
+    {
+        RpNetworkAddressIp* ip = rp_network_address_instance_ip(address);
+        RpIpVersion_e version = rp_network_address_ip_version(ip);
+        int domain = version == RpIpVersion_v6 ? AF_INET6 : AF_INET;
+        evutil_socket_t fd = socket(domain, SOCK_STREAM, 0);
+        NOISY_MSG_("created sockfd %d", fd);
+        evutil_make_socket_nonblocking(fd);
+        evutil_make_socket_closeonexec(fd);
+        bufferevent_setfd(self->m_bev, fd);
+    }
 }
 
-static inline int
-socket_connect_hostname(RpIoBevSocketHandleImpl* self, const char* requested_server_name)
+static RpSysCallIntResult
+connect_i(RpIoHandle* self, RpNetworkAddressInstanceConstSharedPtr address)
 {
-    NOISY_MSG_("(%p(fd %d), %p(%s))", self, SOCKFD(self), requested_server_name, requested_server_name);
-    RpAuthorityAttributes attrs = http_utility_parse_authority(requested_server_name);
-    guint16 port = attrs.m_port ? attrs.m_port : default_port(self);
-    g_autofree gchar* hostname = g_strndup(attrs.m_host.m_data, attrs.m_host.m_length);
-    return bufferevent_socket_connect_hostname(self->m_bev, self->m_dns_base, AF_UNSPEC, hostname, port);
-}
-
-static inline int
-socket_connect_addr(RpIoBevSocketHandleImpl* self, RpNetworkAddressInstanceConstSharedPtr address)
-{
-    NOISY_MSG_("(%p, %p)", self, address);
-    return bufferevent_socket_connect(self->m_bev,
-                                        rp_network_address_instance_sock_addr(address),
-                                        rp_network_address_instance_sock_addr_len(address));
-}
-
-static int
-connect_internal(RpIoBevSocketHandleImpl* self, RpNetworkAddressInstanceConstSharedPtr address, const char* requested_server_name)
-{
-    NOISY_MSG_("(%p(fd %d), %p, %p(%s))",
-        self, SOCKFD(self), address, requested_server_name, requested_server_name);
-    return address ?
-            socket_connect_addr(self, address) :
-            socket_connect_hostname(self, requested_server_name);
-
-}
-
-static int
-connect_i(RpIoHandle* self, RpNetworkAddressInstanceConstSharedPtr address, const char* requested_server_name)
-{
-    NOISY_MSG_("(%p(fd %d), %p, %p(%s))",
-        self, SOCKFD(self), address, requested_server_name, requested_server_name);
+    NOISY_MSG_("(%p(fd %d), %p)", self, SOCKFD(self), address);
     RpIoBevSocketHandleImpl* me = RP_IO_BEV_SOCKET_HANDLE_IMPL(self);
     me->m_type = RpHandleType_Connecting;
     bufferevent_setcb(me->m_bev, NULL, NULL, eventcb, self);
-    return connect_internal(me, address, requested_server_name);
+    make_connecting_socket(me, address);
+    int rc = bufferevent_socket_connect(me->m_bev,
+                                        rp_network_address_instance_sock_addr(address),
+                                        rp_network_address_instance_sock_addr_len(address));
+    return rp_sys_call_int_ctor(rc, errno);
 }
 
 static void
@@ -483,35 +470,36 @@ was_connected_i(RpIoHandle* self)
     return RP_IO_BEV_SOCKET_HANDLE_IMPL(self)->m_was_connected;
 }
 
-static int
+static RpSysCallIntResult
 write_i(RpIoHandle* self, evbuf_t* buffer)
 {
     NOISY_MSG_("(%p(fd %d), %p(%zu))", self, SOCKFD(self), buffer, evbuf_length(buffer));
     if (!buffer)
     {
         LOGI("buffer is null on fd %d", SOCKFD(self));
-        return 0;
+        return rp_sys_call_int_ctor(0, 0);
     }
-    return bufferevent_write_buffer(RP_IO_BEV_SOCKET_HANDLE_IMPL(self)->m_bev, buffer);
+    int rc = bufferevent_write_buffer(RP_IO_BEV_SOCKET_HANDLE_IMPL(self)->m_bev, buffer);
+    return rp_sys_call_int_ctor(rc, errno);
 }
 
-static int
+static RpSysCallIntResult
 read_i(RpIoHandle* self, evbuf_t* buffer)
 {
     NOISY_MSG_("(%p(fd %d), %p)", self, SOCKFD(self), buffer);
     if (!buffer)
     {
         LOGI("buffer is null on fd %d", SOCKFD(self));
-        return -1;
+        return rp_sys_call_int_ctor(-1, EINVAL);
     }
     RpIoBevSocketHandleImpl* me = RP_IO_BEV_SOCKET_HANDLE_IMPL(self);
     size_t start_len = evbuffer_get_length(buffer);
     if (bufferevent_read_buffer(me->m_bev, buffer) != 0)
     {
         LOGE("read buffer error on fd %d", SOCKFD(self));
-        return -1;
+        return rp_sys_call_int_ctor(-1, EINVAL);
     }
-    return (int)(evbuffer_get_length(buffer) - start_len);
+    return rp_sys_call_int_ctor((int)(evbuffer_get_length(buffer) - start_len), 0);
 }
 
 static int

@@ -42,7 +42,7 @@ on_cluster_add_or_update_i(RpClusterUpdateCallbacks* self, const char* cluster_n
         {
             RpLoadClusterEntryHandleImpl* handle = cluster->data;
             RpLoadClusterEntryCallbacks* callbacks = rp_load_cluster_entry_handle_impl_callbacks_(handle);
-            //TODO...?handle->cancel();
+            rp_load_cluster_entry_handle_impl_cancel(handle);
             rp_load_cluster_entry_callbacks_on_load_cluster_complete(callbacks);
         }
         g_list_free_full(clusters, g_object_unref);
@@ -103,7 +103,6 @@ rp_thread_local_cluster_info_new(RpProxyFilterConfig* parent)
     // Run in each worker thread.
     self->m_handle = rp_cluster_manager_add_thread_local_cluster_update_callbacks(
                         rp_proxy_filter_config_cluster_manager(parent), RP_CLUSTER_UPDATE_CALLBACKS(self));
-NOISY_MSG_("self %p", self);
     return self;
 }
 

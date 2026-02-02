@@ -89,6 +89,7 @@ RpLoadClusterEntryHandlePtr rp_proxy_filter_config_add_dynamic_cluster(RpProxyFi
 G_DECLARE_FINAL_TYPE(RpLoadClusterEntryHandleImpl, rp_load_cluster_entry_handle_impl, RP, LOAD_CLUSTER_ENTRY_HANDLE_IMPL, GObject)
 
 RpLoadClusterEntryHandleImpl* rp_load_cluster_entry_handle_impl_new(GHashTable* parent, const char* host, RpLoadClusterEntryCallbacks* callbacks);
+void rp_load_cluster_entry_handle_impl_cancel(RpLoadClusterEntryHandleImpl* self);
 RpLoadClusterEntryCallbacks* rp_load_cluster_entry_handle_impl_callbacks_(RpLoadClusterEntryHandleImpl* self);
 
 /**

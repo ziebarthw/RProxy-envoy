@@ -47,7 +47,7 @@ struct _RpRewriteUrlsFilter {
 
     SHARED_PTR(RpRewriteUrlsCfg) m_config;
 
-    SHARED_PTR(lztq) m_rewrite_urls;
+    SHARED_PTR(GSList) m_rewrite_urls;
 
     UNIQUE_PTR(GRegex) m_regex;
     UNIQUE_PTR(evbuf_t) m_output_buffer;
@@ -66,7 +66,7 @@ G_DEFINE_FINAL_TYPE_WITH_CODE(RpRewriteUrlsFilter, rp_rewrite_urls_filter, RP_TY
 #define PARENT_STREAM_ENCODER_FILTER_IFACE(s) \
     ((RpStreamEncoderFilterInterface*)g_type_interface_peek_parent(RP_STREAM_ENCODER_FILTER_GET_IFACE(s)))
 
-static inline lztq*
+static inline SHARED_PTR(GSList)
 ensure_rewrite_urls(RpRewriteUrlsFilter* self)
 {
     NOISY_MSG_("(%p)", self);
@@ -85,14 +85,14 @@ create_pattern(RpRewriteUrlsFilter* self)
 {
     NOISY_MSG_("(%p)", self);
 
-    lztq* rewrite_urls = ensure_rewrite_urls(self);
-    NOISY_MSG_("rewrite_urls %p, %zu urls", rewrite_urls, lztq_size(rewrite_urls));
+    GSList* rewrite_urls = ensure_rewrite_urls(self);
+    NOISY_MSG_("rewrite_urls %p, %u urls", rewrite_urls, g_slist_length(rewrite_urls));
 
     GString* s = g_string_new(NULL);
     gchar* sep = "";
-    for (lztq_elem* elem = lztq_first(rewrite_urls); elem; elem = lztq_next(elem))
+    for (GSList* itr = rewrite_urls; itr; itr = itr->next)
     {
-        gchar* rewrite_url = lztq_elem_data(elem);
+        gchar* rewrite_url = itr->data;
         LOGD("rewrite_url %p(%s)", rewrite_url, rewrite_url);
 
         g_string_append_printf(s, "%s%s", sep, rewrite_url);

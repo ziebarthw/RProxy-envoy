@@ -26,25 +26,8 @@ G_DECLARE_FINAL_TYPE(RpStaticClusterImpl, rp_static_cluster_impl, RP, STATIC_CLU
 RpStaticClusterImpl* rp_static_cluster_impl_new(const RpClusterCfg* cluster,
                                                 RpClusterFactoryContext* context,
                                                 RpStatusCode_e* creation_status);
-
-
-/**
- * Load balancer factory created by the main thread and will be called in each worker thread to
- * create the thread local load balancer.
- */
-#define RP_TYPE_STATIC_LOAD_BALANCER_FACTORY rp_static_load_balancer_factory_get_type()
-G_DECLARE_FINAL_TYPE(RpStaticLoadBalancerFactory, rp_static_load_balancer_factory, RP, STATIC_LOAD_BALANCER_FACTORY, GObject)
-
-RpStaticLoadBalancerFactory* rp_static_load_balancer_factory_new(RpStaticClusterImpl* parent);
-
-
-/**
- * Thread aware load balancer created by the main thread.
- */
-#define RP_TYPE_STATIC_THREAD_AWARE_LOAD_BALANCER rp_static_thread_aware_load_balancer_get_type()
-G_DECLARE_FINAL_TYPE(RpStaticThreadAwareLoadBalancer, rp_static_thread_aware_load_balancer, RP, STATIC_THREAD_AWARE_LOAD_BALANCER, GObject)
-
-RpStaticThreadAwareLoadBalancer* rp_static_thread_aware_load_balancer_new(RpStaticClusterImpl* parent);
+PairClusterSharedPtrThreadAwareLoadBalancerPtr rp_static_cluster_impl_create(const RpClusterCfg* cluster,
+                                                                                RpClusterFactoryContext* context);
 
 
 /**

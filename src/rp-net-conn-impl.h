@@ -41,5 +41,9 @@ RpNetworkTransportSocket* rp_network_connection_impl_transport_socket_(RpNetwork
 void rp_network_connection_impl_raise_event(RpNetworkConnectionImpl* self,
                                             RpNetworkConnectionEvent_e event);
 void rp_network_connection_impl_on_connected_(RpNetworkConnectionImpl* self);
+void rp_network_connection_impl_set_connecting_(RpNetworkConnectionImpl* self,
+                                                bool connecting);
+void rp_network_connection_impl_set_immediate_error_event_(RpNetworkConnectionImpl* self,
+                                                            RpNetworkConnectionEvent_e event);
 
 G_END_DECLS

@@ -234,10 +234,12 @@ run_post_callbacks(RpSchedulableCallback *self G_GNUC_UNUSED, gpointer arg)
     while (callbacks)
     {
         //TODO...touchWatchdog();
-        RpPostCbCtx* ctx = callbacks->data;
+        GList* llink = callbacks;
+        callbacks = g_list_remove_link(callbacks, llink);
+        RpPostCbCtx* ctx = llink->data;
         ctx->cb(ctx->arg);
         g_free(ctx);
-        callbacks = g_list_remove_link(callbacks, callbacks);
+        g_list_free(llink);
     }
 }
 
@@ -418,7 +420,8 @@ create_client_connection_i(RpDispatcher* self, RpNetworkAddressInstanceConstShar
                             RpNetworkAddressInstanceConstSharedPtr source_address, RpNetworkTransportSocketPtr transport_socket)
 {
     extern RpDefaultClientConnectionFactory* default_client_connection_factory;
-    NOISY_MSG_("(%p, %p, %p, %p)", self, address, source_address, transport_socket);
+    NOISY_MSG_("(%p, %p(%s), %p, %p)",
+        self, address, rp_network_address_instance_as_string(address), source_address, transport_socket);
     RpClientConnectionFactory* factory = RP_CLIENT_CONNECTION_FACTORY(default_client_connection_factory);
     return rp_client_connection_factory_create_client_connection(factory, self, address, source_address, transport_socket);
 }

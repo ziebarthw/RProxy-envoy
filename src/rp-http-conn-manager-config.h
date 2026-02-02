@@ -14,7 +14,6 @@
 #include "rp-route-configuration.h"
 #include "rp-rds.h"
 #include "rp-thread-local.h"
-#include "lzq.h"
 
 G_BEGIN_DECLS
 
@@ -37,7 +36,7 @@ struct _RpHttpConnectionManagerCfg {
 
     RpRouteConfiguration route_config;
 
-    lztq* rules;
+    GSList* rules;
 };
 
 /**

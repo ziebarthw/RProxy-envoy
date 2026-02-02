@@ -16,6 +16,7 @@
 #include "event/rp-dispatcher-impl.h"
 #include "event/rp-real-time-system.h"
 #include "local_info/rp-local-info-impl.h"
+#include "network/dns_resolver/rp-dns-factory-util.h"
 #include "upstream/rp-cluster-manager-impl.h"
 #include "server/rp-run-helper.h"
 #include "server/rp-server-impl.h"
@@ -35,6 +36,7 @@ struct _RpServerInstanceBasePrivate {
     RpServerConfigurationMainImpl* m_config;
 
     RpThreadLocalInstance* m_thread_local;
+    RpNetworkDnsResolverSharedPtr m_dns_resolver;
 
     rproxy_t* m_bootstrap;
     GMutex m_lock;
@@ -268,6 +270,7 @@ dispose(GObject* obj)
     g_clear_object(&me->m_config);
     g_clear_object(&me->m_dispatcher);
     g_clear_object(&me->m_singleton_manager);
+    g_clear_object(&me->m_dns_resolver);
 
     G_OBJECT_CLASS(rp_server_instance_base_parent_class)->dispose(obj);
 }
@@ -310,6 +313,20 @@ rp_server_instance_base_init(RpServerInstanceBase* self)
     me->m_shutdown = false;
 }
 
+static RpNetworkDnsResolver*
+get_or_create_dns_resolver(gpointer arg)
+{
+    NOISY_MSG_("(%p)", arg);
+    RpServerInstanceBasePrivate* me = PRIV(arg);
+    if (!me->m_dns_resolver)
+    {
+        g_autoptr(RpDnsResolverFactory) dns_resolver_factory = rp_dns_factory_util_create_dns_resolver_factory_from_proto(me->m_bootstrap);
+        RpDispatcher* dispatcher = rp_server_instance_dispatcher(RP_SERVER_INSTANCE(arg));
+        me->m_dns_resolver = rp_dns_resolver_factory_create_dns_resolver(dns_resolver_factory, dispatcher);
+    }
+    return me->m_dns_resolver;
+}
+
 void
 rp_server_instance_base_initialize(RpServerInstanceBase* self)
 {
@@ -322,7 +339,11 @@ rp_server_instance_base_initialize(RpServerInstanceBase* self)
     me->m_local_info = RP_LOCAL_INFO(rp_local_info_impl_new());
     me->m_cluster_manager_factory = RP_CLUSTER_MANAGER_FACTORY(
         rp_prod_cluster_manager_factory_new(
-            rp_server_instance_server_factory_context(RP_SERVER_INSTANCE(self)), me->m_thread_local, RP_SERVER_INSTANCE(self)));
+            rp_server_instance_server_factory_context(RP_SERVER_INSTANCE(self)),
+                                                        me->m_thread_local,
+                                                        get_or_create_dns_resolver,
+                                                        self,
+                                                        RP_SERVER_INSTANCE(self)));
 
     g_autoptr(GError) err = NULL;
     if (!rp_server_configuration_main_impl_initialize(me->m_config, me->m_bootstrap, RP_SERVER_INSTANCE(self), me->m_cluster_manager_factory, &err))

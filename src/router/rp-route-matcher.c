@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_route_matcher_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_route_matcher_NOISY)
@@ -103,9 +100,9 @@ constructor(GType type, guint n_construct_properties, GObjectConstructParam *con
     NOISY_MSG_("obj %p", obj);
 
     RpRouteMatcher* self = RP_ROUTE_MATCHER(obj);
-    for (lztq_elem* elem = lztq_first(self->m_config->virtual_hosts); elem; elem = lztq_next(elem))
+    for (GSList* itr = self->m_config->virtual_hosts; itr; itr = itr->next)
     {
-        RpVirtualHostCfg* virtual_host_config = lztq_elem_data(elem);
+        RpVirtualHostCfg* virtual_host_config = itr->data;
         RpVirtuaHostImpl* virtual_host = rp_virtual_host_impl_new(virtual_host_config,
                                                                     self->m_global_route_config,
                                                                     self->m_factory_context,

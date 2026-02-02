@@ -14,9 +14,6 @@
 #include <sys/resource.h>
 #endif
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(util_NOISY) || defined(ALL_NOISY)) && !defined(NO_util_NOISY)
@@ -363,43 +360,43 @@ util_glob_match(const char* pattern, const char* string)
     return false;
 } /* util_glob_match */
 
-static int
-_glob_match_iterfn(lztq_elem* elem, void* arg)
+static gint
+_glob_match_compare(gconstpointer a, gconstpointer b)
 {
-    LOGD("(%p, %p)", elem, arg);
+    LOGD("(%p, %p)", a, b);
 
-    const char* needle = arg;
+    const char* needle = b;
     if (!needle)
     {
         LOGD("needle is null");
         return -1;
     }
 
-    const char* haystack = lztq_elem_data(elem);
+    const char* haystack = a;
     if (!haystack)
     {
         LOGD("haystack is null");
-        return -1;
+        return 1;
     }
 
-    return util_glob_match(haystack, needle);
+    return util_glob_match(haystack, needle) ? 0 : -1;
 }
 
 /**
- * @brief iterate over a tailq of strings and attempt to find a wildcard match.
+ * @brief iterate over a GSList of strings and attempt to find a wildcard match.
  *
- * @param tq a lztq of strings to match against. (haystack)
+ * @param list a list of strings to match against. (haystack)
  * @param str  the string to compare. (needle)
  *
- * @return -1 on error, 1 on match, 0 on no match.
+ * @return true on match, false on no match.
  */
 bool
-util_glob_match_lztq(lztq* tq, const char* str)
+util_glob_match_list(GSList* list, const char* str)
 {
-    LOGD("(%p, %p(%s))", tq, str, str);
+    LOGD("(%p, %p(%s))", list, str, str);
 
     /* if the tailq is empty, we default to allowed */
-    if (tq == NULL || lztq_size(tq) == 0)
+    if (list == NULL || g_slist_length(list) == 0)
     {
         LOGD("yep");
         return true;
@@ -413,50 +410,48 @@ util_glob_match_lztq(lztq* tq, const char* str)
      * result =  1 == match
      * result = -1 == matching error
      */
-    return lztq_for_each(tq, _glob_match_iterfn, (void*)str) == true;
+    return g_slist_find_custom(list, str, _glob_match_compare) != NULL;
 }
 
-static int
-_rm_headers_iterfn(lztq_elem* elem, void* arg)
+static void
+_rm_headers_iterfn(gpointer data, gpointer arg)
 {
-    LOGD("(%p, %p)", elem, arg);
+    LOGD("(%p, %p)", data, arg);
 
     evhtp_headers_t* headers = arg;
     if (!headers)
     {
         LOGD("headers is null");
-        return -1;
+        return;
     }
 
-    const char* header_key = lztq_elem_data(elem);
+    const char* header_key = data;
     if (!header_key)
     {
         LOGD("header_key is null");
-        return -1;
+        return;
     }
 
     evhtp_kv_rm_and_free(headers, evhtp_kvs_find_kv(headers, header_key));
-
-    return 0;
 }
 
 /**
- * @brief iterates over a lzq of strings and removes any headers with that
+ * @brief iterates over a list of strings and removes any headers with that
  *        string.
  *
- * @param tq
+ * @param list
  * @param headers
  *
  * @return 0 on success, otherwise -1
  */
 int
-util_rm_headers_via_lztq(lztq * tq, evhtp_headers_t * headers)
+util_rm_headers_via_list(GSList * list, evhtp_headers_t * headers)
 {
-    LOGD("(%p, %p)", tq, headers);
+    LOGD("(%p, %p)", list, headers);
 
-    if (!tq)
+    if (!list)
     {
-        LOGD("tq is null");
+        LOGD("list is null");
     }
     else if (!headers)
     {
@@ -464,7 +459,7 @@ util_rm_headers_via_lztq(lztq * tq, evhtp_headers_t * headers)
     }
     else
     {
-        return lztq_for_each(tq, _rm_headers_iterfn, (void *)headers);
+        g_slist_foreach(list, _rm_headers_iterfn, headers);
     }
     return 0;
 }

@@ -85,7 +85,7 @@ struct _RpVirtualHostCfg {
     //   must be unique across all virtual hosts or the config will fail to load.
     //
     // Domains cannot contain control characters. This is validated by the well_known_regex HTTP_HEADER_VALUE.
-    lztq* domains;
+    GSList* domains;
 
 
 };
@@ -106,7 +106,7 @@ struct _RpRouteConfiguration {
     char* name;
 
     // An array of virtual hosts that make up the route table.
-    lztq* virtual_hosts;
+    GSList* virtual_hosts;
 
     // The maximum bytes of the response :ref:`direct response body
     // <envoy_v3_api_field_config.route.v3.DirectResponseAction.body>` size. If not specified the default

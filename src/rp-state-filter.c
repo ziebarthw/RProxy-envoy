@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_state_filter_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_state_filter_NOISY)
@@ -67,24 +64,19 @@ get_rule_cfg(RpStateFilter* self)
     return rp_route_impl_get_rule_cfg(RP_ROUTE_IMPL(ROUTE(self)));
 }
 
+static inline gint
+compare_config(gconstpointer a, gconstpointer b)
+{
+    const rule_t* r = a;
+    return (gint)(r->config - (rule_cfg_t*)b);
+}
+
 static inline rule_t*
-find_rule_from_cfg(rule_cfg_t* rule_cfg, lztq* rules)
+find_rule_from_cfg(rule_cfg_t* rule_cfg, GSList* rules)
 {
     NOISY_MSG_("(%p, %p)", rule_cfg, rules);
-
-    for (lztq_elem* elem = lztq_first(rules); elem; elem = lztq_next(elem))
-    {
-        rule_t* rule = lztq_elem_data(elem);
-
-        if (rule->config == rule_cfg)
-        {
-            NOISY_MSG_("found rule %p", rule);
-            return rule;
-        }
-    }
-
-    LOGI("not found");
-    return NULL;
+    GSList* itr = g_slist_find_custom(rules, rule_cfg, compare_config);
+    return itr ? itr->data : NULL;
 }
 
 static inline rule_t*
@@ -94,7 +86,7 @@ get_rule(RpStateFilter* self)
     return find_rule_from_cfg(get_rule_cfg(self), RULES(self));
 }
 
-static inline lztq*
+static inline GSList*
 get_rewrite_urls(rule_t* rule)
 {
     NOISY_MSG_("(%p)", rule);
@@ -127,7 +119,7 @@ decode_headers_i(RpStreamDecoderFilter* self, evhtp_headers_t* request_headers, 
                                 RpFilterStateStateType_ReadOnly,
                                 RpFilterStateLifeSpan_Request);
 
-    lztq* rewrite_urls = get_rewrite_urls(rule);
+    GSList* rewrite_urls = get_rewrite_urls(rule);
     rp_filter_state_set_data(filter_state,
                                 rewrite_urls_key,
                                 rewrite_urls,

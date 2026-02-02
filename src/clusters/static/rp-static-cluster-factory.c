@@ -33,16 +33,7 @@ OVERRIDE PairClusterSharedPtrThreadAwareLoadBalancerPtr
 create_cluster_impl(RpClusterFactoryImplBase* self, const RpClusterCfg* cluster_config, RpClusterFactoryContext* context)
 {
     NOISY_MSG_("(%p, %p, %p)", self, cluster_config, context);
-    RpStatusCode_e creation_status = RpStatusCode_Ok;
-    RpStaticClusterImpl* new_cluster = rp_static_cluster_impl_new(cluster_config, context, &creation_status);
-    if (creation_status != RpStatusCode_Ok)
-    {
-        LOGE("failed");
-        return PairClusterSharedPtrThreadAwareLoadBalancerPtr_make(NULL, NULL);
-    }
-    RpStaticThreadAwareLoadBalancer* lb = rp_static_thread_aware_load_balancer_new(new_cluster);
-    return PairClusterSharedPtrThreadAwareLoadBalancerPtr_make(
-            RP_CLUSTER(new_cluster), RP_THREAD_AWARE_LOAD_BALANCER(lb));
+    return rp_static_cluster_impl_create(cluster_config, context);
 }
 
 static void

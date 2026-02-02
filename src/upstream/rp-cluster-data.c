@@ -24,6 +24,9 @@ struct _RpClusterData {
     RpThreadAwareLoadBalancerPtr m_thread_aware_lb;
     RpSystemTime m_last_updated;
 
+    guint64 m_config_hash;
+
+    bool m_added_via_api : 1;
     bool m_added_or_updated : 1;
     bool m_required_for_ads : 1;
 };
@@ -113,9 +116,11 @@ rp_cluster_data_init(RpClusterData* self G_GNUC_UNUSED)
 }
 
 RpClusterData*
-rp_cluster_data_new(RpClusterCfg* cluster_config, bool added_via_api, SHARED_PTR(RpCluster) cluster, RpTimeSource* time_source)
+rp_cluster_data_new(RpClusterCfg* cluster_config, guint64 cluster_config_hash, bool added_via_api,
+                    SHARED_PTR(RpCluster) cluster, RpTimeSource* time_source)
 {
-    LOGD("(%p, %u, %p, %p)", cluster_config, added_via_api, cluster, time_source);
+    LOGD("(%p, %zu, %u, %p(%s), %p)",
+        cluster_config, cluster_config_hash, added_via_api, cluster, G_OBJECT_TYPE_NAME(cluster), time_source);
 
     g_return_val_if_fail(cluster_config != NULL, NULL);
     g_return_val_if_fail(RP_IS_CLUSTER(cluster), NULL);
@@ -125,7 +130,16 @@ rp_cluster_data_new(RpClusterCfg* cluster_config, bool added_via_api, SHARED_PTR
     self->m_cluster_config = cluster_config;
     self->m_cluster = g_object_ref(cluster); // Keep a reference to the cluster.
     self->m_last_updated = rp_time_source_system_time(time_source);
+    self->m_config_hash = cluster_config_hash;
+    self->m_added_via_api = added_via_api;
     return self;
+}
+
+bool
+rp_cluster_data_block_update(RpClusterData* self, guint64 hash)
+{
+    LOGD("(%p, %zu)", self, hash);
+    return !self->m_added_via_api || self->m_config_hash == hash;
 }
 
 RpThreadAwareLoadBalancerPtr*

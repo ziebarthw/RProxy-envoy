@@ -48,9 +48,12 @@
 
 #include "rproxy.h"
 #include "rule.h"
+#include "tpoolctx.h"
+#include "trafficstats.h"
 #include "vhost.h"
 
 #include "clusters/static/rp-static-cluster.h"
+#include "clusters/strict_dns/rp-strict-dns-cluster.h"
 #include "dynamic_forward_proxy/rp-cluster.h"
 #include "event/rp-dispatcher-impl.h"
 #include "event/rp-real-time-system.h"
@@ -65,6 +68,7 @@
 #include "transport_sockets/rp-raw-buffer.h"
 #include "upstream/rp-cluster-factory-impl.h"
 #include "upstream/rp-cluster-manager-impl.h"
+#include "upstream/rp-cluster-provided-lb-factory.h"
 #include "upstream/rp-upstream-impl.h"
 #include "rp-active-tcp-conn.h"
 #include "rp-cluster-configuration.h"
@@ -75,10 +79,8 @@
 #include "rp-net-server-conn-impl.h"
 #include "rp-per-host-upstream.h"
 
-traffic_stats_t g_traffic_stats;
-
 static RpFactoryContext* factory_context = NULL; // It *appears* this is the listener_manger (or listener?) in envoy.???
-static GMutex thread_starter_mutex;
+static GMutex thread_waiter_mutex;
 static GCond thread_ready_cond;
 static GCond thread_go_cond;
 static int ready_workers = 0;
@@ -87,37 +89,36 @@ static bool go_ahead = false;
 
 RpPerHostGenericConnPoolFactory* default_conn_pool_factory = NULL;
 RpDefaultClientConnectionFactory* default_client_connection_factory = NULL;
-RpClusterFactory* default_cluster_factory = NULL;
-RpClusterFactory* default_dfp_factory = NULL;
+RpClusterFactory* default_static_cluster_factory = NULL;
+RpClusterFactory* default_strict_dns_cluster_factory = NULL;
+RpClusterFactory* default_dfp_cluster_factory = NULL;
 RpNetworkAddressSocketInterfaceImplFactory* default_network_address_socket_interface_impl_factory = NULL;
 RpUpstreamTransportSocketConfigFactory* default_upstream_transport_socket_config_factory = NULL;
 RpDownstreamTransportSocketConfigFactory* default_downstream_transport_socket_config_factory = NULL;
 RpDfpClusterStoreFactory* default_cluster_store_factory = NULL;
+RpTypedLoadBalancerFactory* default_cluster_provided_lb_factory = NULL;
 
 /**
  * @brief allocates a new upstream_t, and appends it to the
  *        rproxy->upstreams list. This is callback for the
- *        lztq_for_each function from rproxy_thread_init().
+ *        g_slist_for_each function from rproxy_thread_init().
  *
  * @param elem
  * @param arg
  *
  * @return
  */
-static int
-add_upstream(lztq_elem* elem, gpointer arg)
+static void
+add_upstream(gpointer data, gpointer arg)
 {
-    LOGD("(%p, %p)", elem, arg);
+    LOGD("(%p, %p)", data, arg);
 
     rproxy_t* rproxy = arg;
     g_assert(rproxy != NULL);
 
-    upstream_cfg_t* ds_cfg = lztq_elem_data(elem);
+    upstream_cfg_t* ds_cfg = data;
     upstream_t* upstream = upstream_new(ds_cfg);
-    lztq_elem* nelem = lztq_append(rproxy->upstreams, upstream, sizeof(upstream), upstream_free);
-    g_assert(nelem != NULL);
-
-    return 0;
+    rproxy->upstreams = g_slist_prepend(rproxy->upstreams, upstream);
 }
 
 static int
@@ -128,9 +129,9 @@ map_rule_to_upstreams(rule_t* rule, rule_cfg_t* rule_cfg, rproxy_t* rproxy)
     /* for each string in the rule_cfg's upstreams section, find the matching
      * upstream_t and append it.
      */
-    for (lztq_elem* elem = lztq_first(rule_cfg->upstreams); elem; elem = lztq_next(elem))
+    for (GSList* itr = rule_cfg->upstream_names; itr; itr = itr->next)
     {
-        const char* up_name = lztq_elem_data(elem);
+        const char* up_name = itr->data;
         g_assert(up_name != NULL);
 
         upstream_t* up;
@@ -141,8 +142,8 @@ map_rule_to_upstreams(rule_t* rule, rule_cfg_t* rule_cfg, rproxy_t* rproxy)
             exit(EXIT_FAILURE);
         }
 
-        lztq_elem* nelem = lztq_append(rule->upstreams, up, sizeof(up), NULL);
-        g_assert(nelem != NULL);
+NOISY_MSG_("appending upstream %p to rule %p upstreams %p", up, rule, rule->upstreams);
+        rule->upstreams = g_slist_prepend(rule->upstreams, up);
     }
 
     /* upstream_request_start_hook is passed only the rule_cfg as an argument.
@@ -150,7 +151,7 @@ map_rule_to_upstreams(rule_t* rule, rule_cfg_t* rule_cfg, rproxy_t* rproxy)
      * the global rproxy->rules list. Since we compare pointers, it is safe to
      * keep this as one single list.
      */
-    lztq_append(rproxy->rules, rule, sizeof(rule), NULL);
+    rproxy->rules = g_slist_prepend(rproxy->rules, rule);
 
     return 0;
 } /* map_rule_to_upstreams */
@@ -160,23 +161,23 @@ map_rule_to_upstreams(rule_t* rule, rule_cfg_t* rule_cfg, rproxy_t* rproxy)
  *        to the upstream_t's in the rproxy->upstreams list. If found,
  *        create a rule_t and appends it to the rproxy->rules list.
  *
- * @param elem a lztq elem with the type of vhost_cfg_t *
+ * @param data a GSList elem with the type of vhost_cfg_t *
  * @param arg  the vhost_t *
  *
  * @return
  */
-static int
-map_vhost_rules_to_upstreams(lztq_elem* elem, gpointer arg)
+static void
+map_vhost_rules_to_upstreams(gpointer data, gpointer arg)
 {
-    NOISY_MSG_("(%p, %p)", elem, arg);
+    NOISY_MSG_("(%p, %p)", data, arg);
 
     vhost_t* vhost = arg;
     rproxy_t* rproxy = vhost->rproxy;
-    rule_cfg_t* rule_cfg = lztq_elem_data(elem);
+    rule_cfg_t* rule_cfg = data;
     NOISY_MSG_("vhost %p(%s), rule_cfg %p(%s)", vhost, vhost->config->server_name, rule_cfg, rule_cfg->name);
 
     rule_t* rule = rule_new(rule_cfg, vhost);
-    lztq_append(vhost->config->rules, rule, sizeof(rule), NULL);
+    vhost->config->rules = g_slist_append(vhost->config->rules, rule);
     map_rule_to_upstreams(rule, rule_cfg, rproxy);
 
     /*
@@ -223,11 +224,9 @@ map_vhost_rules_to_upstreams(lztq_elem* elem, gpointer arg)
         vhost->err_log = rproxy->err_log;
     }
 #endif//WITH_LOGGER
-
-    return 0;
 } /* map_vhost_rules_to_upstreams */
 
-static int
+static void
 map_default_rule_to_upstreams(rule_t* rule, rule_cfg_t* rule_cfg, rproxy_t* rproxy)
 {
     LOGD("(%p, %p, %p)", rule, rule_cfg, rproxy);
@@ -268,17 +267,15 @@ map_default_rule_to_upstreams(rule_t* rule, rule_cfg_t* rule_cfg, rproxy_t* rpro
         rule->err_log  = rproxy->err_log;
     }
 #endif//WITH_LOGGER
-
-    return 0;
 } /* map_default_rule_to_upstreams */
 
-static int
-add_vhost(lztq_elem* elem, gpointer arg)
+static void
+add_vhost(gpointer data, gpointer arg)
 {
-    NOISY_MSG_("(%p, %p)", elem, arg);
+    NOISY_MSG_("(%p, %p)", data, arg);
 
     rproxy_t* rproxy = arg;
-    vhost_cfg_t* vhost_cfg = lztq_elem_data(elem);
+    vhost_cfg_t* vhost_cfg = data;
     vhost_t* vhost = vhost_new(vhost_cfg);
     NOISY_MSG_("vhost %p, vhost_cfg %p(%s)", vhost, vhost_cfg, vhost_cfg->server_name);
 
@@ -294,10 +291,7 @@ add_vhost(lztq_elem* elem, gpointer arg)
 
     vhost_cfg->server_cfg = rproxy->server_cfg;
 
-    int res = lztq_for_each(vhost_cfg->rule_cfgs, map_vhost_rules_to_upstreams, vhost);
-    g_assert(res == 0);
-
-    return 0;
+    g_slist_foreach(vhost_cfg->rule_cfgs, map_vhost_rules_to_upstreams, vhost);
 }
 
 /**
@@ -328,13 +322,13 @@ downstream_pre_accept(evhtp_connection_t* up_conn, gpointer arg)
     /* check to see if we have too many pending requests, and if so, drop this
      * connection.
      */
-    if ((g_atomic_int_get(&rproxy->m_tpool_ctx->n_processing) + 1) > rproxy->server_cfg->max_pending)
+    if ((rproxy->m_tpool_ctx->n_processing + 1) > rproxy->server_cfg->max_pending)
     {
         g_error("Dropped connection, too many pending requests");
         return EVHTP_RES_ERROR;
     }
 
-    g_atomic_int_inc(&rproxy->m_tpool_ctx->n_processing);
+    atomic_fetch_add_explicit(&rproxy->m_tpool_ctx->n_processing, 1, memory_order_relaxed);
 
     if (rproxy->server_cfg->disable_client_nagle)
     {
@@ -451,24 +445,8 @@ rproxy_new(rproxy_t* parent, rproxy_cfg_t* config)
     g_return_val_if_fail(parent || config, NULL);
     g_return_val_if_fail(!parent || !config, NULL);
     g_autoptr(rproxy_t) self = g_new0(rproxy_t, 1);
-    if (parent)
-    {
-        self->m_parent = parent;
-        self->config = parent->config;
-        self->rules = parent->rules;
-        self->upstreams = parent->upstreams;
-    }
-    else
-    {
-        self->config = config;
-        self->upstreams = lztq_new();
-        self->rules = lztq_new();
-        if (!self->rules || !self->upstreams)
-        {
-            g_clear_pointer(&self->rules, lztq_free);
-            g_clear_pointer(&self->upstreams, lztq_free);
-        }
-    }
+    self->m_parent = parent;
+    self->config = parent ? parent->config : config;
     NOISY_MSG_("self %p, %zu bytes", self, sizeof(*self));
     return g_steal_pointer(&self);
 }
@@ -480,8 +458,9 @@ rproxy_free(rproxy_t* self)
     g_return_if_fail(self != NULL);
     if (!self->m_parent)
     {
-        g_clear_pointer(&self->rules, lztq_free);
-        g_clear_pointer(&self->upstreams, lztq_free);
+        g_clear_pointer(&self->config, rproxy_cfg_free);
+        g_slist_free_full(g_steal_pointer(&self->rules), (GDestroyNotify)rule_free);
+        g_slist_free_full(g_steal_pointer(&self->upstreams), (GDestroyNotify)upstream_free);
     }
     g_free(self);
 }
@@ -514,14 +493,12 @@ NOISY_MSG_("tpool ctx %p(%d)", tpool_ctx, rproxy->m_state);
                 .max_request_headers_kb = DEFAULT_MAX_REQUEST_HEADERS_KB,
                 .http_protocol_options.max_headers_count = DEFAULT_MAX_HEADERS_COUNT,
                 .route_config = route_config,
-                .rules = rproxy->rules
+                .rules = rproxy->m_parent->rules
             };
             RpThreadLocalInstance* tls = tpool_ctx->m_tls;
-NOISY_MSG_("calling rp_http_connection_manager_config_new(%p, %p, %p)", &proto_config, factory_context, tls);
             rproxy->m_filter_config = rp_http_connection_manager_config_new(&proto_config,
                                                                             factory_context,
                                                                             tls);
-NOISY_MSG_("filter config %p", rproxy->m_filter_config);
             rproxy->m_state = RpWorkerContinue_DONE;
 //            rp_schedulable_callback_schedule_callback_next_iteration(cb);
 rp_dispatcher_base_post(RP_DISPATCHER_BASE(rproxy->m_dispatcher), continue_thread_init_cb, arg);
@@ -563,12 +540,14 @@ rproxy_thread_init(evhtp_t* htp, evthr_t* thr, gpointer arg)
     g_object_ref(factory_context);
     g_object_ref(default_conn_pool_factory);
     g_object_ref(default_client_connection_factory);
-    g_object_ref(default_cluster_factory);
-    g_object_ref(default_dfp_factory);
+    g_object_ref(default_static_cluster_factory);
+    g_object_ref(default_strict_dns_cluster_factory);
+    g_object_ref(default_dfp_cluster_factory);
     g_object_ref(default_upstream_transport_socket_config_factory);
     g_object_ref(default_downstream_transport_socket_config_factory);
     g_object_ref(default_network_address_socket_interface_impl_factory);
     g_object_ref(default_cluster_store_factory);
+    g_object_ref(default_cluster_provided_lb_factory);
 
     tpool_ctx_t* tpool_ctx = arg;
     g_atomic_rc_box_acquire(tpool_ctx);
@@ -608,16 +587,16 @@ rproxy_thread_init(evhtp_t* htp, evthr_t* thr, gpointer arg)
     rproxy->m_dispatcher = create_dispatcher(name, thr);
 
     rp_thread_local_instance_register_thread(tls, rproxy->m_dispatcher, false);
-    g_mutex_lock(&thread_starter_mutex);
+    g_mutex_lock(&thread_waiter_mutex);
     ++ready_workers;
     g_cond_signal(&thread_ready_cond);
 
     while (!go_ahead)
     {
         NOISY_MSG_("waiting for go-ahead....");
-        g_cond_wait(&thread_go_cond, &thread_starter_mutex);
+        g_cond_wait(&thread_go_cond, &thread_waiter_mutex);
     }
-    g_mutex_unlock(&thread_starter_mutex);
+    g_mutex_unlock(&thread_waiter_mutex);
     NOISY_MSG_("starting");
 
     if (server_cfg->default_rule_cfg)
@@ -627,49 +606,7 @@ rproxy_thread_init(evhtp_t* htp, evthr_t* thr, gpointer arg)
         evhtp_set_gencb(htp, NULL, server_cfg->default_rule_cfg);
     }
 
-
-rp_dispatcher_base_post(RP_DISPATCHER_BASE(rproxy->m_dispatcher), continue_thread_init_cb, thr);
-
-
-
-#if 0
-    RpRouteConfiguration route_config = {
-        .name = server_cfg->name,//TODO...use |name| from above.(?)
-        .virtual_hosts = server_cfg->vhosts,
-        .max_direct_response_body_size_bytes = 4*1024,
-        .ignore_port_in_host_matching = true,
-        .ignore_path_paramaters_in_path_matching = false
-    };
-    RpHttpConnectionManagerCfg proto_config = {
-        .codec_type = "HTTP1",
-        .max_request_headers_kb = DEFAULT_MAX_REQUEST_HEADERS_KB,
-        .http_protocol_options.max_headers_count = DEFAULT_MAX_HEADERS_COUNT,
-        .route_config = route_config,
-        .rules = rproxy->rules
-    };
-    rproxy->m_filter_config = rp_http_connection_manager_config_new(&proto_config,
-                                                                    factory_context,
-                                                                    tls);
-
-#ifdef WITH_BACKLOG_GETTER
-    /* ser the thread backlog getter callback to our own */
-    evthr_set_backlog_getter(thr, get_backlog_);
-#endif
-
-    if (server_cfg->default_rule_cfg)
-    {
-        server_cfg->default_rule = rule_new(server_cfg->default_rule_cfg, NULL);
-        map_default_rule_to_upstreams(server_cfg->default_rule, server_cfg->default_rule_cfg, rproxy);
-        evhtp_set_gencb(htp, NULL, server_cfg->default_rule_cfg);
-    }
-
-    const rproxy_hooks_t* hooks = tpool_ctx->m_hooks;
-    if (hooks && hooks->on_thread_init)
-    {
-        LOGD("calling hooks->on_thread_init(%p, %p)", rproxy, hooks->on_thread_init_arg);
-        hooks->on_thread_init(rproxy, hooks->on_thread_init_arg);
-    }
-#endif//0
+    rp_dispatcher_base_post(RP_DISPATCHER_BASE(rproxy->m_dispatcher), continue_thread_init_cb, thr);
 
 } /* rproxy_thread_init */
 
@@ -748,8 +685,21 @@ rproxy_thread_exit(evhtp_t* htp, evthr_t* thr, gpointer arg)
     g_object_unref(factory_context);
     g_object_unref(default_conn_pool_factory);
     g_object_unref(default_client_connection_factory);
+    g_object_unref(default_static_cluster_factory);
+    g_object_unref(default_strict_dns_cluster_factory);
+    g_object_unref(default_dfp_cluster_factory);
+    g_object_unref(default_upstream_transport_socket_config_factory);
+    g_object_unref(default_downstream_transport_socket_config_factory);
+    g_object_unref(default_network_address_socket_interface_impl_factory);
+    g_object_unref(default_cluster_store_factory);
+    g_object_unref(default_cluster_provided_lb_factory);
 
     g_atomic_rc_box_release(tpool_ctx);
+
+    g_mutex_lock(&thread_waiter_mutex);
+    --ready_workers;
+    g_cond_signal(&thread_ready_cond);
+    g_mutex_unlock(&thread_waiter_mutex);
 
 } /* rproxy_thread_exit */
 
@@ -772,66 +722,64 @@ htp_worker_thread_exit(evthr_t* thr, gpointer arg)
  *
  * @return
  */
-static int
-add_callback_rule(lztq_elem* elem, gpointer arg)
+static void
+add_callback_rule(gpointer data, gpointer arg)
 {
-    NOISY_MSG_("(%p, %p)", elem, arg);
+    NOISY_MSG_("(%p, %p)", data, arg);
 
     evhtp_t* htp = arg;
     g_assert(htp != NULL);
 
-    rule_cfg_t* rule = lztq_elem_data(elem);
-    NOISY_MSG_("rule %p(%s), matchstr %p(%s)", rule, rule->name, rule->matchstr, rule->matchstr);
+    rule_cfg_t* rule_cfg = data;
+    NOISY_MSG_("rule_cfg %p(%s), matchstr %p(%s)", rule_cfg, rule_cfg->name, rule_cfg->matchstr, rule_cfg->matchstr);
 
     evhtp_callback_t* cb = NULL;
-    switch (rule->type)
+    switch (rule_cfg->type)
     {
         case rule_type_exact:
             NOISY_MSG_("exact");
-            cb = evhtp_set_cb(htp, rule->matchstr, NULL, rule);
+            cb = evhtp_set_cb(htp, rule_cfg->matchstr, NULL, rule_cfg);
             break;
         case rule_type_regex:
             NOISY_MSG_("regex");
-            cb = evhtp_set_regex_cb(htp, rule->matchstr, NULL, rule);
+            cb = evhtp_set_regex_cb(htp, rule_cfg->matchstr, NULL, rule_cfg);
             break;
         case rule_type_glob:
             NOISY_MSG_("glob");
-            cb = evhtp_set_glob_cb(htp, rule->matchstr, NULL, rule);
+            cb = evhtp_set_glob_cb(htp, rule_cfg->matchstr, NULL, rule_cfg);
             break;
         case rule_type_default:
             NOISY_MSG_("default");
         default:
             /* default rules will match anything */
-            cb = evhtp_set_glob_cb(htp, "*", NULL, rule);
+            cb = evhtp_set_glob_cb(htp, "*", NULL, rule_cfg);
             break;
     }
 
     if (cb == NULL)
     {
-        g_error("Could not compile evhtp callback for pattern \"%s\"", rule->matchstr);
+        g_error("Could not compile evhtp callback for pattern \"%s\"", rule_cfg->matchstr);
 // REVISIT: should not be fatal.(?)
         exit(EXIT_FAILURE);
     }
-
-    return 0;
 }
 
-static int
-add_vhost_name(lztq_elem* elem, gpointer arg)
+static void
+add_vhost_name(gpointer data, gpointer arg)
 {
-    NOISY_MSG_("(%p, %p)", elem, arg);
+    NOISY_MSG_("(%p, %p)", data, arg);
 
     evhtp_t* htp_vhost = arg;
-    char* name = lztq_elem_data(elem);
+    char* name = data;
 
     NOISY_MSG_("calling evhtp_add_alias(%p, %p(%s))", htp_vhost, name, name);
-    return evhtp_add_alias(htp_vhost, name);
+    evhtp_add_alias(htp_vhost, name);
 }
 
-static int
-add_evhtp_vhost(lztq_elem* elem, gpointer arg)
+static void
+add_evhtp_vhost(gpointer data, gpointer arg)
 {
-    NOISY_MSG_("(%p, %p)", elem, arg);
+    NOISY_MSG_("(%p, %p)", data, arg);
 
     /* create a new child evhtp for this vhost */
     evhtp_t* htp = arg;
@@ -842,15 +790,15 @@ add_evhtp_vhost(lztq_elem* elem, gpointer arg)
     evhtp_disable_flag(htp_vhost, EVHTP_FLAG_ENABLE_100_CONT);
 
     /* for each rule, create a evhtp callback with the defined type */
-    vhost_cfg_t* vcfg = lztq_elem_data(elem);
-    lztq_for_each(vcfg->rule_cfgs, add_callback_rule, htp_vhost);
+    vhost_cfg_t* vcfg = data;
+    g_slist_foreach(vcfg->rule_cfgs, add_callback_rule, htp_vhost);
 
     /* add the vhost using the name of the vhost config directive */
     evhtp_add_vhost(htp, vcfg->server_name, htp_vhost);
     NOISY_MSG_("vhost server name %p(%s)", vcfg->server_name, vcfg->server_name);
 
     /* create an alias for the vhost for each configured alias directive */
-    lztq_for_each(vcfg->aliases, add_vhost_name, htp_vhost);
+    g_slist_foreach(vcfg->aliases, add_vhost_name, htp_vhost);
 
     /* here we add a rule to rule them all. If no rules match, we want to be
      * able to shut the connection down so it doesn't consume any resources.
@@ -900,8 +848,6 @@ add_evhtp_vhost(lztq_elem* elem, gpointer arg)
         htp_vhost->ssl_cfg = htp->ssl_cfg;
         htp_vhost->arg     = htp->arg;
     }
-
-    return 0;
 } /* add_evhtp_vhost */
 
 static evhtp_t*
@@ -948,7 +894,7 @@ create_htp(evbase_t* evbase, server_cfg_t* server_cfg)
     /* for each vhost, create a child virtual host and stick it in our main
      * evhtp structure.
      */
-    lztq_for_each(server_cfg->vhosts, add_evhtp_vhost, htp);
+    g_slist_foreach(server_cfg->vhosts, add_evhtp_vhost, htp);
 
     struct timeval* tv_read  = NULL;
     /* if configured, set our upstream connection's read/write timeouts */
@@ -985,13 +931,12 @@ struct add_server_ctx {
     int num_threads;
 };
 
-static int
-add_server(lztq_elem* elem, gpointer arg)
+static void
+add_server(gpointer data, gpointer arg)
 {
-    NOISY_MSG_("(%p, %p)", elem, arg);
+    NOISY_MSG_("(%p, %p)", data, arg);
 
-    server_cfg_t* server_cfg = lztq_elem_data(elem);
-    g_assert(server_cfg != NULL);
+    server_cfg_t* server_cfg = data;
 
     g_info("Server %s(%s:%d)", server_cfg->name, server_cfg->bind_addr, server_cfg->bind_port);
 
@@ -1065,8 +1010,7 @@ add_server(lztq_elem* elem, gpointer arg)
     server_ctx->num_threads += server_cfg->num_threads;
 
     /* create a upstream_t instance for each configured upstream */
-    int res = lztq_for_each(server_cfg->upstreams, add_upstream, rproxy);
-    g_assert(res == 0);
+    g_slist_foreach(server_cfg->upstream_cfgs, add_upstream, rproxy);
 
     /* for each virtual server, iterate over each rule_cfg and create a
      * rule_t structure.
@@ -1079,20 +1023,17 @@ add_server(lztq_elem* elem, gpointer arg)
      * Each rule_t has a upstreams list containing pointers to
      * (already allocated) upstream_t structures.
      */
-    res = lztq_for_each(server_cfg->vhosts, add_vhost, rproxy);
-    g_assert(res == 0);
+    g_slist_foreach(server_cfg->vhosts, add_vhost, rproxy);
 
     server_cfg->m_arg = tpool_ctx;
-
-    return 0;
 }
 
-static int
-stop_server(lztq_elem* elem, gpointer arg)
+static void
+stop_server(gpointer data, gpointer arg)
 {
-    NOISY_MSG_("(%p, %p)", elem, arg);
+    NOISY_MSG_("(%p, %p)", data, arg);
 
-    server_cfg_t* server_cfg = lztq_elem_data(elem);
+    server_cfg_t* server_cfg = data;
     if (server_cfg->m_thr_pool)
     {
         evthr_pool_t* thr_pool = server_cfg->m_thr_pool;
@@ -1112,8 +1053,6 @@ stop_server(lztq_elem* elem, gpointer arg)
         g_atomic_rc_box_release(server_cfg->m_arg);
         server_cfg->m_arg = NULL;
     }
-
-    return 0;
 }
 
 // Main thread: Wait for all workers to initialize, then release barrier
@@ -1121,17 +1060,32 @@ static void
 wait_for_all_workers_initialized_and_signal(void)
 {
     NOISY_MSG_("()");
-    g_mutex_lock(&thread_starter_mutex);
+    g_mutex_lock(&thread_waiter_mutex);
     while (ready_workers < total_workers)
     {
         NOISY_MSG_("waiting for %d more workers (ready: %d/%d)",
                 total_workers - ready_workers, ready_workers, total_workers);
-        g_cond_wait(&thread_ready_cond, &thread_starter_mutex);
+        g_cond_wait(&thread_ready_cond, &thread_waiter_mutex);
     }
     NOISY_MSG_("%d workers initialized, starting! Releasing barrier.", total_workers);
     go_ahead = true;
     g_cond_broadcast(&thread_go_cond);  // Wake ALL waiting workers
-    g_mutex_unlock(&thread_starter_mutex);
+    g_mutex_unlock(&thread_waiter_mutex);
+}
+
+// Main thread: Wait for all workers to stop.
+static void
+wait_for_all_workers_stopped(void)
+{
+    NOISY_MSG_("()");
+    g_mutex_lock(&thread_waiter_mutex);
+    while (ready_workers)
+    {
+        NOISY_MSG_("waiting for %d more workers (ready: %d/%d)",
+                ready_workers, ready_workers, total_workers);
+        g_cond_wait(&thread_ready_cond, &thread_waiter_mutex);
+    }
+    g_mutex_unlock(&thread_waiter_mutex);
 }
 
 static bool
@@ -1143,8 +1097,6 @@ rproxy_init(rproxy_t* self, evbase_t* evbase, const rproxy_hooks_t* hooks, RpSer
     g_return_val_if_fail(evbase != NULL, false);
     g_return_val_if_fail(hooks != NULL, false);
     g_return_val_if_fail(RP_IS_THREAD_LOCAL_INSTANCE(tls), false);
-
-    g_traffic_stats = traffic_stats_ctor();
 
     add_server_ctx_t server_ctx = {
         .hooks = hooks,
@@ -1165,7 +1117,10 @@ rproxy_init(rproxy_t* self, evbase_t* evbase, const rproxy_hooks_t* hooks, RpSer
 
     rproxy_cfg_t* cfg = self->config;
     // Iterate over each server_cfg, and set up evhtp stuff.
-    lztq_for_each(cfg->servers, add_server, &server_ctx);
+    g_slist_foreach(cfg->servers, add_server, &server_ctx);
+
+    self->upstreams = g_slist_reverse(self->upstreams);
+    self->rules = g_slist_reverse(self->rules);
 
     total_workers = server_ctx.num_threads;
 
@@ -1189,7 +1144,7 @@ rproxy_exit(rproxy_t* self)
 
     // Iterate over each server_cfg, and tear down up evhtp stuff.
     rproxy_cfg_t* rproxy_cfg = self->config;
-    lztq_for_each(rproxy_cfg->servers, stop_server, NULL);
+    g_slist_foreach(rproxy_cfg->servers, stop_server, NULL);
 } /* rproxy_exit */
 
 static void
@@ -1273,9 +1228,11 @@ create_rp_instances(RpServerInstance* server, RpThreadLocalInstance* tls)
     // Create a global, default RpDefaultClientConnectionFactory instance.
     default_client_connection_factory = rp_default_client_connection_factory_new();
     // Create a global, default RpClusterFactory.
-    default_cluster_factory = RP_CLUSTER_FACTORY(rp_static_cluster_factory_new());
+    default_static_cluster_factory = RP_CLUSTER_FACTORY(rp_static_cluster_factory_new());
+    // Create a global, default RpStrictDnsClusterFactory.
+    default_strict_dns_cluster_factory = RP_CLUSTER_FACTORY(rp_strict_dns_cluster_factory_new());
     // Create a global, default dynamic RpClusterFactory.
-    default_dfp_factory = RP_CLUSTER_FACTORY(rp_dfp_cluster_factory_new());
+    default_dfp_cluster_factory = RP_CLUSTER_FACTORY(rp_dfp_cluster_factory_new());
     // Create a global, default upstream transport socket config factory.
     default_upstream_transport_socket_config_factory = RP_UPSTREAM_TRANSPORT_SOCKET_CONFIG_FACTORY(
                                                         rp_upstream_raw_buffer_socket_factory_new());
@@ -1286,14 +1243,15 @@ create_rp_instances(RpServerInstance* server, RpThreadLocalInstance* tls)
     RpSingletonManager* singleton_manager = singleton_manager_from_factory_context(factory_context);
     default_network_address_socket_interface_impl_factory = rp_network_address_socket_interface_impl_factory_new(singleton_manager);
     default_cluster_store_factory = rp_dfp_cluster_store_factory_new(singleton_manager);
+    default_cluster_provided_lb_factory = rp_cluster_provided_lb_factory_new();
 }
 
 static void
 clear_rp_instances(void)
 {
     NOISY_MSG_("()");
-    g_clear_object(&default_dfp_factory);
-    g_clear_object(&default_cluster_factory);
+    g_clear_object(&default_dfp_cluster_factory);
+    g_clear_object(&default_static_cluster_factory);
     g_clear_object(&default_conn_pool_factory);
     g_clear_object(&default_client_connection_factory);
     g_clear_object(&factory_context);
@@ -1301,6 +1259,7 @@ clear_rp_instances(void)
     g_clear_object(&default_downstream_transport_socket_config_factory);
     g_clear_object(&default_network_address_socket_interface_impl_factory);
     g_clear_object(&default_cluster_store_factory);
+    g_clear_object(&default_cluster_provided_lb_factory);
 }
 
 static void
@@ -1332,7 +1291,7 @@ rproxy_add_server_cfg(rproxy_t* rproxy, const char* server_cfg_buf)
         return false;
     }
 
-    IF_NOISY_(server_cfg_t* server_cfg = lztq_elem_data(lztq_last(rproxy_cfg->servers));)
+    IF_NOISY_(server_cfg_t* server_cfg = (g_slist_last(rproxy_cfg->servers))->data;)
     NOISY_MSG_("server cfg %p(%s)", server_cfg, server_cfg->name);
 
     return true;
@@ -1351,7 +1310,7 @@ rproxy_main(int argc, char** argv, const rproxy_hooks_t* hooks)
         return -1;
     }
 
-    g_mutex_init(&thread_starter_mutex);
+    g_mutex_init(&thread_waiter_mutex);
     g_cond_init(&thread_ready_cond);
     g_cond_init(&thread_go_cond);
 
@@ -1440,7 +1399,11 @@ rproxy_main(int argc, char** argv, const rproxy_hooks_t* hooks)
 
     evthr_free(main_thread);
 
-    g_mutex_clear(&thread_starter_mutex);
+NOISY_MSG_("waiting for workers to stop");
+    wait_for_all_workers_stopped();
+NOISY_MSG_("all workers to stopped");
+
+    g_mutex_clear(&thread_waiter_mutex);
     g_cond_clear(&thread_ready_cond);
     g_cond_clear(&thread_go_cond);
 

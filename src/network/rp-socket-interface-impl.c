@@ -57,7 +57,7 @@ ip_family_supported_i(RpNetworkAddressSocketInterface* self G_GNUC_UNUSED, int d
 }
 
 static RpIoHandlePtr
-socket_i(RpNetworkAddressSocketInterface* self, RpSocketType_e socket_type, RpAddressType_e addr_type, RpIpVersion_e version, bool socket_v6only)
+socket_i(RpNetworkAddressSocketInterface* self, RpSocketType_e socket_type, RpNetworkAddressType_e addr_type, RpIpVersion_e version, bool socket_v6only)
 {
     NOISY_MSG_("(%p, %d, %d, %d, %u)", self, socket_type, addr_type, version, socket_v6only);
     int protocol = 0;
@@ -73,7 +73,7 @@ socket_i(RpNetworkAddressSocketInterface* self, RpSocketType_e socket_type, RpAd
     }
 
     int domain;
-    if (addr_type == RpAddressType_IP)
+    if (addr_type == RpNetworkAddressType_IP)
     {
         if (version == RpIpVersion_v6 || rp_network_address_force_v6())
         {
@@ -84,7 +84,7 @@ socket_i(RpNetworkAddressSocketInterface* self, RpSocketType_e socket_type, RpAd
             domain = AF_INET;
         }
     }
-    else if (addr_type == RpAddressType_PIPE)
+    else if (addr_type == RpNetworkAddressType_PIPE)
     {
         domain = AF_UNIX;
     }
@@ -113,14 +113,14 @@ socket_2_i(RpNetworkAddressSocketInterface* self, RpSocketType_e socket_type, Rp
     NOISY_MSG_("(%p, %d, %p)", self, socket_type, addr);
     RpIpVersion_e ip_version = rp_network_address_instance_ip(addr) ? rp_network_address_instance_type(addr) : RpIpVersion_v4;
     int v6only = 0;
-    if (rp_network_address_instance_type(addr) == RpAddressType_IP && ip_version == RpIpVersion_v6)
+    if (rp_network_address_instance_type(addr) == RpNetworkAddressType_IP && ip_version == RpIpVersion_v6)
     {
         v6only = rp_network_address_ipv6_v6only(
                     rp_network_address_ip_ipv6((RpNetworkAddressIp*)
                         rp_network_address_instance_ip((RpNetworkAddressInstance*)addr)));
     }
     RpIoHandlePtr io_handle = socket_i(self, socket_type, rp_network_address_instance_type(addr), ip_version, v6only);
-    if (io_handle && rp_network_address_instance_type(addr) == RpAddressType_IP && ip_version == RpIpVersion_v6 && !rp_network_address_force_v6())
+    if (io_handle && rp_network_address_instance_type(addr) == RpNetworkAddressType_IP && ip_version == RpIpVersion_v6 && !rp_network_address_force_v6())
     {
         int result = setsockopt(rp_io_handle_sockfd(io_handle), IPPROTO_IPV6, IPV6_V6ONLY, &v6only, sizeof(v6only));
         if (result == -1)

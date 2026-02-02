@@ -56,7 +56,7 @@ choose_host_i(RpLoadBalancer* self, RpLoadBalancerContext* context)
     RpFilterState* filter_state = stream_info ? rp_stream_info_filter_state(stream_info) : NULL;
 
     const char* raw_host = NULL;
-    guint32 port = default_port;
+    guint16 port = default_port;
     if (filter_state)
     {
         NOISY_MSG_("getting host from filter state");
@@ -65,7 +65,7 @@ choose_host_i(RpLoadBalancer* self, RpLoadBalancerContext* context)
         gpointer dynamic_port_filter_state = rp_filter_state_get_data(filter_state, dynamic_port_key);
         if (dynamic_port_filter_state)
         {
-            port = *((guint32*)dynamic_port_filter_state);
+            port = *((guint16*)dynamic_port_filter_state);
         }
     }
     else if (rp_load_balancer_context_downstream_headers(context))
