@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_conn_pool_base_active_client_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_conn_pool_base_active_client_NOISY)
@@ -22,7 +19,7 @@ typedef struct _RpConnectionPoolActiveClientPrivate RpConnectionPoolActiveClient
 struct _RpConnectionPoolActiveClientPrivate {
 
     RpConnPoolImplBase* m_parent;
-    RpHostDescription* m_real_host_description;
+    RpHostDescriptionSharedPtr m_real_host_description;
 
     RpConnectionPoolActiveClientState_e m_state;
 
@@ -156,6 +153,8 @@ dispose(GObject* obj)
     NOISY_MSG_("(%p)", obj);
 
     RpConnectionPoolActiveClient* self = RP_CONNECTION_POOL_ACTIVE_CLIENT(obj);
+    RpConnectionPoolActiveClientPrivate* me = PRIV(self);
+    g_clear_object(&me->m_real_host_description);
     rp_connection_pool_active_client_release_resources_base(self);
 
     G_OBJECT_CLASS(rp_connection_pool_active_client_parent_class)->dispose(obj);
@@ -379,7 +378,7 @@ rp_connection_pool_active_client_set_state(RpConnectionPoolActiveClient* self,
     me->m_state = state;
 }
 
-RpHostDescription*
+RpHostDescriptionConstSharedPtr
 rp_connection_pool_active_client_get_real_host_description(RpConnectionPoolActiveClient* self)
 {
     LOGD("(%p)", self);
@@ -388,11 +387,11 @@ rp_connection_pool_active_client_get_real_host_description(RpConnectionPoolActiv
 }
 
 void
-rp_connection_pool_active_client_set_real_host_description(RpConnectionPoolActiveClient* self, RpHostDescription* host_desc)
+rp_connection_pool_active_client_set_real_host_description(RpConnectionPoolActiveClient* self, RpHostDescriptionConstSharedPtr host_desc)
 {
     LOGD("(%p, %p)", self, host_desc);
     g_return_if_fail(RP_IS_CONNECTION_POOL_ACTIVE_CLIENT(self));
-    PRIV(self)->m_real_host_description = host_desc;
+    rp_host_description_set_object(&PRIV(self)->m_real_host_description, host_desc);
 }
 
 guint32

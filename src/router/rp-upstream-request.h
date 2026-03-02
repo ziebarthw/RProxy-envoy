@@ -47,7 +47,11 @@ typedef struct _RpRouterFilterInterface RpRouterFilterInterface;
 #define RP_TYPE_UPSTREAM_REQUEST rp_upstream_request_get_type()
 G_DECLARE_FINAL_TYPE(RpUpstreamRequest, rp_upstream_request, RP, UPSTREAM_REQUEST, GObject)
 
-RpUpstreamRequest* rp_upstream_request_new(RpRouterFilterInterface* parent, RpGenericConnPool* conn_pool, bool can_send_early_data, bool can_use_http3, bool enable_half_close);
+RpUpstreamRequest* rp_upstream_request_new(RpRouterFilterInterface* parent,
+                                            RpGenericConnPool* conn_pool,
+                                            bool can_send_early_data,
+                                            bool can_use_http3,
+                                            bool enable_half_close);
 void rp_upstream_request_reset_stream(RpUpstreamRequest* self);
 void rp_upstream_request_accept_headers_from_router(RpUpstreamRequest* self,
                                                     bool end_stream);
@@ -69,7 +73,7 @@ void rp_upstream_request_accept_trailers_from_router(RpUpstreamRequest* self,
                                                         evhtp_headers_t* trailers);
 RpStreamInfo* rp_upstream_request_stream_info(RpUpstreamRequest* self);
 void rp_upstream_request_on_upstream_host_selected(RpUpstreamRequest* self,
-                                                    RpHostDescription* host,
+                                                    RpHostDescriptionConstSharedPtr host,
                                                     bool pool_success);
 void rp_upstream_request_clear_request_encoder(RpUpstreamRequest* self);
 bool rp_upstream_request_encode_complete(RpUpstreamRequest* self);

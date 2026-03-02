@@ -28,6 +28,6 @@ RpTcpPoolData* rp_tcp_pool_data_new(RpOnNewConnectionFn on_new_connection,
                                     RpTcpConnPoolInstance* pool);
 RpCancellable* rp_tcp_pool_data_new_connection(RpTcpPoolData* self,
                                                 RpTcpConnPoolCallbacks* callbacks);
-RpHostDescription* rp_tcp_pool_data_host(RpTcpPoolData* self);
+RpHostDescriptionConstSharedPtr rp_tcp_pool_data_host(RpTcpPoolData* self);
 
 G_END_DECLS

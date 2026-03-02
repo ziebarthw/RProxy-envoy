@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_http_rewrite_upstream_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_http_rewrite_upstream_NOISY)
@@ -71,10 +68,9 @@ ensure_output_buffer(RpHttpRewriteUpstream* self)
 }
 
 static void
-on_destroy_i(RpStreamFilterBase* self)
+on_destroy_i(RpStreamFilterBase* self G_GNUC_UNUSED)
 {
-    NOISY_MSG_("(%p)", self);
-    g_object_unref(self);
+    NOISY_MSG_("(%p) ref count %u", self, G_OBJECT(self)->ref_count);
 }
 
 static void

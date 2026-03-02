@@ -101,8 +101,8 @@ constructed(GObject* obj)
 
     RpPendingStreamPrivate* me = PRIV(obj);
     //TODO...
-    RpHostPtr host = rp_conn_pool_impl_base_host(me->m_parent);
-    RpClusterInfoConstSharedPtr cluster_info = rp_host_description_cluster(RP_HOST_DESCRIPTION(host));
+    RpHost* host = rp_conn_pool_impl_base_host(me->m_parent);
+    RpClusterInfoConstSharedPtr cluster_info = rp_host_description_cluster((RpHostDescriptionConstSharedPtr)host);
     RpResourcePriority_e priority = rp_conn_pool_impl_base_priority(me->m_parent);
     RpResourceManager* resource_manager = rp_cluster_info_resource_manager(cluster_info, priority);
     RpResourceLimit* pending_requests = rp_resource_manager_pending_requests(resource_manager);

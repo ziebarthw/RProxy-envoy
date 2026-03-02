@@ -9,6 +9,7 @@
 
 #include <stdbool.h>
 #include <glib-object.h>
+#include "common/common/rp-callback-impl.h"
 #include "rp-factory-context.h"
 #include "rp-local-info.h"
 #include "rp-upstream.h"
@@ -68,21 +69,13 @@ struct _RpHostDescriptionImplClass {
 #define RP_TYPE_HOST_IMPL rp_host_impl_get_type()
 G_DECLARE_FINAL_TYPE(RpHostImpl, rp_host_impl, RP, HOST_IMPL, RpHostDescriptionImpl)
 
-#if 0
-RpHostImpl* rp_host_impl_new(RpClusterInfoConstSharedPtr cluster,
-                                RpUpstreamTransportSocketFactory* socket_factory,
+RpHostImpl* rp_host_impl_create(RpClusterInfoConstSharedPtr cluster,
                                 const char* hostname,
-                                struct sockaddr* address,
+                                RpNetworkAddressInstanceConstSharedPtr address,
+                                RpMetadataConstSharedPtr endpoint_metadata,
                                 guint32 initial_weight,
-                                bool disable_health_check);
-#endif//0
-UNIQUE_PTR(RpHostImpl) rp_host_impl_create(RpClusterInfoConstSharedPtr cluster,
-                                            const char* hostname,
-                                            RpNetworkAddressInstanceConstSharedPtr address,
-                                            RpMetadataConstSharedPtr endpoint_metadata,
-                                            guint32 initial_weight,
-                                            guint32 priority,
-                                            RpTimeSource* time_source);
+                                guint32 priority,
+                                RpTimeSource* time_source);
 
 
 /**
@@ -94,18 +87,33 @@ G_DECLARE_DERIVABLE_TYPE(RpHostSetImpl, rp_host_set_impl, RP, HOST_SET_IMPL, GOb
 struct _RpHostSetImplClass {
     GObjectClass parent_class;
 
-    RpStatusCode_e (*run_update_callbacks)(RpHostSetImpl*, RpHostVector*, RpHostVector*);
+    RpStatusCode_e (*run_update_callbacks)(RpHostSetImpl*,
+                                            const RpHostVector*,
+                                            const RpHostVector*);
 };
 
 typedef UNIQUE_PTR(RpHostSetImpl) RpHostSetImplPtr;
 
 static inline RpStatusCode_e
-rp_host_set_impl_run_update_callbacks(RpHostSetImpl* self, RpHostVector* hosts_added, RpHostVector* hosts_removed)
+rp_host_set_impl_run_update_callbacks(RpHostSetImpl* self, const RpHostVector* hosts_added, const RpHostVector* hosts_removed)
 {
     return RP_IS_HOST_SET_IMPL(self) ?
         RP_HOST_SET_IMPL_GET_CLASS(self)->run_update_callbacks(self, hosts_added, hosts_removed) :
         RpStatusCode_Ok;
 }
+RpCallbackHandlePtr rp_host_set_impl_add_priority_update_cb(RpHostSetImpl* self, RpPrioritySetPriorityUpdateCb cb, gpointer arg);
+RpPrioritySetUpdateHostsParams rp_host_set_impl_partition_hosts_take(RpHostVector** hosts);
+void rp_host_set_impl_update_hosts(RpHostSetImpl* self,
+                                    RpPrioritySetUpdateHostsParams* params,
+                                    const RpHostVector* hosts_added,
+                                    const RpHostVector* hosts_removed,
+                                    bool* weighted_priority_health_opt,
+                                    guint32* overprovisioning_factor_opt);
+RpPrioritySetUpdateHostsParams rp_host_set_impl_update_hosts_params(RpHostVector* hosts,
+                                                                    RpHostVector* healthy_hosts,
+                                                                    RpHostVector* degraded_hosts,
+                                                                    RpHostVector* excluded_hosts);
+RpPrioritySetUpdateHostsParams rp_host_set_impl_update_hosts_params_2(RpHostSetImpl* self);
 
 
 /**
@@ -118,8 +126,8 @@ struct _RpPrioritySetImplClass {
     GObjectClass parent_class;
 
     RpHostSetImplPtr (*create_host_set)(RpPrioritySetImpl*, guint32);
-    RpStatusCode_e (*run_update_callbacks)(RpPrioritySetImpl*, RpHostVector*, RpHostVector*);
-    RpStatusCode_e (*run_reference_update_callbacks)(RpPrioritySetImpl*, guint32, RpHostVector*, RpHostVector*);
+    RpStatusCode_e (*run_update_callbacks)(RpPrioritySetImpl*, const RpHostVector*, const RpHostVector*);
+    RpStatusCode_e (*run_reference_update_callbacks)(RpPrioritySetImpl*, guint32, const RpHostVector*, const RpHostVector*);
 };
 
 static inline RpHostSetImplPtr
@@ -130,14 +138,15 @@ rp_priority_set_impl_create_host_set(RpPrioritySetImpl* self, guint32 priority)
         NULL;
 }
 static inline RpStatusCode_e
-rp_priority_set_impl_run_update_callbacks(RpPrioritySetImpl* self, RpHostVector* hosts_added, RpHostVector* hosts_removed)
+rp_priority_set_impl_run_update_callbacks(RpPrioritySetImpl* self, const RpHostVector* hosts_added, const RpHostVector* hosts_removed)
 {
     return RP_IS_PRIORITY_SET_IMPL(self) ?
         RP_PRIORITY_SET_IMPL_GET_CLASS(self)->run_update_callbacks(self, hosts_added, hosts_removed) :
         RpStatusCode_Ok;
 }
 static inline RpStatusCode_e
-rp_priority_set_impl_run_reference_update_callbacks(RpPrioritySetImpl* self, guint32 priority, RpHostVector* hosts_added, RpHostVector* hosts_removed)
+rp_priority_set_impl_run_reference_update_callbacks(RpPrioritySetImpl* self, guint32 priority,
+                                                    const RpHostVector* hosts_added, const RpHostVector* hosts_removed)
 {
     return RP_IS_PRIORITY_SET_IMPL(self) ?
         RP_PRIORITY_SET_IMPL_GET_CLASS(self)->run_reference_update_callbacks(self, priority, hosts_added, hosts_removed) :
@@ -147,7 +156,7 @@ rp_priority_set_impl_run_reference_update_callbacks(RpPrioritySetImpl* self, gui
 RpPrioritySetImpl* rp_priority_set_impl_new(void);
 const RpHostSet* rp_priority_set_impl_get_or_create_host_set(RpPrioritySetImpl* self,
                                                                 guint32 priority);
-RpHostMap** rp_priority_set_impl_const_cross_priority_host_map_(RpPrioritySetImpl* self);
+RpHostMapSnap** rp_priority_set_impl_const_cross_priority_host_map_(RpPrioritySetImpl* self);
 
 
 /**
@@ -190,6 +199,15 @@ const RpClusterCfg* rp_cluster_impl_base_config_(RpClusterImplBase* self);
 RpTimeSource* rp_cluster_impl_base_time_source_(RpClusterImplBase* self);
 bool rp_cluster_impl_base_wait_for_warm_on_init_(RpClusterImplBase* self);
 
+typedef struct _RpPartitionedHostListTuple RpPartitionedHostListTuple;
+struct _RpPartitionedHostListTuple {
+    RpHostVector* healthy_list;
+    RpHostVector* degraded_list;
+    RpHostVector* excluded_list;
+};
+
+RpPartitionedHostListTuple rp_cluster_impl_base_partition_host_list(const RpHostVector* hosts);
+
 
 /**
  * Manages PriorityState of a cluster. PriorityState is a per-priority binding of a set of hosts
@@ -202,7 +220,8 @@ G_DECLARE_FINAL_TYPE(RpPriorityStateManager, rp_priority_state_manager, RP, PRIO
 typedef UNIQUE_PTR(RpPriorityStateManager) RpPriorityStateManagerPtr;
 
 RpPriorityStateManager* rp_priority_state_manager_new(RpClusterImplBase* cluster,
-                                                        const RpLocalInfo* local_info/*,TODO...HostUpdateCb update_cb*/);
+                                                        const RpLocalInfo* local_info,
+                                                        RpPrioritySetHostUpdateCb* update_cb);
 void rp_priority_state_manager_initialize_priority_for(RpPriorityStateManager* self,
                                                         const RpLocalityLbEndpointsCfg* locality_lb_endpoint);
 void rp_priority_state_manager_register_host_for_priority(RpPriorityStateManager* self,
@@ -211,9 +230,16 @@ void rp_priority_state_manager_register_host_for_priority(RpPriorityStateManager
                                                             const RpLbEndpointCfg* lb_endpoint,
                                                             RpTimeSource* time_source);
 void rp_priority_state_manager_register_host_for_priority_2(RpPriorityStateManager* self,
-                                                            const RpHostSharedPtr host,
+                                                            RpHost* host,
                                                             const RpLocalityLbEndpointsCfg* locality_lb_endpoint);
-RpPriorityState rp_priority_state_manager_priority_state(RpPriorityStateManager* self);
+RpPriorityStatePtr rp_priority_state_manager_priority_state(RpPriorityStateManager* self);
+void rp_priority_state_manager_update_cluster_priority_set(RpPriorityStateManager* self,
+                                                            guint32 priority,
+                                                            RpHostVector** current_hosts,
+                                                            const RpHostVector* hosts_added,
+                                                            const RpHostVector* hosts_removed,
+                                                            bool* weighted_priority_health,
+                                                            guint32* overprovisioning_factor);
 
 
 /**

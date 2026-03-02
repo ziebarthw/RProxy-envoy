@@ -27,10 +27,10 @@ struct _RpConnPoolMapClass {
     GObjectClass parent_class;
 
     UNIQUE_PTR(RpHttpConnectionPoolInstance) (*get_pool)(RpConnPoolMap*,
-                                                        gconstpointer,
+                                                        GBytes*,
                                                         const RpPoolFactory,
-                                                        gconstpointer);
-    bool (*erase_pool)(RpConnPoolMap*, gconstpointer);
+                                                        gpointer);
+    bool (*erase_pool)(RpConnPoolMap*, GBytes*);
     gsize (*size)(RpConnPoolMap*);
     bool (*empty)(RpConnPoolMap*);
     void (*clear)(RpConnPoolMap*);
@@ -41,13 +41,13 @@ struct _RpConnPoolMapClass {
 };
 
 static inline UNIQUE_PTR(RpHttpConnectionPoolInstance)
-rp_conn_pool_map_get_pool(RpConnPoolMap* self, gconstpointer key, const RpPoolFactory factory, gconstpointer user_data)
+rp_conn_pool_map_get_pool(RpConnPoolMap* self, GBytes* key, const RpPoolFactory factory, gpointer user_data)
 {
     return RP_IS_CONN_POOL_MAP(self) ?
         RP_CONN_POOL_MAP_GET_CLASS(self)->get_pool(self, key, factory, user_data) : NULL;
 }
 static inline bool
-rp_conn_pool_map_erase_pool(RpConnPoolMap* self, gconstpointer key)
+rp_conn_pool_map_erase_pool(RpConnPoolMap* self, GBytes* key)
 {
     return RP_IS_CONN_POOL_MAP(self) ?
         RP_CONN_POOL_MAP_GET_CLASS(self)->erase_pool(self, key) : false;

@@ -22,9 +22,9 @@
 
 typedef struct _RpSocketImplPrivate RpSocketImplPrivate;
 struct _RpSocketImplPrivate {
-    UNIQUE_PTR(RpIoHandle) m_io_handle;
-    RpNetworkAddressInstanceConstSharedPtr m_local_address;
-    RpNetworkAddressInstanceConstSharedPtr m_remote_address;
+    RpIoHandle* m_io_handle;
+    RpNetworkAddressInstanceSharedPtr m_local_address;
+    RpNetworkAddressInstanceSharedPtr m_remote_address;
     RpConnectionInfoSetterImpl* m_connection_info_provider;
 };
 
@@ -90,7 +90,8 @@ connect_i(RpSocket* self, RpNetworkAddressInstanceConstSharedPtr address)
     RpSocketImplPrivate* me = PRIV(self);
     RpSysCallIntResult result = rp_io_handle_connect(me->m_io_handle, address);
     RpConnectionInfoSetter* info_provider = RP_CONNECTION_INFO_SETTER(me->m_connection_info_provider);
-    rp_connection_info_setter_set_local_address(info_provider, rp_io_handle_local_address(me->m_io_handle));
+    rp_network_address_instance_set_object(&me->m_local_address, rp_io_handle_local_address(me->m_io_handle));
+    rp_connection_info_setter_set_local_address(info_provider, me->m_local_address);
     return result;
 }
 
@@ -144,13 +145,10 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
             PRIV(obj)->m_io_handle = g_value_get_object(value);
             break;
         case PROP_LOCAL_ADDRESS:
-        {
-            RpNetworkAddressInstanceConstSharedPtr local_address = g_value_get_object(value);
-            if (local_address) PRIV(obj)->m_local_address = g_object_ref(local_address);
+            rp_network_address_instance_set_object(&PRIV(obj)->m_local_address, g_value_get_object(value));
             break;
-        }
         case PROP_REMOTE_ADDRESS:
-            PRIV(obj)->m_remote_address =  g_object_ref(g_value_get_object(value));
+            rp_network_address_instance_set_object(&PRIV(obj)->m_remote_address, g_value_get_object(value));
             break;
         default:
             G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
@@ -166,8 +164,8 @@ constructed(GObject* obj)
     G_OBJECT_CLASS(rp_socket_impl_parent_class)->constructed(obj);
 
     RpSocketImplPrivate* me = PRIV(obj);
-    me->m_connection_info_provider = rp_connection_info_setter_impl_new(g_steal_pointer(&me->m_local_address),
-                                                                        g_steal_pointer(&me->m_remote_address));
+    me->m_connection_info_provider =
+        rp_connection_info_setter_impl_new(me->m_local_address, me->m_remote_address);
 }
 
 OVERRIDE void

@@ -17,17 +17,12 @@
 #include "network/rp-address-impl.h"
 
 #define PARENT_ADDRESS_INSTANCE_IFACE(s) \
-    ((RpNetworkAddressInstanceInterface*)g_type_interface_peek_parent(RP_NETWORK_ADDRESS_INSTANCE_GET_IFACE(s)))
+    ((RpNetworkAddressInstanceInterface*)g_type_interface_peek_parent(RP_NETWORK_ADDRESS_INSTANCE_GET_IFACE((GObject*)s)))
 
 typedef struct _RpNetworkAddressIpv4Helper RpNetworkAddressIpv4Helper;
 struct _RpNetworkAddressIpv4Helper {
     struct sockaddr_in m_address;
 };
-static inline guint32
-rp_ipv4_helper_address(RpNetworkAddressIpv4Helper* self)
-{
-    return self->m_address.sin_addr.s_addr;
-}
 
 typedef struct _RpNetworkAddressIpHelper RpNetworkAddressIpHelper;
 struct _RpNetworkAddressIpHelper {
@@ -149,70 +144,70 @@ network_address_ip_iface_init(RpNetworkAddressIpInterface* iface)
 }
 
 static RpNetworkAddressIp*
-ip_i(RpNetworkAddressInstance* self)
+ip_i(RpNetworkAddressInstanceConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
-    return RP_NETWORK_ADDRESS_IP(self);
+    return RP_NETWORK_ADDRESS_IP((GObject*)self);
 }
 
 static RpNetworkAddressPipe*
-pipe_i(RpNetworkAddressInstance* self G_GNUC_UNUSED)
+pipe_i(RpNetworkAddressInstanceConstSharedPtr self G_GNUC_UNUSED)
 {
     NOISY_MSG_("(%p)", self);
     return NULL;
 }
 
 static RpNetworkAddressRProxyInternalAddress*
-rproxy_internal_address_i(RpNetworkAddressInstance* self G_GNUC_UNUSED)
+rproxy_internal_address_i(RpNetworkAddressInstanceConstSharedPtr self G_GNUC_UNUSED)
 {
     NOISY_MSG_("(%p)", self);
     return NULL;
 }
 
 static const struct sockaddr*
-sock_addr_i(RpNetworkAddressInstance* self)
+sock_addr_i(RpNetworkAddressInstanceConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
-    return (const struct sockaddr*)&RP_NETWORK_ADDRESS_IPV4_INSTANCE(self)->m_ip.m_ipv4.m_address;
+    return (const struct sockaddr*)&RP_NETWORK_ADDRESS_IPV4_INSTANCE((GObject*)self)->m_ip.m_ipv4.m_address;
 }
 
 static socklen_t
-sock_addr_len_i(RpNetworkAddressInstance* self G_GNUC_UNUSED)
+sock_addr_len_i(RpNetworkAddressInstanceConstSharedPtr self G_GNUC_UNUSED)
 {
     NOISY_MSG_("(%p)", self);
     return sizeof(struct sockaddr_in);
 }
 
 static string_view
-address_type_i(RpNetworkAddressInstance* self G_GNUC_UNUSED)
+address_type_i(RpNetworkAddressInstanceConstSharedPtr self G_GNUC_UNUSED)
 {
     NOISY_MSG_("(%p)", self);
     return string_view_ctor("default", 7);
 }
 
 static const char*
-as_string_i(RpNetworkAddressInstance* self)
+as_string_i(RpNetworkAddressInstanceConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
     return PARENT_ADDRESS_INSTANCE_IFACE(self)->as_string(self);
 }
 
 static string_view
-as_string_view_i(RpNetworkAddressInstance* self)
+as_string_view_i(RpNetworkAddressInstanceConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
     return PARENT_ADDRESS_INSTANCE_IFACE(self)->as_string_view(self);
 }
 
 static const char*
-logical_name_i(RpNetworkAddressInstance* self)
+logical_name_i(RpNetworkAddressInstanceConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
     return PARENT_ADDRESS_INSTANCE_IFACE(self)->logical_name(self);
 }
 
 static RpNetworkAddressSocketInterface*
-socket_interface_i(RpNetworkAddressInstance* self)
+socket_interface_i(RpNetworkAddressInstanceConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
     return PARENT_ADDRESS_INSTANCE_IFACE(self)->socket_interface(self);

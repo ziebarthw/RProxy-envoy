@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_resource_manager_impl_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_resource_manager_impl_NOISY)
@@ -16,12 +13,9 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
-#ifndef OVERRIDE
-#define OVERRIDE static
-#endif
-
 #include <stdio.h>
 #include <inttypes.h>
+#include "rproxy.h"
 #include "upstream/rp-managed-resource-impl.h"
 #include "upstream/rp-resource-manager-impl.h"
 
@@ -33,7 +27,8 @@ struct _RpResourceManagerImpl {
     RpManagedResourceImpl* m_requests;
     RpManagedResourceImpl* m_connection_pools;
 
-    const char* m_runtime_key;
+    char* m_runtime_key;
+
     guint64 m_max_connections;
     guint64 m_max_pending_requests;
     guint64 m_max_requests;
@@ -149,7 +144,7 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
     switch (prop_id)
     {
         case PROP_RUNTIME_KEY:
-            RP_RESOURCE_MANAGER_IMPL(obj)->m_runtime_key = g_value_get_string(value);
+            RP_RESOURCE_MANAGER_IMPL(obj)->m_runtime_key = g_strdup(g_value_get_string(value));
             break;
         case PROP_MAX_CONNECTION_POOLS:
             RP_RESOURCE_MANAGER_IMPL(obj)->m_max_connection_pools = g_value_get_uint64(value);
@@ -208,6 +203,7 @@ dispose(GObject* obj)
     g_clear_object(&self->m_connections);
     g_clear_object(&self->m_pending_requests);
     g_clear_object(&self->m_requests);
+    g_clear_pointer(&self->m_runtime_key, g_free);
 
     G_OBJECT_CLASS(rp_resource_manager_impl_parent_class)->dispose(obj);
 }

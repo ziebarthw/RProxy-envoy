@@ -10,6 +10,7 @@
 #include <stdbool.h>
 #include <glib-object.h>
 #include <evhtp.h>
+#include "rp-host-description.h"
 #include "rp-net-connection.h"
 
 G_BEGIN_DECLS
@@ -90,6 +91,8 @@ struct _RpNetworkWriteFilterInterface {
                                                 RpNetworkWriteFilterCallbacks*);
 };
 
+typedef SHARED_PTR(RpNetworkWriteFilter) RpNetworkWriteFilterSharedPtr;
+
 static inline RpNetworkFilterStatus_e
 rp_network_write_filter_on_write(RpNetworkWriteFilter* self, evbuf_t* data, bool end_stream)
 {
@@ -121,8 +124,8 @@ struct _RpNetworkReadFilterCallbacksInterface {
     void (*inject_read_data_to_filter_chain)(RpNetworkReadFilterCallbacks*,
                                                 evbuf_t*,
                                                 bool);
-    //TODO...virtual Upstream::HostDescriptionConstSharedPtr upstreamHost();
-    //TODO...virtual void upstreamHost(Upstream::HostDescriptionConstSharedPtr host);
+    RpHostDescriptionConstSharedPtr (*upstream_host)(RpNetworkReadFilterCallbacks*);
+    void (*set_upstream_host)(RpNetworkReadFilterCallbacks*, RpHostDescriptionConstSharedPtr);
     void (*start_upstream_secure_transport)(RpNetworkReadFilterCallbacks*);
 };
 
@@ -143,6 +146,19 @@ rp_network_read_filter_callbacks_inject_read_data_to_filter_chain(RpNetworkReadF
     {
         RP_NETWORK_READ_FILTER_CALLBACKS_GET_IFACE(self)->inject_read_data_to_filter_chain(self, data, end_stream);
     }
+}
+static inline RpHostDescriptionConstSharedPtr
+rp_network_read_filter_callbacks_upstream_host(RpNetworkReadFilterCallbacks* self)
+{
+    return RP_IS_NETWORK_READ_FILTER_CALLBACKS(self) ?
+        RP_NETWORK_READ_FILTER_CALLBACKS_GET_IFACE(self)->upstream_host(self) :
+        NULL;
+}
+static inline void
+rp_network_read_filter_callbacks_set_upstream_host(RpNetworkReadFilterCallbacks* self, RpHostDescriptionConstSharedPtr host)
+{
+    if (RP_IS_NETWORK_READ_FILTER_CALLBACKS(self)) \
+        RP_NETWORK_READ_FILTER_CALLBACKS_GET_IFACE(self)->set_upstream_host(self, host);
 }
 static inline void
 rp_network_read_filter_callbacks_start_upstream_secure_transport(RpNetworkReadFilterCallbacks* self)
@@ -169,6 +185,8 @@ struct _RpNetworkReadFilterInterface {
                                                 RpNetworkReadFilterCallbacks*);
     bool (*start_upstream_secure_transport)(RpNetworkReadFilter*);
 };
+
+typedef SHARED_PTR(RpNetworkReadFilter) RpNetworkReadFilterSharedPtr;
 
 static inline RpNetworkFilterStatus_e
 rp_network_read_filter_on_data(RpNetworkReadFilter* self, evbuf_t* data, bool end_stream)
@@ -218,15 +236,15 @@ G_DECLARE_INTERFACE(RpNetworkFilterManager, rp_network_filter_manager, RP, NETWO
 struct _RpNetworkFilterManagerInterface {
     GTypeInterface parent_iface;
 
-    void (*add_write_filter)(RpNetworkFilterManager*, RpNetworkWriteFilter*);
+    void (*add_write_filter)(RpNetworkFilterManager*, RpNetworkWriteFilterSharedPtr);
     //TODO...virtual void addFilter(FilterSharedPtr filter);
-    void (*add_read_filter)(RpNetworkFilterManager*, RpNetworkReadFilter*);
-    void (*remove_read_filter)(RpNetworkFilterManager*, RpNetworkReadFilter*);
+    void (*add_read_filter)(RpNetworkFilterManager*, RpNetworkReadFilterSharedPtr);
+    void (*remove_read_filter)(RpNetworkFilterManager*, RpNetworkReadFilterSharedPtr);
     bool (*initialize_read_filters)(RpNetworkFilterManager*);
 };
 
 static inline void
-rp_network_filter_manager_add_write_filter(RpNetworkFilterManager* self, RpNetworkWriteFilter* filter)
+rp_network_filter_manager_add_write_filter(RpNetworkFilterManager* self, RpNetworkWriteFilterSharedPtr filter)
 {
     if (RP_IS_NETWORK_FILTER_MANAGER(self))
     {
@@ -234,7 +252,7 @@ rp_network_filter_manager_add_write_filter(RpNetworkFilterManager* self, RpNetwo
     }
 }
 static inline void
-rp_network_filter_manager_add_read_filter(RpNetworkFilterManager* self, RpNetworkReadFilter* filter)
+rp_network_filter_manager_add_read_filter(RpNetworkFilterManager* self, RpNetworkReadFilterSharedPtr filter)
 {
     if (RP_IS_NETWORK_FILTER_MANAGER(self))
     {
@@ -242,7 +260,7 @@ rp_network_filter_manager_add_read_filter(RpNetworkFilterManager* self, RpNetwor
     }
 }
 static inline void
-rp_network_filter_manager_remove_read_filter(RpNetworkFilterManager* self, RpNetworkReadFilter* filter)
+rp_network_filter_manager_remove_read_filter(RpNetworkFilterManager* self, RpNetworkReadFilterSharedPtr filter)
 {
     if (RP_IS_NETWORK_FILTER_MANAGER(self))
     {

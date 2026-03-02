@@ -29,13 +29,6 @@ dispose(GObject* obj)
     G_OBJECT_CLASS(rp_dfp_cluster_factory_parent_class)->dispose(obj);
 }
 
-static inline RpSingletonManager*
-singleton_manager_from_cluster_factory_context(RpClusterFactoryContext* context)
-{
-    return rp_common_factory_context_singleton_manager(RP_COMMON_FACTORY_CONTEXT(
-               rp_cluster_factory_context_server_factory_context(context)));
-}
-
 #if 0
 OVERRIDE gpointer
 create_empty_config_proto(RpConfigurableClusterFactoryBase* self G_GNUC_UNUSED)

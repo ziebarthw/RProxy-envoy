@@ -15,13 +15,15 @@
 
 #include "stream_info/rp-upstream-info-impl.h"
 
+#define UPSTREAM_INFO_IMPL(s) RP_UPSTREAM_INFO_IMPL((GObject*)s)
+
 struct _RpUpstreamInfoImpl {
     GObject parent_instance;
 
-    RpHostDescription* m_upstream_host;
+    RpHostDescriptionSharedPtr m_upstream_host;
 
-    RpNetworkAddressInstanceConstSharedPtr m_upstream_local_address;
-    RpNetworkAddressInstanceConstSharedPtr m_upstream_remote_address;
+    RpNetworkAddressInstanceSharedPtr m_upstream_local_address;
+    RpNetworkAddressInstanceSharedPtr m_upstream_remote_address;
 
     const char* m_upstream_connection_interface_name;
     const char* m_upstream_transport_failure_reason;
@@ -46,151 +48,149 @@ static void
 set_upstream_connection_id_i(RpUpstreamInfo* self, guint64 id)
 {
     NOISY_MSG_("(%p, %zu)", self, id);
-    RP_UPSTREAM_INFO_IMPL(self)->m_upstream_connection_id = id;
+    UPSTREAM_INFO_IMPL(self)->m_upstream_connection_id = id;
 }
 
 static void
 set_upstream_filter_state_i(RpUpstreamInfo* self, RpFilterState* filter_state)
 {
     NOISY_MSG_("(%p, %p)", self, filter_state);
-    RP_UPSTREAM_INFO_IMPL(self)->m_upstream_filter_state = filter_state;
+    UPSTREAM_INFO_IMPL(self)->m_upstream_filter_state = filter_state;
 }
 
 static void
-set_upstream_host_i(RpUpstreamInfo* self, RpHostDescription* host)
+set_upstream_host_i(RpUpstreamInfo* self, RpHostDescriptionConstSharedPtr host)
 {
     NOISY_MSG_("(%p, %p)", self, host);
-    RP_UPSTREAM_INFO_IMPL(self)->m_upstream_host = host;
+    rp_host_description_set_object(&UPSTREAM_INFO_IMPL(self)->m_upstream_host, host);
 }
 
 static void
 set_upstream_interface_name_i(RpUpstreamInfo* self, const char* interface_name)
 {
     NOISY_MSG_("(%p, %p(%s))", self, interface_name, interface_name);
-    RP_UPSTREAM_INFO_IMPL(self)->m_upstream_connection_interface_name = interface_name;
+    UPSTREAM_INFO_IMPL(self)->m_upstream_connection_interface_name = interface_name;
 }
 
 static void
 set_upstream_local_address_i(RpUpstreamInfo* self, RpNetworkAddressInstanceConstSharedPtr local_address)
 {
     NOISY_MSG_("(%p, %p)", self, local_address);
-    RpUpstreamInfoImpl* me = RP_UPSTREAM_INFO_IMPL(self);
-    g_clear_object(&me->m_upstream_local_address);
-    if (local_address) me->m_upstream_local_address = g_object_ref(local_address);
+    RpUpstreamInfoImpl* me = UPSTREAM_INFO_IMPL(self);
+    rp_network_address_instance_set_object(&me->m_upstream_local_address, local_address);
 }
 
 static void
 set_upstream_num_streams_i(RpUpstreamInfo* self, gint64 num_streams)
 {
     NOISY_MSG_("(%p, %zu)", self, num_streams);
-    RP_UPSTREAM_INFO_IMPL(self)->m_num_streams = num_streams;
+    UPSTREAM_INFO_IMPL(self)->m_num_streams = num_streams;
 }
 
 static void
 set_upstream_protocol_i(RpUpstreamInfo* self, evhtp_proto protocol)
 {
     NOISY_MSG_("(%p, %d)", self, protocol);
-    RP_UPSTREAM_INFO_IMPL(self)->m_upstream_protocol = protocol;
+    UPSTREAM_INFO_IMPL(self)->m_upstream_protocol = protocol;
 }
 
 static void
 set_upstream_remote_address_i(RpUpstreamInfo* self, RpNetworkAddressInstanceConstSharedPtr remote_address)
 {
     NOISY_MSG_("(%p, %p)", self, remote_address);
-    RpUpstreamInfoImpl* me = RP_UPSTREAM_INFO_IMPL(self);
-    g_clear_object(&me->m_upstream_remote_address);
-    if (remote_address) me->m_upstream_remote_address = g_object_ref(remote_address);
+    RpUpstreamInfoImpl* me = UPSTREAM_INFO_IMPL(self);
+    rp_network_address_instance_set_object(&me->m_upstream_remote_address, remote_address);
 }
 
 static void
 set_upstream_ssl_connection_i(RpUpstreamInfo* self, RpSslConnectionInfo* ssl_connection_info)
 {
     NOISY_MSG_("(%p, %p)", self, ssl_connection_info);
-    RP_UPSTREAM_INFO_IMPL(self)->m_upstream_ssl_info = ssl_connection_info;
+    UPSTREAM_INFO_IMPL(self)->m_upstream_ssl_info = ssl_connection_info;
 }
 
 static void
 set_upstream_transport_failure_reason_i(RpUpstreamInfo* self, const char* failure_reason)
 {
     NOISY_MSG_("(%p, %p(%s))", self, failure_reason, failure_reason);
-    RP_UPSTREAM_INFO_IMPL(self)->m_upstream_transport_failure_reason = failure_reason;
+    UPSTREAM_INFO_IMPL(self)->m_upstream_transport_failure_reason = failure_reason;
 }
 
 static guint64
-upstream_connection_id_i(RpUpstreamInfo* self)
+upstream_connection_id_i(const RpUpstreamInfo* self)
 {
     NOISY_MSG_("(%p)", self);
-    return RP_UPSTREAM_INFO_IMPL(self)->m_upstream_connection_id;
+    return UPSTREAM_INFO_IMPL(self)->m_upstream_connection_id;
 }
 
 static RpFilterState*
-upstream_filter_state_i(RpUpstreamInfo* self)
+upstream_filter_state_i(const RpUpstreamInfo* self)
 {
     NOISY_MSG_("(%p)", self);
-    return RP_UPSTREAM_INFO_IMPL(self)->m_upstream_filter_state;
+    return UPSTREAM_INFO_IMPL(self)->m_upstream_filter_state;
 }
 
-static RpHostDescription*
-upstream_host_i(RpUpstreamInfo* self)
+static RpHostDescriptionConstSharedPtr
+upstream_host_i(const RpUpstreamInfo* self)
 {
     NOISY_MSG_("(%p)", self);
-    return RP_UPSTREAM_INFO_IMPL(self)->m_upstream_host;
+    return UPSTREAM_INFO_IMPL(self)->m_upstream_host;
 }
 
 static const char*
-upstream_interface_name_i(RpUpstreamInfo* self)
+upstream_interface_name_i(const RpUpstreamInfo* self)
 {
     NOISY_MSG_("(%p)", self);
-    return RP_UPSTREAM_INFO_IMPL(self)->m_upstream_connection_interface_name;
+    return UPSTREAM_INFO_IMPL(self)->m_upstream_connection_interface_name;
 }
 
 static RpNetworkAddressInstanceConstSharedPtr
-upstream_local_address_i(RpUpstreamInfo* self)
+upstream_local_address_i(const RpUpstreamInfo* self)
 {
     NOISY_MSG_("(%p)", self);
-    return RP_UPSTREAM_INFO_IMPL(self)->m_upstream_local_address;
+    return UPSTREAM_INFO_IMPL(self)->m_upstream_local_address;
 }
 
 static guint64
-upstream_num_streams_i(RpUpstreamInfo* self)
+upstream_num_streams_i(const RpUpstreamInfo* self)
 {
     NOISY_MSG_("(%p)", self);
-    return RP_UPSTREAM_INFO_IMPL(self)->m_num_streams;
+    return UPSTREAM_INFO_IMPL(self)->m_num_streams;
 }
 
 static evhtp_proto
-upstream_protocol_i(RpUpstreamInfo* self)
+upstream_protocol_i(const RpUpstreamInfo* self)
 {
     NOISY_MSG_("(%p)", self);
-    return RP_UPSTREAM_INFO_IMPL(self)->m_upstream_protocol;
+    return UPSTREAM_INFO_IMPL(self)->m_upstream_protocol;
 }
 
 static RpNetworkAddressInstanceConstSharedPtr
-upstream_remote_address_i(RpUpstreamInfo* self)
+upstream_remote_address_i(const RpUpstreamInfo* self)
 {
     NOISY_MSG_("(%p)", self);
-    return RP_UPSTREAM_INFO_IMPL(self)->m_upstream_remote_address;
+    return UPSTREAM_INFO_IMPL(self)->m_upstream_remote_address;
 }
 
 static RpSslConnectionInfo*
-upstream_ssl_connection_i(RpUpstreamInfo* self)
+upstream_ssl_connection_i(const RpUpstreamInfo* self)
 {
     NOISY_MSG_("(%p)", self);
-    return RP_UPSTREAM_INFO_IMPL(self)->m_upstream_ssl_info;
+    return UPSTREAM_INFO_IMPL(self)->m_upstream_ssl_info;
 }
 
 static const char*
-upstream_transport_failure_reason_i(RpUpstreamInfo* self)
+upstream_transport_failure_reason_i(const RpUpstreamInfo* self)
 {
     NOISY_MSG_("(%p)", self);
-    return RP_UPSTREAM_INFO_IMPL(self)->m_upstream_transport_failure_reason;
+    return UPSTREAM_INFO_IMPL(self)->m_upstream_transport_failure_reason;
 }
 
 static RpUpstreamTiming*
-upstream_timing_i(RpUpstreamInfo* self)
+upstream_timing_i(const RpUpstreamInfo* self)
 {
     NOISY_MSG_("(%p)", self);
-    return &RP_UPSTREAM_INFO_IMPL(self)->m_upstream_timing;
+    return &UPSTREAM_INFO_IMPL(self)->m_upstream_timing;
 }
 
 static void
@@ -226,6 +226,7 @@ dispose(GObject* obj)
     LOGD("(%p)", obj);
 
     RpUpstreamInfoImpl* self = RP_UPSTREAM_INFO_IMPL(obj);
+if (self->m_upstream_local_address) NOISY_MSG_("%p, upstream local address %p(%u)", self, self->m_upstream_local_address, G_OBJECT(self->m_upstream_local_address)->ref_count);
     g_clear_object(&self->m_upstream_local_address);
     g_clear_object(&self->m_upstream_remote_address);
 

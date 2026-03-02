@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_upstream_codec_filter_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_upstream_codec_filter_NOISY)
@@ -32,7 +29,7 @@ struct _RpUpstreamCodecFilter {
     GObject parent_instance;
 
     RpStreamDecoderFilterCallbacks* m_callbacks;
-    RpCodecBridge* m_bridge;
+    SHARED_PTR(RpCodecBridge) m_bridge;
     evhtp_headers_t* m_latched_headers;
     bool* m_latched_end_stream_;
     RpStatusCode_e m_deferred_reset_status;
@@ -53,9 +50,9 @@ G_DEFINE_FINAL_TYPE_WITH_CODE(RpUpstreamCodecFilter, rp_upstream_codec_filter, G
 )
 
 static void
-on_destroy_i(RpStreamFilterBase* self G_GNUC_UNUSED)
+on_destroy_i(RpStreamFilterBase* self)
 {
-    NOISY_MSG_("(%p)", self);
+    NOISY_MSG_("(%p(%s))", self, G_OBJECT_TYPE_NAME(self));
     rp_stream_decoder_filter_callbacks_remove_downstream_watermark_callbacks(RP_UPSTREAM_CODEC_FILTER(self)->m_callbacks,
                                                                                 RP_DOWNSTREAM_WATERMARK_CALLBACKS(self));
 }
@@ -220,7 +217,7 @@ upstream_callbacks_iface_init(RpUpstreamCallbacksInterface* iface)
 OVERRIDE void
 constructed(GObject* obj)
 {
-    NOISY_MSG_("(%p)", obj);
+    NOISY_MSG_("(%p(%s))", obj, G_OBJECT_TYPE_NAME(obj));
 
     G_OBJECT_CLASS(rp_upstream_codec_filter_parent_class)->constructed(obj);
 
@@ -231,7 +228,7 @@ constructed(GObject* obj)
 OVERRIDE void
 dispose(GObject* obj)
 {
-    NOISY_MSG_("(%p)", obj);
+    NOISY_MSG_("(%p) ref count %u", obj, G_OBJECT(obj)->ref_count);
 
     RpUpstreamCodecFilter* self = RP_UPSTREAM_CODEC_FILTER(obj);
     g_clear_object(&self->m_bridge);

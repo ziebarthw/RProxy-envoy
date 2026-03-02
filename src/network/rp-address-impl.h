@@ -15,7 +15,7 @@
 G_BEGIN_DECLS
 
 bool rp_network_address_force_v6(void);
-RpNetworkAddressInstanceConstSharedPtr rp_network_address_address_from_sock_addr(const struct sockaddr_storage* ss,
+RpNetworkAddressInstance* rp_network_address_address_from_sock_addr(const struct sockaddr_storage* ss,
                                                             socklen_t len,
                                                             bool v6only/* = true*/);
 const RpNetworkAddressSocketInterface* rp_network_address_impl_sock_interface_or_default(const RpNetworkAddressSocketInterface* sock_interface);
@@ -34,13 +34,20 @@ struct _RpNetworkAddressInstanceBaseClass {
 
 };
 
-UNIQUE_PTR(GString)* rp_network_address_instance_base_friendly_name_(RpNetworkAddressInstanceBase* self);
+GString** rp_network_address_instance_base_friendly_name_(RpNetworkAddressInstanceBase* self);
 
 
 // Create an address instance. Upon failure, return an error status without throwing.
-RpNetworkAddressInstanceConstSharedPtr rp_network_address_instance_factory_create_instance_ptr(const struct sockaddr_in* addr);
-RpNetworkAddressInstanceConstSharedPtr rp_network_address_instance_factory_create_instance_ptr_2(const struct sockaddr_in6* addr, bool v6only);
-RpNetworkAddressInstanceConstSharedPtr rp_network_address_instance_factory_create_instance_ptr_3(const struct sockaddr_un* addr, socklen_t ss_len);
+RpNetworkAddressInstance* rp_network_address_instance_factory_create_instance_ptr(const struct sockaddr_in* addr);
+RpNetworkAddressInstance* rp_network_address_instance_factory_create_instance_ptr_2(const struct sockaddr_in6* addr, bool v6only);
+RpNetworkAddressInstance* rp_network_address_instance_factory_create_instance_ptr_3(const struct sockaddr_un* addr, socklen_t ss_len);
+
+static inline void
+rp_network_address_instance_impl_set_object(RpNetworkAddressInstanceSharedPtr* dst, RpNetworkAddressInstanceConstSharedPtr src)
+{
+    g_return_if_fail(dst != NULL);
+    g_set_object((GObject**)dst, (GObject*)src);
+}
 
 
 /**

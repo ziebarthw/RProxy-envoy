@@ -26,7 +26,7 @@ struct _RpHttpConnPoolBaseActiveClientPrivate {
 
     RpCreateConnectionDataPtr m_opt_data;
 
-    UNIQUE_PTR(RpCodecClient) m_codec_client;
+    RpCodecClient* m_codec_client;
     RpConnPoolImplBase* m_parent;
 };
 

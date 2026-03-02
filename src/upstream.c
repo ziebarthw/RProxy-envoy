@@ -189,6 +189,7 @@ upstream_get_rr(rule_t* rule)
     g_assert(rule != NULL);
     g_assert(rule->upstreams != NULL);
 
+NOISY_MSG_("%u upstreams", g_slist_length(rule->upstreams));
     if (g_slist_length(rule->upstreams) < 2)
     {
         LOGD("getting lowest rtt");

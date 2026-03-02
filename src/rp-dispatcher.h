@@ -83,6 +83,7 @@ struct _RpDispatcherInterface {
     void (*clear_deferred_delete_list)(RpDispatcher*);
     void (*clear_deferred_destroy_list)(RpDispatcher*);
     void (*deferred_delete)(RpDispatcher*, GObject*);
+    void (*deferred_delete_take)(RpDispatcher*, GObject*);
     void (*deferred_destroy)(RpDispatcher*, gpointer, GDestroyNotify);
     RpNetworkServerConnectionPtr (*create_server_connection)(RpDispatcher*,
                                                                 RpSocketPtr,
@@ -152,6 +153,13 @@ rp_dispatcher_deferred_delete(RpDispatcher* self, GObject* obj)
 {
     if (RP_IS_DISPATCHER(self)) \
         RP_DISPATCHER_GET_IFACE(self)->deferred_delete(self, obj);
+}
+static inline void
+rp_dispatcher_deferred_delete_take(RpDispatcher* self, GObject* obj)
+{
+    g_return_if_fail(RP_IS_DISPATCHER(self));
+    g_return_if_fail(G_IS_OBJECT(obj));
+    RP_DISPATCHER_GET_IFACE(self)->deferred_delete(self, obj);
 }
 static inline void
 rp_dispatcher_deferred_destroy(RpDispatcher* self, gpointer mem, GDestroyNotify cb)

@@ -142,13 +142,13 @@ rewrite_header_cb(evhtp_header_t* header, gpointer arg)
     if (g_match_info_matches(match_info))
     {
         NOISY_MSG_("%d matches", g_match_info_get_match_count(match_info));
-        gchar* res = g_regex_replace(self->m_regex,
-                                        header->val,
-                                        header->vlen,
-                                        0,
-                                        self->m_replacement,
-                                        G_REGEX_MATCH_DEFAULT,
-                                        NULL);
+        g_autofree gchar* res = g_regex_replace(self->m_regex,
+                                                header->val,
+                                                header->vlen,
+                                                0,
+                                                self->m_replacement,
+                                                G_REGEX_MATCH_DEFAULT,
+                                                NULL);
 NOISY_MSG_("\"%.*s\" -> \"%s\"", (int)header->vlen, header->val, res);
         evhtp_header_val_set(header, res, true);
     }

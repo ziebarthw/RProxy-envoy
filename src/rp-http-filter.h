@@ -216,18 +216,18 @@ G_DECLARE_INTERFACE(RpDownstreamStreamFilterCallbacks, rp_downstream_stream_filt
 struct _RpDownstreamStreamFilterCallbacksInterface {
     GTypeInterface parent_iface;
 
-    void (*set_route)(RpDownstreamStreamFilterCallbacks*, RpRoute*);
-    RpRoute* (*route)(RpDownstreamStreamFilterCallbacks*, RpRouteCallback);
+    void (*set_route)(RpDownstreamStreamFilterCallbacks*, RpRouteConstSharedPtr);
+    RpRouteSharedPtr (*route)(RpDownstreamStreamFilterCallbacks*, RpRouteCallback);
     void (*clear_route_cache)(RpDownstreamStreamFilterCallbacks*);
 };
 
 static inline void
-rp_downstream_stream_filter_callbacks_set_route(RpDownstreamStreamFilterCallbacks* self, RpRoute* route)
+rp_downstream_stream_filter_callbacks_set_route(RpDownstreamStreamFilterCallbacks* self, RpRouteConstSharedPtr route)
 {
     if (RP_IS_DOWNSTREAM_STREAM_FILTER_CALLBACKS(self)) \
         RP_DOWNSTREAM_STREAM_FILTER_CALLBACKS_GET_IFACE(self)->set_route(self, route);
 }
-static inline RpRoute*
+static inline RpRouteSharedPtr
 rp_downstream_stream_filter_callbacks_route(RpDownstreamStreamFilterCallbacks* self, RpRouteCallback cb)
 {
     return RP_IS_DOWNSTREAM_STREAM_FILTER_CALLBACKS(self) ?
@@ -257,7 +257,7 @@ struct _RpStreamFilterCallbacksInterface {
     void (*reset_stream)(RpStreamFilterCallbacks*,
                             RpStreamResetReason_e,
                             const char*);
-    RpRoute* (*route)(RpStreamFilterCallbacks*);
+    RpRouteSharedPtr (*route)(RpStreamFilterCallbacks*);
     RpClusterInfoConstSharedPtr (*cluster_info)(RpStreamFilterCallbacks*);
     guint64 (*stream_id)(RpStreamFilterCallbacks*);
     RpStreamInfo* (*stream_info)(RpStreamFilterCallbacks*);
@@ -290,7 +290,7 @@ rp_stream_filter_callbacks_reset_stream(RpStreamFilterCallbacks* self, RpStreamR
     if (RP_IS_STREAM_FILTER_CALLBACKS(self)) \
         RP_STREAM_FILTER_CALLBACKS_GET_IFACE(self)->reset_stream(self, reset_reason, transport_failure_reason);
 }
-static inline RpRoute*
+static inline RpRouteSharedPtr
 rp_stream_filter_callbacks_route(RpStreamFilterCallbacks* self)
 {
     return RP_IS_STREAM_FILTER_CALLBACKS(self) ?

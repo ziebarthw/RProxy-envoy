@@ -27,8 +27,13 @@ G_DEFINE_INTERFACE(RpGenericUpstream, rp_generic_upstream, G_TYPE_OBJECT)
 G_DEFINE_INTERFACE(RpGenericConnPool, rp_generic_conn_pool, G_TYPE_OBJECT)
 G_DEFINE_INTERFACE(RpGenericConnectionPoolCallbacks, rp_generic_connection_pool_callbacks, G_TYPE_OBJECT)
 G_DEFINE_INTERFACE(RpGenericConnPoolFactory, rp_generic_conn_pool_factory, G_TYPE_OBJECT)
-G_DEFINE_INTERFACE(RpRouteCommonConfig, rp_route_common_config, G_TYPE_OBJECT)
-G_DEFINE_INTERFACE(RpRouteConfig, rp_route_config, RP_TYPE_ROUTE_COMMON_CONFIG)
+G_DEFINE_INTERFACE(RpRouterCommonConfig, rp_router_common_config, G_TYPE_OBJECT)
+G_DEFINE_INTERFACE_WITH_CODE(RpRouterConfig, rp_router_config, G_TYPE_OBJECT,
+    g_type_ensure(RP_TYPE_RDS_CONFIG);
+    g_type_ensure(RP_TYPE_ROUTER_COMMON_CONFIG);
+    g_type_interface_add_prerequisite(g_define_type_id, RP_TYPE_RDS_CONFIG);
+    g_type_interface_add_prerequisite(g_define_type_id, RP_TYPE_ROUTER_COMMON_CONFIG);
+)
 G_DEFINE_INTERFACE(RpVirtualHost, rp_virtual_host, G_TYPE_OBJECT)
 
 static void
@@ -77,12 +82,12 @@ rp_generic_conn_pool_factory_default_init(RpGenericConnPoolFactoryInterface* ifa
     LOGD("(%p)", iface);
 }
 static void
-rp_route_common_config_default_init(RpRouteCommonConfigInterface* iface G_GNUC_UNUSED)
+rp_router_common_config_default_init(RpRouterCommonConfigInterface* iface G_GNUC_UNUSED)
 {
     LOGD("(%p)", iface);
 }
 static void
-rp_route_config_default_init(RpRouteConfigInterface* iface G_GNUC_UNUSED)
+rp_router_config_default_init(RpRouterConfigInterface* iface G_GNUC_UNUSED)
 {
     LOGD("(%p)", iface);
 }

@@ -20,7 +20,7 @@ struct _RpRequestRewrite {
 
     GSList* m_rewrite_urls;
 
-    RpHostDescription* m_host_description;
+    RpHostDescriptionConstSharedPtr m_host_description;
 
     gchar* m_host;
     gchar* m_pattern;
@@ -34,7 +34,7 @@ struct _RpRequestRewrite {
 
 RpRequestRewrite rp_request_rewrite_ctor(const gchar* original_uri,
                                             GSList* rewrite_urls,
-                                            RpHostDescription* host_description,
+                                            RpHostDescriptionConstSharedPtr host_description,
                                             bool ssl_connection);
 void rp_request_rewrite_dtor(RpRequestRewrite* self);
 gchar* rp_request_rewrite_host_value(RpRequestRewrite* self);

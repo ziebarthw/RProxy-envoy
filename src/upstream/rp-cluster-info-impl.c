@@ -16,6 +16,8 @@
 #include "upstream/rp-resource-manager-impl.h"
 #include "upstream/rp-upstream-impl.h"
 
+#define CLUSTER_INFO_IMPL(s) RP_CLUSTER_INFO_IMPL((RpClusterInfo*)s)
+
 struct _RpClusterInfoImpl {
     GObject parent_instance;
 
@@ -56,36 +58,36 @@ filter_chain_factory_iface_init(RpFilterChainFactoryInterface* iface)
 }
 
 static bool
-added_via_api_i(RpClusterInfo* self)
+added_via_api_i(RpClusterInfoConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
-    return RP_CLUSTER_INFO_IMPL(self)->m_added_via_api;
+    return CLUSTER_INFO_IMPL(self)->m_added_via_api;
 }
 
 static const char*
-name_i(RpClusterInfo* self)
+name_i(RpClusterInfoConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
-    const RpClusterLoadAssignmentCfg* load_assignment = rp_cluster_cfg_load_assignment(RP_CLUSTER_INFO_IMPL(self)->m_config);
+    const RpClusterLoadAssignmentCfg* load_assignment = rp_cluster_cfg_load_assignment(CLUSTER_INFO_IMPL(self)->m_config);
     return rp_cluster_load_assignment_cfg_cluster_name(load_assignment);
 }
 
 static RpResourceManager*
-resource_manager_i(RpClusterInfo* self, RpResourcePriority_e priority)
+resource_manager_i(RpClusterInfoConstSharedPtr self, RpResourcePriority_e priority)
 {
     NOISY_MSG_("(%p, %d)", self, priority);
-    return RP_RESOURCE_MANAGER(RP_CLUSTER_INFO_IMPL(self)->m_resource_manager);
+    return RP_RESOURCE_MANAGER(CLUSTER_INFO_IMPL(self)->m_resource_manager);
 }
 
 static float
-per_upstream_preconnect_ratio_i(RpClusterInfo* self)
+per_upstream_preconnect_ratio_i(RpClusterInfoConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
-    return RP_CLUSTER_INFO_IMPL(self)->m_config->preconnect_policy.per_upstream_preconnect_ratio;
+    return CLUSTER_INFO_IMPL(self)->m_config->preconnect_policy.per_upstream_preconnect_ratio;
 }
 
 static RpUpstreamLocalAddressSelector*
-get_upstream_local_address_selector_i(RpClusterInfo* self)
+get_upstream_local_address_selector_i(RpClusterInfoConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
 //TODO...
@@ -93,29 +95,29 @@ return NULL;
 }
 
 static guint64
-max_requests_per_connection_i(RpClusterInfo* self)
+max_requests_per_connection_i(RpClusterInfoConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
-    return RP_CLUSTER_INFO_IMPL(self)->m_max_requests_per_connection;
+    return CLUSTER_INFO_IMPL(self)->m_max_requests_per_connection;
 }
 
 static RpDiscoveryType_e
-type_i(RpClusterInfo* self)
+type_i(RpClusterInfoConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
-    return rp_cluster_cfg_type(RP_CLUSTER_INFO_IMPL(self)->m_config);
+    return rp_cluster_cfg_type(CLUSTER_INFO_IMPL(self)->m_config);
 }
 
 static RpTransportSocketFactoryContextPtr
-transport_socket_context_i(RpClusterInfo* self)
+transport_socket_context_i(RpClusterInfoConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
     return rp_server_factory_context_get_transport_socket_factory_context(
-            RP_CLUSTER_INFO_IMPL(self)->m_server_context);
+            CLUSTER_INFO_IMPL(self)->m_server_context);
 }
 
 static evhtp_proto*
-upstream_http_protocol_i(RpClusterInfo* self, evhtp_proto downstream_protocol)
+upstream_http_protocol_i(RpClusterInfoConstSharedPtr self, evhtp_proto downstream_protocol)
 {
     NOISY_MSG_("(%p, %d)", self, downstream_protocol);
     evhtp_proto* rval = g_malloc0(sizeof(*rval));
@@ -136,24 +138,24 @@ upstream_http_protocol_i(RpClusterInfo* self, evhtp_proto downstream_protocol)
 }
 
 static const RpCustomClusterTypeCfg*
-cluster_type_i(RpClusterInfo* self)
+cluster_type_i(RpClusterInfoConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
-    return RP_CLUSTER_INFO_IMPL(self)->m_cluster_type;
+    return CLUSTER_INFO_IMPL(self)->m_cluster_type;
 }
 
 static RpLoadBalancerConfig*
-load_balancer_config_i(RpClusterInfo* self)
+load_balancer_config_i(RpClusterInfoConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
-    return RP_CLUSTER_INFO_IMPL(self)->m_load_balancer_config;
+    return CLUSTER_INFO_IMPL(self)->m_load_balancer_config;
 }
 
 static RpTypedLoadBalancerFactory*
-load_balancer_factory_i(RpClusterInfo* self)
+load_balancer_factory_i(RpClusterInfoConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
-    return RP_CLUSTER_INFO_IMPL(self)->m_load_balancer_factory;
+    return CLUSTER_INFO_IMPL(self)->m_load_balancer_factory;
 }
 
 static void
@@ -180,11 +182,11 @@ dispose(GObject* obj)
     NOISY_MSG_("(%p)", obj);
 
     RpClusterInfoImpl* self = RP_CLUSTER_INFO_IMPL(obj);
-    g_clear_pointer(&self->m_config, g_free);
+
     g_clear_object(&self->m_resource_manager);
     g_clear_object(&self->m_load_balancer_config);
     g_clear_object(&self->m_load_balancer_factory);
-
+    g_clear_pointer(&self->m_config, rp_cluster_cfg_free);
     G_OBJECT_CLASS(rp_cluster_info_impl_parent_class)->dispose(obj);
 }
 
@@ -205,7 +207,7 @@ rp_cluster_info_impl_init(RpClusterInfoImpl* self)
 }
 
 static inline bool
-configure_lb_policies(RpClusterInfoImpl* self, RpClusterCfgPtr config, RpServerFactoryContext* context)
+configure_lb_policies(RpClusterInfoImpl* self, const RpClusterCfg* config, RpServerFactoryContext* context)
 {
     NOISY_MSG_("(%p, %p, %p)", self, config, context);
     LOGE("NOT IMPLEMENTED");
@@ -279,7 +281,7 @@ constructed(RpClusterInfoImpl* self)
 {
     NOISY_MSG_("(%p)", self);
 
-    RpClusterCfgPtr config = self->m_config;
+    const RpClusterCfg* config = self->m_config;
     const RpClusterLoadAssignmentCfg* load_assignment = rp_cluster_cfg_load_assignment(config);
     const char* cluster_name = rp_cluster_load_assignment_cfg_cluster_name(load_assignment);
     self->m_resource_manager = rp_resource_manager_impl_new(cluster_name, 1024, 1024, 1024, 3, G_MAXUINT64, G_MAXUINT64);
@@ -320,7 +322,7 @@ rp_cluster_info_impl_new(RpServerFactoryContext* server_context, const RpCluster
 
     RpClusterInfoImpl* self = g_object_new(RP_TYPE_CLUSTER_INFO_IMPL, NULL);
     self->m_server_context = server_context;
-    self->m_config = rp_cluster_cfg_new(config);
+    self->m_config = rp_cluster_cfg_dup(config);
     self->m_added_via_api = added_via_api;
     return constructed(self);
 }

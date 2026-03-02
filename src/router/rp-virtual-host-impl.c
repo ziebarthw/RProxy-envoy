@@ -24,7 +24,7 @@ struct _RpVirtuaHostImpl {
     GObject parent_instance;
 
     RpVirtualHostCfg* m_virtual_host;
-    RpRouteCommonConfig* m_global_route_config;
+    RpRouterCommonConfig* m_global_route_config;
     RpServerFactoryContext* m_factory_context;
     RpStatusCode_e* m_creation_status;
 
@@ -147,7 +147,7 @@ rp_virtual_host_impl_class_init(RpVirtuaHostImplClass* klass)
     obj_properties[PROP_GLOBAL_ROUTE_CONFIG] = g_param_spec_object("global-route-config",
                                                     "Global route config",
                                                     "Global Route Config",
-                                                    RP_TYPE_ROUTE_COMMON_CONFIG,
+                                                    RP_TYPE_ROUTER_COMMON_CONFIG,
                                                     G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
     obj_properties[PROP_FACTORY_CONTEXT] = g_param_spec_object("factory-context",
                                                     "Factory context",
@@ -169,11 +169,11 @@ rp_virtual_host_impl_init(RpVirtuaHostImpl* self G_GNUC_UNUSED)
 }
 
 RpVirtuaHostImpl*
-rp_virtual_host_impl_new(RpVirtualHostCfg* virtual_host, RpRouteCommonConfig* global_route_config, RpServerFactoryContext* factory_context, RpStatusCode_e* creation_status)
+rp_virtual_host_impl_new(RpVirtualHostCfg* virtual_host, RpRouterCommonConfig* global_route_config, RpServerFactoryContext* factory_context, RpStatusCode_e* creation_status)
 {
     LOGD("(%p, %p, %p, %p)", virtual_host, global_route_config, factory_context, creation_status);
     g_return_val_if_fail(virtual_host != NULL, NULL);
-    g_return_val_if_fail(RP_IS_ROUTE_COMMON_CONFIG(global_route_config), NULL);
+    g_return_val_if_fail(rp_router_common_config_is_a(global_route_config), NULL);
     g_return_val_if_fail(RP_IS_SERVER_FACTORY_CONTEXT(factory_context), NULL);
     return g_object_new(RP_TYPE_VIRTUAL_HOST_IMPL,
                         "virtual-host", virtual_host,

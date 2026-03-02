@@ -19,7 +19,7 @@ struct _RpTcpConnContainer {
     GObject parent_instance;
 
     RpThreadLocalClusterManagerImpl* m_parent;
-    RpHostConstSharedPtr m_host;
+    RpHost* m_host;
     RpNetworkClientConnection* m_connection;
 };
 
@@ -97,12 +97,12 @@ constructed(RpTcpConnContainer* self)
 }
 
 RpTcpConnContainer*
-rp_tcp_conn_container_new(RpThreadLocalClusterManagerImpl* parent, RpHostConstSharedPtr host, RpNetworkClientConnection* connection)
+rp_tcp_conn_container_new(RpThreadLocalClusterManagerImpl* parent, RpHost* host, RpNetworkClientConnection* connection)
 {
     LOGD("(%p, %p, %p)", parent, host, connection);
 
     g_return_val_if_fail(RP_IS_THREAD_LOCAL_CLUSTER_MANAGER_IMPL(parent), NULL);
-    g_return_val_if_fail(RP_IS_HOST(host), NULL);
+    g_return_val_if_fail(rp_host_is_a(host), NULL);
     g_return_val_if_fail(RP_IS_NETWORK_CLIENT_CONNECTION(connection), NULL);
 
     RpTcpConnContainer* self = g_object_new(RP_TYPE_TCP_CONN_CONTAINER, NULL);

@@ -94,7 +94,9 @@ struct _RpClusterManagerInterface {
 
     bool (*initialize)(RpClusterManager*, rproxy_t*, GError**);
     bool (*initialized)(RpClusterManager*);
-    bool (*add_or_update_cluster)(RpClusterManager*, RpClusterCfg*, const char*);
+    bool (*add_or_update_cluster)(RpClusterManager*,
+                                    const RpClusterCfg*,
+                                    const char*);
     //TODO...RpClusterInfoMaps* (*clusters)(RpClusterManager*);
     //TODO...
     RpThreadLocalCluster* (*get_thread_local_cluster)(RpClusterManager*, const char*);
@@ -132,7 +134,7 @@ rp_cluster_manager_initialized(RpClusterManager* self)
         RP_CLUSTER_MANAGER_GET_IFACE(self)->initialized(self) : false;
 }
 static inline bool
-rp_cluster_manager_add_or_update_cluster(RpClusterManager* self, RpClusterCfg* cluster, const char* version_info)
+rp_cluster_manager_add_or_update_cluster(RpClusterManager* self, const RpClusterCfg* cluster, const char* version_info)
 {
     return RP_IS_CLUSTER_MANAGER(self) ?
         RP_CLUSTER_MANAGER_GET_IFACE(self)->add_or_update_cluster(self, cluster, version_info) :

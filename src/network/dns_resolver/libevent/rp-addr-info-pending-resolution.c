@@ -63,11 +63,11 @@ typedef struct _RpInterfaceAddress RpInterfaceAddress;
 struct _RpInterfaceAddress {
     char* m_interface_name;
     unsigned int m_interface_flags;
-    RpNetworkAddressInstanceConstSharedPtr m_interface_addr;
+    RpNetworkAddressInstance* m_interface_addr;
 };
 typedef GPtrArray* RpInterfaceAddressVector;
 RpInterfaceAddress*
-rp_interface_address_new(const char* interface_name, unsigned int interface_flags, RpNetworkAddressInstanceConstSharedPtr interface_addr)
+rp_interface_address_new(const char* interface_name, unsigned int interface_flags, RpNetworkAddressInstance* interface_addr)
 {
     LOGD("(%p(%s), %u, %p)", interface_name, interface_name, interface_flags, interface_addr);
     RpInterfaceAddress* self = g_new(RpInterfaceAddress, 1);
@@ -123,7 +123,7 @@ rp_os_syscalls_impl_getifaddrs(RpInterfaceAddressVector* interfaces)
             const struct sockaddr_storage* ss = (struct sockaddr_storage*)ifa->ifa_addr;
             size_t ss_len = ifa->ifa_addr->sa_family == AF_INET ?
                                 sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6);
-            RpNetworkAddressInstanceConstSharedPtr address =
+            RpNetworkAddressInstance* address =
                 rp_network_address_address_from_sock_addr(ss, ss_len, ifa->ifa_addr->sa_family == AF_INET6);
             if (address)
             {

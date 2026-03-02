@@ -50,12 +50,16 @@ RpTcpPendingStream* rp_tcp_pending_stream_new(RpConnPoolImplBase* parent,
 #define RP_TYPE_ACTIVE_TCP_CLIENT rp_active_tcp_client_get_type()
 G_DECLARE_FINAL_TYPE(RpActiveTcpClient, rp_active_tcp_client, RP, ACTIVE_TCP_CLIENT, RpConnectionPoolActiveClient)
 
-RpActiveTcpClient* rp_active_tcp_client_new(RpConnPoolImplBase* parent, RpHost* host, guint64 concurrent_stream_limit/*TODO...idle_timeout*/);
+RpActiveTcpClient* rp_active_tcp_client_new(RpConnPoolImplBase* parent,
+                                            RpHost* host,
+                                            guint64 concurrent_stream_limit/*TODO...idle_timeout*/);
 
 
 #define RP_TYPE_TCP_CONN_POOL_IMPL rp_tcp_conn_pool_impl_get_type()
 G_DECLARE_FINAL_TYPE(RpTcpConnPoolImpl, rp_tcp_conn_pool_impl, RP, TCP_CONN_POOL_IMPL, RpConnPoolImplBase)
 
-RpTcpConnPoolImpl* rp_tcp_conn_pool_impl_new(RpDispatcher* dispatcher, RpHost* host, RpResourcePriority_e priority);
+RpTcpConnPoolImpl* rp_tcp_conn_pool_impl_new(RpDispatcher* dispatcher,
+                                                RpHost* host,
+                                                RpResourcePriority_e priority);
 
 G_END_DECLS

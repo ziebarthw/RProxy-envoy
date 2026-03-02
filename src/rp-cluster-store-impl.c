@@ -59,10 +59,19 @@ G_DEFINE_TYPE_WITH_CODE(RpDfpClusterStore, rp_dfp_cluster_store, G_TYPE_OBJECT,
     G_IMPLEMENT_INTERFACE(RP_TYPE_SINGLETON_INSTANCE, NULL)
 )
 
+OVERRIDE void
+dispose(GObject* obj)
+{
+    NOISY_MSG_("(%p)", obj);
+    G_OBJECT_CLASS(rp_dfp_cluster_store_parent_class)->dispose(obj);
+}
+
 static void
 rp_dfp_cluster_store_class_init(RpDfpClusterStoreClass* klass)
 {
     LOGD("(%p)", klass);
+    GObjectClass* object_class = G_OBJECT_CLASS(klass);
+    object_class->dispose = dispose;
 }
 
 static void

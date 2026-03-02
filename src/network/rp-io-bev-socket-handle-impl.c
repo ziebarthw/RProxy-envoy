@@ -26,17 +26,15 @@ typedef struct _RpIoBevSocketHandleImpl RpIoBevSocketHandleImpl;
 struct _RpIoBevSocketHandleImpl {
     GObject parent_instance;
 
-    UNIQUE_PTR(evbev_t) m_bev;
-    evdns_base_t* m_dns_base;
+    evbev_t* m_bev;
 
     RpDispatcher* m_dispatcher;
-    UNIQUE_PTR(RpSchedulableCallback) m_activation_cb;
+    RpSchedulableCallback* m_activation_cb;
+    RpNetworkAddressInstance* m_local_address;  /* owned */
+    RpNetworkAddressInstance* m_remote_address; /* owned */
 
     RpFileReadyCb m_cb;
     gpointer m_arg;
-
-    RpNetworkAddressInstanceConstSharedPtr m_local_addr;
-    RpNetworkAddressInstanceConstSharedPtr m_peer_addr;
 
     guint32 m_injected_activation_events;
     guint32 m_enabled_events;
@@ -76,9 +74,9 @@ NOISY_MSG_("%zu bytes in output buffer for fd %d", evbuffer_get_length(buffereve
 }
 
 static inline void
-do_bufferevent_error(evbev_t* bev, int errcode)
+do_bufferevent_error(evbev_t* bev, int errcode, RpIoBevSocketHandleImpl* self)
 {
-    NOISY_MSG_("(%p, %d)", bev, errcode);
+    NOISY_MSG_("(%p, %d, %p)", bev, errcode, self);
 
     int dns_err = bufferevent_socket_get_dns_error(bev);
     if (dns_err)
@@ -90,11 +88,22 @@ do_bufferevent_error(evbev_t* bev, int errcode)
     if (errcode)
     {
         const char* errmsg = evutil_socket_error_to_string(errcode);
-        if (errcode != 104) LOGE("Socket error %d(%s)", errcode, errmsg);
+        switch (errcode)
+        {
+            case ECONNRESET:
+                LOGD("error %d(%s)", errcode, errmsg);
+                break;
+            case ECONNREFUSED:
+                LOGE("Connection refused by %s", rp_network_address_instance_as_string(self->m_remote_address));
+                break;
+            default:
+                LOGE("Socket error %d(%s)", errcode, errmsg);
+                break;
+        }
     }
 
     int fd = bufferevent_getfd(bev);
-    if (fd != -1)
+    if (fd != EVUTIL_INVALID_SOCKET)
     {
         int so_error = 0;
         socklen_t len = sizeof(so_error);
@@ -120,7 +129,7 @@ eventcb(evbev_t* bev, short events, gpointer arg)
     {
         if (events & BEV_EVENT_ERROR)
         {
-            do_bufferevent_error(bev, errcode);
+            do_bufferevent_error(bev, errcode, self);
         }
         else
         {
@@ -149,20 +158,6 @@ eventcb(evbev_t* bev, short events, gpointer arg)
     }
 }
 
-static inline void
-set_enabled_events(RpIoBevSocketHandleImpl* self, guint32 enabled_events)
-{
-    NOISY_MSG_("(%p(fd %d), %u)", self, SOCKFD(self), enabled_events);
-    self->m_enabled_events = enabled_events;
-}
-
-static inline guint32
-get_enabled_events(RpIoBevSocketHandleImpl* self)
-{
-    NOISY_MSG_("(%p(fd %d))", self, SOCKFD(self));
-    return self->m_enabled_events;
-}
-
 static void
 file_event_assign_events(RpIoBevSocketHandleImpl* self, guint32 events)
 {
@@ -184,14 +179,6 @@ file_event_assign_events(RpIoBevSocketHandleImpl* self, guint32 events)
     }
 
     bufferevent_setcb(self->m_bev, readcb_, writecb_, eventcb, self);
-
-#if 0
-    if (events & RpFileReadyType_Closed)
-    {
-        NOISY_MSG_("enabling close on fd %d", SOCKFD(self));
-        bufferevent_trigger_event(self->m_bev, BEV_EVENT_EOF, 0);
-    }
-#endif//0
 }
 
 static inline void
@@ -322,6 +309,7 @@ connect_i(RpIoHandle* self, RpNetworkAddressInstanceConstSharedPtr address)
     NOISY_MSG_("(%p(fd %d), %p)", self, SOCKFD(self), address);
     RpIoBevSocketHandleImpl* me = RP_IO_BEV_SOCKET_HANDLE_IMPL(self);
     me->m_type = RpHandleType_Connecting;
+    rp_network_address_instance_impl_set_object(&me->m_remote_address, address);
     bufferevent_setcb(me->m_bev, NULL, NULL, eventcb, self);
     make_connecting_socket(me, address);
     int rc = bufferevent_socket_connect(me->m_bev,
@@ -382,8 +370,8 @@ static inline bool
 is_open(RpIoBevSocketHandleImpl* self)
 {
     NOISY_MSG_("(%p(fd %d))", self, SOCKFD(self));
-NOISY_MSG_("returning %s for fd %d", self->m_bev && bufferevent_getfd(self->m_bev) != -1 ? "true" : "false", SOCKFD(self));
-    return self->m_bev && bufferevent_getfd(self->m_bev) != -1;
+NOISY_MSG_("returning %s for fd %d", self->m_bev && bufferevent_getfd(self->m_bev) != EVUTIL_INVALID_SOCKET ? "true" : "false", SOCKFD(self));
+    return self->m_bev && bufferevent_getfd(self->m_bev) != EVUTIL_INVALID_SOCKET;
 }
 
 static bool
@@ -410,7 +398,9 @@ local_address_i(RpIoHandle* self)
         int err = errno;
         LOGE("getsockname() failed %d(%s) on fd %d", err, g_strerror(err), SOCKFD(self));
     }
-    return rp_network_address_address_from_sock_addr(&ss, ss_len, true);
+    g_clear_object(&me->m_local_address);
+    me->m_local_address = rp_network_address_address_from_sock_addr(&ss, ss_len, true);
+    return me->m_local_address;
 }
 
 static RpNetworkAddressInstanceConstSharedPtr
@@ -552,6 +542,8 @@ dispose(GObject* obj)
 
     rp_schedulable_callback_cancel(self->m_activation_cb);
     g_clear_object(&self->m_activation_cb);
+    g_clear_object(&self->m_local_address);
+    g_clear_object(&self->m_remote_address);
 
     G_OBJECT_CLASS(rp_io_bev_socket_handle_impl_parent_class)->dispose(obj);
 }
@@ -587,13 +579,12 @@ constructed(RpIoBevSocketHandleImpl* self)
 }
 
 RpIoBevSocketHandleImpl*
-rp_io_bev_socket_handle_impl_new(RpHandleType_e type, evbev_t* bev, evdns_base_t* dns_base)
+rp_io_bev_socket_handle_impl_new(RpHandleType_e type, evbev_t* bev)
 {
-    LOGD("(%d, %p, %p)", type, bev, dns_base);
+    LOGD("(%d, %p)", type, bev);
     g_return_val_if_fail(bev != NULL, NULL);
     RpIoBevSocketHandleImpl* self = g_object_new(RP_TYPE_IO_BEV_SOCKET_HANDLE_IMPL, NULL);
     self->m_bev = bev;
     self->m_type = type;
-    self->m_dns_base = dns_base;
     return constructed(self);
 }

@@ -19,8 +19,8 @@
 struct _RpClusterData {
     GObject parent_instance;
 
-    RpClusterCfg* m_cluster_config;
-    SHARED_PTR(RpCluster) m_cluster;
+    const RpClusterCfg* m_cluster_config;
+    RpClusterSharedPtr m_cluster;
     RpThreadAwareLoadBalancerPtr m_thread_aware_lb;
     RpSystemTime m_last_updated;
 
@@ -37,7 +37,7 @@ G_DEFINE_FINAL_TYPE_WITH_CODE(RpClusterData, rp_cluster_data, G_TYPE_OBJECT,
     G_IMPLEMENT_INTERFACE(RP_TYPE_CLUSTER_MANAGER_CLUSTER, cluster_manager_cluster_iface_init)
 )
 
-static RpCluster*
+static RpClusterSharedPtr
 cluster_i(RpClusterManagerCluster* self)
 {
     NOISY_MSG_("(%p)", self);
@@ -96,6 +96,7 @@ dispose(GObject* obj)
 
     RpClusterData* self = RP_CLUSTER_DATA(obj);
     g_clear_object(&self->m_cluster);
+    g_clear_object(&self->m_thread_aware_lb);
 
     G_OBJECT_CLASS(rp_cluster_data_parent_class)->dispose(obj);
 }
@@ -116,8 +117,8 @@ rp_cluster_data_init(RpClusterData* self G_GNUC_UNUSED)
 }
 
 RpClusterData*
-rp_cluster_data_new(RpClusterCfg* cluster_config, guint64 cluster_config_hash, bool added_via_api,
-                    SHARED_PTR(RpCluster) cluster, RpTimeSource* time_source)
+rp_cluster_data_new(const RpClusterCfg* cluster_config, guint64 cluster_config_hash, bool added_via_api,
+                    RpClusterSharedPtr cluster, RpTimeSource* time_source)
 {
     LOGD("(%p, %zu, %u, %p(%s), %p)",
         cluster_config, cluster_config_hash, added_via_api, cluster, G_OBJECT_TYPE_NAME(cluster), time_source);
@@ -128,7 +129,7 @@ rp_cluster_data_new(RpClusterCfg* cluster_config, guint64 cluster_config_hash, b
 
     RpClusterData* self = g_object_new(RP_TYPE_CLUSTER_DATA, NULL);
     self->m_cluster_config = cluster_config;
-    self->m_cluster = g_object_ref(cluster); // Keep a reference to the cluster.
+    RP_SHARE_OBJ(&self->m_cluster, cluster);
     self->m_last_updated = rp_time_source_system_time(time_source);
     self->m_config_hash = cluster_config_hash;
     self->m_added_via_api = added_via_api;
@@ -142,10 +143,19 @@ rp_cluster_data_block_update(RpClusterData* self, guint64 hash)
     return !self->m_added_via_api || self->m_config_hash == hash;
 }
 
-RpThreadAwareLoadBalancerPtr*
-rp_cluster_data_thread_aware_lb_(RpClusterData* self)
+RpThreadAwareLoadBalancerPtr
+rp_cluster_data_thread_aware_lb(RpClusterData* self)
 {
     LOGD("(%p)", self);
     g_return_val_if_fail(RP_IS_CLUSTER_DATA(self), NULL);
-    return &self->m_thread_aware_lb;
+    return self->m_thread_aware_lb;
+}
+
+void
+rp_cluster_data_thread_aware_lb_take(RpClusterData* self, RpThreadAwareLoadBalancerPtr* lb)
+{
+    LOGD("(%p, %p)", self, lb);
+    g_return_if_fail(RP_IS_CLUSTER_DATA(self));
+    g_return_if_fail(lb != NULL);
+    RP_TAKE_OBJ(&self->m_thread_aware_lb, lb);
 }

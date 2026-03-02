@@ -15,14 +15,41 @@
 
 #include "upstream/rp-conn-pool-map.h"
 
+#if 0 // TODO...
+typedef struct {
+  RpConnPoolMap* map;
+} RpAutoRecursionGuard;
+
+static inline RpAutoRecursionGuard
+rp_conn_pool_map_recursion_guard(RpConnPoolMap* m)
+{
+  g_assert(m->recursion_depth == 0); /* debug-only; or g_return if you prefer */
+  m->recursion_depth++;
+  return (RpAutoRecursionGuard){ .map = m };
+}
+
+static inline void
+rp_auto_recursion_guard_end(RpAutoRecursionGuard* g)
+{
+  g->map->recursion_depth--;
+}
+
+// In functions:
+RpAutoRecursionGuard guard = rp_conn_pool_map_recursion_guard(self);
+/* ... */
+rp_auto_recursion_guard_end(&guard);
+#endif//0
+
 typedef struct _RpConnPoolMapPrivate RpConnPoolMapPrivate;
 struct _RpConnPoolMapPrivate {
 //  absl::flat_hash_map<std::vector<uint8_t>, HttpConnectionPool::Instance> active_pools_;
     UNIQUE_PTR(GHashTable) m_active_pools;
     SHARED_PTR(RpDispatcher) m_thread_local_dispatcher;
     UNIQUE_PTR(GPtrArray) m_cached_callbacks;
-    SHARED_PTR(RpHost) m_host;
+    RpHost* m_host;
     RpResourcePriority_e m_priority;
+
+// TODO...guint m_recussion_depth;
 };
 
 enum
@@ -80,7 +107,7 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
             PRIV(obj)->m_thread_local_dispatcher = g_value_get_object(value);
             break;
         case PROP_HOST:
-            PRIV(obj)->m_host = g_value_get_object(value);
+            rp_host_set_object(&PRIV(obj)->m_host, g_value_get_object(value));
             break;
         case PROP_PRIORITY:
             PRIV(obj)->m_priority = g_value_get_int(value);
@@ -98,7 +125,17 @@ dispose(GObject* obj)
 
     RpConnPoolMapPrivate* me = PRIV(obj);
     g_clear_pointer(&me->m_active_pools, g_hash_table_unref);
+#if 0 // TODO...
+/* free cached callbacks */
+for (guint i = 0; i < self->cached_callbacks->len; i++) {
+RpIdleCbEntry* e = g_ptr_array_index(self->cached_callbacks, i);
+if (e->destroy) e->destroy(e->user_data);
+g_free(e);
+}
+g_ptr_array_free(self->cached_callbacks, TRUE);
+#endif//0
     g_clear_pointer(&me->m_cached_callbacks, g_ptr_array_unref);
+    g_clear_object(&me->m_host);
 
     G_OBJECT_CLASS(rp_conn_pool_map_parent_class)->dispose(obj);
 }
@@ -148,6 +185,9 @@ rp_conn_pool_map_init(RpConnPoolMap* self)
     NOISY_MSG_("(%p)", self);
 
     RpConnPoolMapPrivate* me = PRIV(self);
-    me->m_active_pools = g_hash_table_new_full(g_int_hash, g_int_equal, g_free, NULL);
-    me->m_cached_callbacks = g_ptr_array_new();
+    me->m_active_pools = g_hash_table_new_full(g_bytes_hash,
+                                                g_bytes_equal,
+                                                (GDestroyNotify)g_bytes_unref,
+                                                g_object_unref);
+    me->m_cached_callbacks = g_ptr_array_new_with_free_func(g_free);
 }

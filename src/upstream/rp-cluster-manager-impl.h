@@ -21,30 +21,91 @@
 
 G_BEGIN_DECLS
 
-// Parameters for calling postThreadLocalClusterUpdate()
+/**
+ * Parameters for calling postThreadLocalClusterUpdate() - simplified c version.
+ */
+typedef struct _RpTlcPerPriority RpTlcPerPriority;
+struct _RpTlcPerPriority {
+
+    const RpHostVector* m_hosts_added;   // borrowed, read-only.
+    const RpHostVector* m_hosts_removed; // borrowed, read-only.
+
+    RpPrioritySetUpdateHostsParams m_update_hosts_params;
+
+    guint32 m_priority;
+    bool m_weighted_priority_health;
+    guint32 m_overprovisioning_factor;
+};
+
+static inline void
+rp_tlc_per_priority_clear(gpointer arg)
+{
+    RpTlcPerPriority* self = arg;
+    g_return_if_fail(self != NULL);
+
+    self->m_hosts_added = NULL;
+    self->m_hosts_removed = NULL;
+
+    rp_priority_set_update_hosts_params_clear(&self->m_update_hosts_params);
+}
+
 typedef struct _RpThreadLocalClusterUpdateParams RpThreadLocalClusterUpdateParams;
 struct _RpThreadLocalClusterUpdateParams {
-    //TODO...this is highly simplified vs. c++ implementation.
-    guint32 m_priority;
-    RpHostListPtr m_hosts_added;
-    RpHostListPtr m_hosts_removed;
+    GArray* m_per_priority_update_params; // RpTlcPerPriority elements.
 };
+
 static inline RpThreadLocalClusterUpdateParams
-rp_thread_local_cluster_update_params_ctor(guint32 priority, RpHostListPtr hosts_added, RpHostListPtr hosts_removed)
+rp_thread_local_cluster_update_params_ctor(void)
 {
     RpThreadLocalClusterUpdateParams self = {
+        .m_per_priority_update_params = g_array_sized_new(FALSE, FALSE, sizeof(RpTlcPerPriority), 1)
+    };
+    g_array_set_clear_func(self.m_per_priority_update_params, rp_tlc_per_priority_clear);
+    return self;
+}
+
+static inline RpThreadLocalClusterUpdateParams
+rp_thread_local_cluster_update_params_ctor_2(guint32 priority, RpHostVector* hosts_added, RpHostVector* hosts_removed)
+{
+    RpThreadLocalClusterUpdateParams self = rp_thread_local_cluster_update_params_ctor();
+    RpTlcPerPriority per_priority = {
         .m_priority = priority,
         .m_hosts_added = hosts_added,
         .m_hosts_removed = hosts_removed
     };
+    g_array_append_val(self.m_per_priority_update_params, per_priority);
     return self;
 }
+
 static inline RpThreadLocalClusterUpdateParams*
-rp_thread_local_cluster_update_params_new(guint32 priority, RpHostListPtr hosts_added, RpHostListPtr hosts_removed)
+rp_thread_local_cluster_update_params_new(void)
 {
     RpThreadLocalClusterUpdateParams* self = g_new(RpThreadLocalClusterUpdateParams, 1);
-    *self = rp_thread_local_cluster_update_params_ctor(priority, hosts_added, hosts_removed);
+    *self = rp_thread_local_cluster_update_params_ctor();
     return self;
+}
+
+static inline RpThreadLocalClusterUpdateParams*
+rp_thread_local_cluster_update_params_new_2(guint32 priority, RpHostVector* hosts_added, RpHostVector* hosts_removed)
+{
+    RpThreadLocalClusterUpdateParams* self = g_new(RpThreadLocalClusterUpdateParams, 1);
+    *self = rp_thread_local_cluster_update_params_ctor_2(priority, hosts_added, hosts_removed);
+    return self;
+}
+
+static inline void
+rp_thread_local_cluster_update_params_dtor(RpThreadLocalClusterUpdateParams* self)
+{
+    g_return_if_fail(self != NULL);
+    g_clear_pointer(&self->m_per_priority_update_params, g_array_unref);
+}
+
+static inline void
+rp_thread_local_cluster_update_params_free(RpThreadLocalClusterUpdateParams* self)
+{
+    g_return_if_fail(self != NULL);
+    rp_thread_local_cluster_update_params_dtor(self);
+    g_free(self);
 }
 
 
@@ -164,10 +225,16 @@ RpClusterManagerFactory* rp_cluster_manager_impl_factory_(RpClusterManagerImpl* 
 #define RP_TYPE_CLUSTER_INITIALIZATION_OBJECT rp_cluster_initialization_object_get_type()
 G_DECLARE_FINAL_TYPE(RpClusterInitializationObject, rp_cluster_initialization_object, RP, CLUSTER_INITIALIZATION_OBJECT, GObject)
 
-typedef SHARED_PTR(RpClusterInitializationObject) RpClusterInitializationObjectConstSharedPtr;
+typedef const SHARED_PTR(RpClusterInitializationObject) RpClusterInitializationObjectConstSharedPtr;
+typedef SHARED_PTR(RpClusterInitializationObject) RpClusterInitializationObjectSharedPtr;
 typedef SHARED_PTR(GHashTable) /*<std::string, ClusterInititalizationObjectConstSharedPtr>*/ RpClusterInitializationMap;
 
-RpClusterInitializationObject* rp_cluster_initialization_object_new(const RpThreadLocalClusterUpdateParams* params, RpClusterInfoConstSharedPtr cluster_info, RpLoadBalancerFactorySharedPtr load_balancer_factory, RpHostMapConstSharedPtr map/*, TODO...*/);
+RpClusterInitializationObject* rp_cluster_initialization_object_new(const RpThreadLocalClusterUpdateParams* params,
+                                                                    RpClusterInfoConstSharedPtr cluster_info,
+                                                                    RpLoadBalancerFactorySharedPtr load_balancer_factory,
+                                                                    RpHostMapSnap* map/*, TODO...*/);
+RpClusterInfoConstSharedPtr rp_cluster_initialization_object_cluster_info_(RpClusterInitializationObjectConstSharedPtr self);
+RpLoadBalancerFactorySharedPtr rp_cluster_initialization_object_cluster_load_balancer_factory_(RpClusterInitializationObjectConstSharedPtr self);
 
 
 typedef struct _RpThreadLocalClusterManagerImpl RpThreadLocalClusterManagerImpl;
@@ -187,14 +254,12 @@ struct _RpLocalClusterParams {
 */
 typedef struct _RpConnPoolsContainer RpConnPoolsContainer;
 struct _RpConnPoolsContainer {
-    RpHostConstSharedPtr m_host_handle;
-//  using ConnPools = PriorityConnPoolMap<std::vector<uint8_t>, Http::ConnectionPool::Instance>;
-//  std:;shared_ptr<ConnPools> pools_;
-    SHARED_PTR(RpPriorityConnPoolMap) m_pools;
+    RpHost* m_host_handle;          // Strong reference.
+    RpPriorityConnPoolMap* m_pools; // Owned.
     bool m_do_not_delete;
 };
 static inline RpConnPoolsContainer
-rp_conn_pools_container_ctor(RpHostConstSharedPtr host, SHARED_PTR(RpPriorityConnPoolMap) pools)
+rp_conn_pools_container_ctor(RpHost* host, RpPriorityConnPoolMap* pools)
 {
     RpConnPoolsContainer self = {
         .m_host_handle = g_object_ref(host),
@@ -207,13 +272,12 @@ static inline void
 rp_conn_pools_container_dtor(RpConnPoolsContainer* self)
 {
     g_return_if_fail(self != NULL);
-    g_clear_object(&self->m_host_handle);
     g_clear_object(&self->m_pools);
 }
 static inline RpConnPoolsContainer*
-rp_conn_pools_container_new(RpDispatcher* dispatcher, RpHostConstSharedPtr host)
+rp_conn_pools_container_new(RpDispatcher* dispatcher, RpHost* host)
 {
-    RpConnPoolsContainer* self = g_new(RpConnPoolsContainer, 1);
+    RpConnPoolsContainer* self = g_new0(RpConnPoolsContainer, 1);
     RpPriorityConnPoolMapImpl* conn_pool_map = rp_priority_conn_pool_map_impl_new(dispatcher, host);
     *self = rp_conn_pools_container_ctor(host, RP_PRIORITY_CONN_POOL_MAP(conn_pool_map));
     return self;
@@ -232,16 +296,16 @@ rp_conn_pools_container_free(RpConnPoolsContainer* self)
 */
 typedef struct _RpTcpConnPoolsContainer RpTcpConnPoolsContainer;
 struct _RpTcpConnPoolsContainer {
-    RpHostConstSharedPtr m_host_handle;
+    RpHost* m_host_handle;
 //  using ConnPools = std::map<std::vector<uint8_t>, Tcp::ConnectionPool::InstancePtr>;
 //  ConnPools pools_;
     GHashTable* /* <int, RpTcpConnPoolInstancePtr> */ m_pools;
 };
 static inline RpTcpConnPoolsContainer
-rp_tcp_conn_pools_container_ctor(RpHostConstSharedPtr host, GHashTable* pools)
+rp_tcp_conn_pools_container_ctor(RpHost* host, GHashTable* pools)
 {
     RpTcpConnPoolsContainer self = {
-        .m_host_handle = g_object_ref(host),
+        .m_host_handle = host,
         .m_pools = pools
     };
     return self;
@@ -250,14 +314,13 @@ static inline void
 rp_tcp_conn_pools_container_dtor(RpTcpConnPoolsContainer* self)
 {
     g_return_if_fail(self != NULL);
-    g_clear_object(&self->m_host_handle);
     g_clear_pointer(&self->m_pools, g_hash_table_unref);
 }
 static inline RpTcpConnPoolsContainer*
-rp_tcp_conn_pools_container_new(RpHostConstSharedPtr host)
+rp_tcp_conn_pools_container_new(RpHost* host)
 {
     RpTcpConnPoolsContainer* self = g_new(RpTcpConnPoolsContainer, 1);
-    *self = rp_tcp_conn_pools_container_ctor(host, g_hash_table_new(g_int_hash, g_int_equal));
+    *self = rp_tcp_conn_pools_container_ctor(host, g_hash_table_new_full(g_int_hash, g_int_equal, NULL, g_object_unref));
     return self;
 }
 static inline void
@@ -278,7 +341,7 @@ rp_tcp_conn_pools_container_free(RpTcpConnPoolsContainer* self)
 G_DECLARE_FINAL_TYPE(RpTcpConnContainer, rp_tcp_conn_container, RP, TCP_CONN_CONTAINER, GObject)
 
 RpTcpConnContainer* rp_tcp_conn_container_new(RpThreadLocalClusterManagerImpl* parent,
-                                                SHARED_PTR(RpHost) host,
+                                                RpHost* host,
                                                 RpNetworkClientConnection* connection);
 
 
@@ -287,7 +350,7 @@ struct _RpTcpConnectionsMap {
 //  TcpConnectionsMap(HostHandlePtr&& host_handle) : host_handle_(std::move(host_handle)) {}
 
     // Destroyed after pools.
-    RpHostConstSharedPtr m_host_handle;
+    RpHost* m_host_handle;
 //  absl::node_hash_map<Network::ClientConnection*, std::unique_ptr<TcpConnContainer>> connections_;
     GHashTable* /* <RpNetworkClientConnection, UNIQUE_PTR(RpTcpConnContainer)> */ m_connections;
 };
@@ -297,10 +360,10 @@ rp_tcp_connections_map_empty(RpTcpConnectionsMap* self)
     return g_hash_table_size(self->m_connections) == 0;
 }
 static inline RpTcpConnectionsMap
-rp_tcp_connections_map_ctor(RpHostConstSharedPtr host_handle, GHashTable* connections)
+rp_tcp_connections_map_ctor(RpHost* host_handle, GHashTable* connections)
 {
     RpTcpConnectionsMap self = {
-        .m_host_handle = g_object_ref(host_handle),
+        .m_host_handle = host_handle,
         .m_connections = connections
     };
     return self;
@@ -309,10 +372,9 @@ static inline void
 rp_tcp_connections_map_dtor(RpTcpConnectionsMap* self)
 {
     g_hash_table_destroy(g_steal_pointer(&self->m_connections));
-    g_clear_object(&self->m_host_handle);
 }
 static inline RpTcpConnectionsMap*
-rp_tcp_connections_map_new(RpHostConstSharedPtr host_handle)
+rp_tcp_connections_map_new(RpHost* host_handle)
 {
     RpTcpConnectionsMap* self = g_new(RpTcpConnectionsMap, 1);
     *self = rp_tcp_connections_map_ctor(host_handle, g_hash_table_new_full(NULL, NULL, NULL, g_object_unref));
@@ -338,7 +400,16 @@ RpClusterEntry* rp_cluster_entry_new(RpThreadLocalClusterManagerImpl* parent,
                                         RpLoadBalancerFactorySharedPtr lb_factory);
 void rp_cluster_entry_drain_conn_pools(RpClusterEntry* self);
 void rp_cluster_entry_drain_conn_pools_hosts_removed(RpClusterEntry* self,
-                                                        RpHostVector* hosts_removed);
+                                                        const RpHostVector* hosts_removed);
+void rp_cluster_entry_update_hosts(RpClusterEntry* self,
+                                    const char* name,
+                                    guint32 priority,
+                                    RpPrioritySetUpdateHostsParams* update_hosts_params,
+                                    const RpHostVector* hosts_added,
+                                    const RpHostVector* hosts_removed,
+                                    bool* weighted_health_priority_health,
+                                    guint32* overprovisioning_factor,
+                                    RpHostMapSnap* cross_priority_host_map);
 
 
 /**
@@ -353,14 +424,31 @@ RpThreadLocalClusterManagerImpl* rp_thread_local_cluster_manager_impl_new(RpClus
                                                                             RpDispatcher* dispatcher,
                                                                             RpLocalClusterParams* local_cluster_params);
 void rp_thread_local_cluster_manager_impl_remove_tcp_conn(RpThreadLocalClusterManagerImpl* self,
-                                                            RpHostConstSharedPtr host,
+                                                            RpHost* host,
                                                             RpNetworkClientConnection* connection);
 RpConnPoolsContainer* rp_thread_local_cluster_manager_impl_get_http_conn_pools_container(RpThreadLocalClusterManagerImpl* self,
-                                                                                            RpHostConstSharedPtr host,
+                                                                                            RpHost* host,
                                                                                             bool allocate);
 RpClusterEntry* rp_thread_local_cluster_manager_impl_initialize_cluster_inline_if_exists(RpThreadLocalClusterManagerImpl* self,
                                                                                             const char* cluster);
-void rp_thread_local_cluster_manager_impl_drain_or_close_conn_pools(RpThreadLocalClusterManagerImpl* self, RpHostSharedPtr host, RpDrainBehavior_e drain_bahavior);
+void rp_thread_local_cluster_manager_impl_drain_or_close_conn_pools(RpThreadLocalClusterManagerImpl* self,
+                                                                    RpHost* host,
+                                                                    RpDrainBehavior_e drain_bahavior);
+bool rp_thread_local_cluster_manager_impl_thread_local_clusters_contains(RpThreadLocalClusterManagerImpl* self,
+                                                                                    const char* cluster_name);
+bool rp_thread_local_cluster_manager_impl_thread_local_deferred_cluster_contains(RpThreadLocalClusterManagerImpl* self,
+                                                                                    const char* cluster_name);
+void rp_thread_local_cluster_manager_impl_update_cluster_membership(RpThreadLocalClusterManagerImpl* self,
+                                                                    const char* name,
+                                                                    guint32 priority,
+                                                                    RpPrioritySetUpdateHostsParams update_hosts_params,
+                                                                    const RpHostVector* hosts_added,                     // Transfer none.
+                                                                    const RpHostVector* hosts_removed,                   // Transfer none.
+                                                                    bool weighted_priority_health,
+                                                                    guint64 overprovisioning_factor,
+                                                                    RpHostMapSnap* cross_priority_host_map               // Tranfer none (shared).
+                                                                    );
+
 RpPrioritySet* rp_thread_local_cluster_manager_impl_local_priority_set_(RpThreadLocalClusterManagerImpl* self);
 RpClusterManagerImpl* rp_thread_local_cluster_manager_impl_parent_(RpThreadLocalClusterManagerImpl* self);
 RpDispatcher* rp_thread_local_cluster_manager_impl_dispatcher_(RpThreadLocalClusterManagerImpl* self);
@@ -377,21 +465,24 @@ typedef struct UNIQUE_PTR(_RpClusterData) RpClusterDataPtr;
 #define RP_TYPE_CLUSTER_DATA rp_cluster_data_get_type()
 G_DECLARE_FINAL_TYPE(RpClusterData, rp_cluster_data, RP, CLUSTER_DATA, GObject)
 
-RpClusterData* rp_cluster_data_new(RpClusterCfg* cluster_config,
+RpClusterData* rp_cluster_data_new(const RpClusterCfg* cluster_config,
                                     guint64 cluster_config_hash,
                                     bool added_via_api,
-                                    SHARED_PTR(RpCluster) cluster,
+                                    RpClusterSharedPtr cluster,
                                     RpTimeSource* time_source);
-RpThreadAwareLoadBalancerPtr* rp_cluster_data_thread_aware_lb_(RpClusterData* self);
 bool rp_cluster_data_block_update(RpClusterData* self, guint64 hash);
+RpThreadAwareLoadBalancerPtr rp_cluster_data_thread_aware_lb(RpClusterData* self);
+void rp_cluster_data_thread_aware_lb_take(RpClusterData* self,
+                                            RpThreadAwareLoadBalancerPtr* lb);
 
 
 /**
- * RpClusterUpdateCallbacksHandlerImpl
+ * RpClusterUpdateCallbacksHandleImpl
  */
-#define RP_TYPE_CLUSTER_UPDATE_CALLBACKS_HANDLER_IMPL rp_cluster_update_callbacks_handler_impl_get_type()
-G_DECLARE_FINAL_TYPE(RpClusterUpdateCallbacksHandlerImpl, rp_cluster_update_callbacks_handler_impl, RP, CLUSTER_UPDATE_CALLBACKS_HANDLER_IMPL, GObject)
+#define RP_TYPE_CLUSTER_UPDATE_CALLBACKS_HANDLE_IMPL rp_cluster_update_callbacks_handle_impl_get_type()
+G_DECLARE_FINAL_TYPE(RpClusterUpdateCallbacksHandleImpl, rp_cluster_update_callbacks_handle_impl, RP, CLUSTER_UPDATE_CALLBACKS_HANDLE_IMPL, GObject)
 
-RpClusterUpdateCallbacksHandlerImpl* rp_cluster_update_callbacks_handler_impl_new(RpClusterUpdateCallbacks* cb, GList** parent);
+RpClusterUpdateCallbacksHandleImpl* rp_cluster_update_callbacks_handle_impl_new(RpClusterUpdateCallbacks* cb,
+                                                                                GList** parent);
 
 G_END_DECLS

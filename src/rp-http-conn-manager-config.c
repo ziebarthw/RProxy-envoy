@@ -17,6 +17,7 @@
 
 #include "http1/rp-http1-server-connection-impl.h"
 #include "router/rp-router-filter.h"
+#include "router/rp-route-provider-manager.h"
 #include "router/rp-static-route-config-provider-impl.h"
 #include "rp-conn-manager-config.h"
 #include "rp-decompressor-filter.h"
@@ -83,7 +84,6 @@ struct _RpHttpConnectionManagerConfig {
 
     RpLocalReply* m_local_reply;
     RpFactoryContext* m_context;
-    RpThreadLocalInstance* m_tls;
 
     RpRouteConfigProvider* m_route_config_provider;
 
@@ -280,6 +280,8 @@ dispose(GObject* obj)
 
     RpHttpConnectionManagerConfig* self = RP_HTTP_CONNECTION_MANAGER_CONFIG(obj);
     g_slist_free_full(g_steal_pointer(&self->m_filter_factories), (GDestroyNotify)filter_factory_provider_free);
+NOISY_MSG_("%p, clearing route config provider %p(%u)", self, self->m_route_config_provider, G_OBJECT(self->m_route_config_provider)->ref_count);
+    g_clear_object(&self->m_route_config_provider);
 
     G_OBJECT_CLASS(rp_http_connection_manager_config_parent_class)->dispose(obj);
 }
@@ -303,32 +305,35 @@ rp_http_connection_manager_config_init(RpHttpConnectionManagerConfig* self)
 static inline RpHttpConnectionManagerConfig*
 constructed(RpHttpConnectionManagerConfig* self)
 {
+    extern RpRouteConfigProviderManagerFactory* default_route_config_provider_manager_factory;
+
     NOISY_MSG_("(%p)", self);
 
     RpHttpConnectionManagerCfg* config = &self->m_config;
+    RpRouteConfigProviderManagerSharedPtr route_config_provider_manager =
+        rp_route_config_provider_manager_factory_get(default_route_config_provider_manager_factory);
 
     self->m_http1_settings = parse_http1_settings();
     self->m_max_request_headers_count = config->http_protocol_options.max_headers_count;
     self->m_codec_type = get_codec_type(config->codec_type);
 
-    self->m_route_config_provider = RP_ROUTE_CONFIG_PROVIDER(
-        rp_static_route_config_provider_impl_new(&self->m_config.route_config,
-                                                    SERVER_FACTORY_CONTEXT(self),
-                                                    self->m_tls));
+    RpRouteConfigProviderPtr route_config_provider =
+        rp_route_config_provider_manager_create_static_route_config_provider(route_config_provider_manager,
+                                                                                &config->route_config,
+                                                                                SERVER_FACTORY_CONTEXT(self));
+    self->m_route_config_provider = route_config_provider;
     return self;
 }
 
 RpHttpConnectionManagerConfig*
-rp_http_connection_manager_config_new(RpHttpConnectionManagerCfg* config, RpFactoryContext* context, RpThreadLocalInstance* tls)
+rp_http_connection_manager_config_new(RpHttpConnectionManagerCfg* config, RpFactoryContext* context)
 {
-    LOGD("(%p, %p, %p)", config, context, tls);
+    LOGD("(%p, %p)", config, context);
     g_return_val_if_fail(config != NULL, NULL);
     g_return_val_if_fail(RP_IS_FACTORY_CONTEXT(context), NULL);
-    g_return_val_if_fail(RP_IS_THREAD_LOCAL_INSTANCE(tls), NULL);
     RpHttpConnectionManagerConfig* self = g_object_new(RP_TYPE_HTTP_CONNECTION_MANAGER_CONFIG, NULL);
     self->m_config = *config;
     self->m_context = context;
-    self->m_tls = tls;
     return constructed(self);
 }
 

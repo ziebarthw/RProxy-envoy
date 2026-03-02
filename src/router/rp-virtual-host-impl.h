@@ -22,6 +22,6 @@ G_BEGIN_DECLS
 #define RP_TYPE_VIRTUAL_HOST_IMPL rp_virtual_host_impl_get_type()
 G_DECLARE_FINAL_TYPE(RpVirtuaHostImpl, rp_virtual_host_impl, RP, VIRTUAL_HOST_IMPL, GObject)
 
-RpVirtuaHostImpl* rp_virtual_host_impl_new(RpVirtualHostCfg* virtual_host, RpRouteCommonConfig* global_route_config, RpServerFactoryContext* factory_context, RpStatusCode_e* creation_status);
+RpVirtuaHostImpl* rp_virtual_host_impl_new(RpVirtualHostCfg* virtual_host, RpRouterCommonConfig* global_route_config, RpServerFactoryContext* factory_context, RpStatusCode_e* creation_status);
 
 G_END_DECLS

@@ -22,9 +22,9 @@
 typedef struct _RpHostDescriptionImplBasePrivate RpHostDescriptionImplBasePrivate;
 struct _RpHostDescriptionImplBasePrivate {
 
-    RpClusterInfoConstSharedPtr m_cluster;
-    RpUpstreamTransportSocketFactory* m_socket_factory;
-    RpNetworkAddressInstanceConstSharedPtr m_dest_address;
+    RpClusterInfoSharedPtr m_cluster;
+    RpUpstreamTransportSocketFactory* m_socket_factory; // REVISIT: Mutex required?
+    RpNetworkAddressInstanceSharedPtr m_dest_address;
     RpMetadataConstSharedPtr m_endpoint_metadata;
     const char* m_hostname;
 
@@ -61,24 +61,24 @@ G_DEFINE_ABSTRACT_TYPE_WITH_CODE(RpHostDescriptionImplBase, rp_host_description_
 )
 
 #define PRIV(obj) \
-    ((RpHostDescriptionImplBasePrivate*) rp_host_description_impl_base_get_instance_private(RP_HOST_DESCRIPTION_IMPL_BASE(obj)))
+    ((RpHostDescriptionImplBasePrivate*) rp_host_description_impl_base_get_instance_private(RP_HOST_DESCRIPTION_IMPL_BASE((GObject*)obj)))
 
 static RpClusterInfoConstSharedPtr
-cluster_i(RpHostDescription* self)
+cluster_i(RpHostDescriptionConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_cluster;
 }
 
 static const char*
-hostname_i(RpHostDescription* self)
+hostname_i(RpHostDescriptionConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_hostname;
 }
 
 static bool
-can_create_connection_i(RpHostDescription* self, RpResourcePriority_e priority)
+can_create_connection_i(RpHostDescriptionConstSharedPtr self, RpResourcePriority_e priority)
 {
     NOISY_MSG_("(%p, %d)", self, priority);
     RpHostDescriptionImplBasePrivate* me = PRIV(self);
@@ -92,7 +92,7 @@ can_create_connection_i(RpHostDescription* self, RpResourcePriority_e priority)
 }
 
 static guint32
-priority_i(RpHostDescription* self)
+priority_i(RpHostDescriptionConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_priority;
@@ -106,7 +106,7 @@ set_priority_i(RpHostDescription* self, guint32 priority)
 }
 
 static RpMetadataConstSharedPtr
-metadata_i(RpHostDescription* self)
+metadata_i(RpHostDescriptionConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_endpoint_metadata;
@@ -120,7 +120,7 @@ set_metadata_i(RpHostDescription* self, RpMetadataConstSharedPtr new_metadata)
 }
 
 static RpUpstreamTransportSocketFactory*
-transport_socket_factory_i(RpHostDescription* self)
+transport_socket_factory_i(RpHostDescriptionConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_socket_factory;
@@ -147,7 +147,7 @@ get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
     switch (prop_id)
     {
         case PROP_CLUSTER:
-            g_value_set_object(value, PRIV(obj)->m_cluster);
+            g_value_set_object(value, (GObject*)PRIV(obj)->m_cluster);
             break;
         case PROP_HOSTNAME:
             g_value_set_string(value, PRIV(obj)->m_hostname);
@@ -168,13 +168,13 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
     switch (prop_id)
     {
         case PROP_CLUSTER:
-            PRIV(obj)->m_cluster = g_value_get_object(value);
+            rp_cluster_info_set_object(&PRIV(obj)->m_cluster, g_value_get_object(value));
             break;
         case PROP_HOSTNAME:
             PRIV(obj)->m_hostname = g_value_get_string(value);
             break;
         case PROP_DEST_ADDRESS:
-            PRIV(obj)->m_dest_address = g_object_ref(g_value_get_object(value));
+            rp_network_address_instance_set_object(&PRIV(obj)->m_dest_address, g_value_get_object(value));
             break;
         case PROP_PRIORITY:
             PRIV(obj)->m_priority = g_value_get_uint(value);
@@ -199,9 +199,11 @@ resolve_transport_socket_factory(RpHostDescriptionImplBase* self, RpNetworkAddre
 {
     extern RpUpstreamTransportSocketConfigFactory* default_upstream_transport_socket_config_factory;
     NOISY_MSG_("(%p, %p, %p)", self, dest_address, endpoint_metadata);
+    upstream_t* upstream = endpoint_metadata;
+    upstream_cfg_t* upstream_cfg = upstream->config;
     RpTransportSocketFactoryContextPtr context = rp_cluster_info_transport_socket_context(PRIV(self)->m_cluster);
     return rp_upstream_transport_socket_config_factory_create_transport_socket_factory(default_upstream_transport_socket_config_factory,
-                                                                                        endpoint_metadata,
+                                                                                        upstream_cfg,
                                                                                         context);
 }
 
@@ -225,6 +227,8 @@ dispose(GObject* obj)
 
     RpHostDescriptionImplBasePrivate* me = PRIV(obj);
     g_clear_object(&me->m_dest_address);
+    g_clear_object(&me->m_cluster);
+    g_clear_object(&me->m_socket_factory);
 
     G_OBJECT_CLASS(rp_host_description_impl_base_parent_class)->dispose(obj);
 }

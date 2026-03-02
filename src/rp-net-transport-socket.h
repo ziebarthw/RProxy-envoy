@@ -19,6 +19,7 @@
 G_BEGIN_DECLS
 
 typedef struct _RpHostDescription RpHostDescription;
+typedef const SHARED_PTR(RpHostDescription) RpHostDescriptionConstSharedPtr;
 
 
 /**
@@ -126,7 +127,6 @@ struct _RpNetworkTransportSocketInterface {
     bool (*start_secure_transport)(RpNetworkTransportSocket*);
 
     RpIoHandle* (*create_io_handle)(RpNetworkTransportSocket*);
-    evdns_base_t* (*dns_base)(RpNetworkTransportSocket*);
 };
 
 typedef UNIQUE_PTR(RpNetworkTransportSocket) RpNetworkTransportSocketPtr;
@@ -207,12 +207,6 @@ rp_network_transport_socket_create_io_handle(RpNetworkTransportSocket* self)
         RP_NETWORK_TRANSPORT_SOCKET_GET_IFACE(self)->create_io_handle(self) :
         NULL;
 }
-static inline evdns_base_t*
-rp_network_transport_socket_dns_base(RpNetworkTransportSocket* self)
-{
-    return RP_IS_NETWORK_TRANSPORT_SOCKET(self) ?
-        RP_NETWORK_TRANSPORT_SOCKET_GET_IFACE(self)->dns_base(self) : NULL;
-}
 
 /**
  * A factory for creating transport sockets.
@@ -245,7 +239,8 @@ struct _RpUpstreamTransportSocketFactoryInterface {
     RpTransportSocketFactoryBaseInterface parent_iface;
 
     RpNetworkTransportSocketPtr (*create_transport_socket)(RpUpstreamTransportSocketFactory*,
-                                                            RpHostDescription*);
+                                                            RpDispatcher*,
+                                                            RpHostDescriptionConstSharedPtr);
     bool (*supports_alpn)(RpUpstreamTransportSocketFactory*);
     const char* (*default_server_name_indication)(RpUpstreamTransportSocketFactory*);
     //TODO...
@@ -255,10 +250,10 @@ struct _RpUpstreamTransportSocketFactoryInterface {
 typedef UNIQUE_PTR(RpUpstreamTransportSocketFactory) RpUpstreamTransportSocketFactoryPtr;
 
 static inline RpNetworkTransportSocketPtr
-rp_upstream_transport_socket_factory_create_transport_socket(RpUpstreamTransportSocketFactory* self, RpHostDescription* host)
+rp_upstream_transport_socket_factory_create_transport_socket(RpUpstreamTransportSocketFactory* self, RpDispatcher* dispatcher, RpHostDescriptionConstSharedPtr host)
 {
     return RP_IS_UPSTREAM_TRANSPORT_SOCKET_FACTORY(self) ?
-        RP_UPSTREAM_TRANSPORT_SOCKET_FACTORY_GET_IFACE(self)->create_transport_socket(self, host) :
+        RP_UPSTREAM_TRANSPORT_SOCKET_FACTORY_GET_IFACE(self)->create_transport_socket(self, dispatcher, host) :
         NULL;
 }
 static inline bool

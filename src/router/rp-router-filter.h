@@ -46,6 +46,5 @@ G_DECLARE_FINAL_TYPE(RpRouterFilter, rp_router_filter, RP, ROUTER_FILTER, GObjec
 RpFilterFactoryCb* rp_router_filter_create_filter_factory(RpRouterCfg* config,
                                                             RpFactoryContext* context);
 RpCoreResponseFlag_e rp_router_filter_stream_reset_reason_to_response_flag(RpStreamResetReason_e reset_reason);
-GSList* rp_router_filter_upstream_requests(RpRouterFilter* self);
 
 G_END_DECLS

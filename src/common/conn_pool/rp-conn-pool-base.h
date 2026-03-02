@@ -17,7 +17,7 @@ G_BEGIN_DECLS
 typedef struct _RpPendingStream * RpPendingStreamPtr;
 typedef struct _RpConnectionPoolActiveClient * RpConnectionPoolActiveClientPtr;
 typedef struct _RpConnectionPoolAttachContext * RpConnectionPoolAttachContextPtr;
-typedef struct _RpHost * RpHostPtr;
+typedef struct _RpHost RpHost;
 
 typedef enum {
     RpConnectionPoolActiveClientState_Connecting,
@@ -71,7 +71,7 @@ struct _RpConnPoolImplBaseClass {
                                     RpConnectionPoolAttachContextPtr);
     bool (*enforce_max_requests)(RpConnPoolImplBase*);
     void (*on_pool_failure)(RpConnPoolImplBase*,
-                            RpHostDescription*,
+                            RpHostDescriptionConstSharedPtr,
                             const char*,
                             RpPoolFailureReason_e,
                             RpConnectionPoolAttachContextPtr);
@@ -116,7 +116,7 @@ rp_conn_pool_impl_base_enforce_max_requests(RpConnPoolImplBase* self)
         false;
 }
 static inline void
-rp_conn_pool_impl_base_on_pool_failure(RpConnPoolImplBase* self, RpHostDescription* host_description,
+rp_conn_pool_impl_base_on_pool_failure(RpConnPoolImplBase* self, RpHostDescriptionConstSharedPtr host_description,
                                         const char* failure_reason,
                                         RpPoolFailureReason_e pool_failure_reason,
                                         RpConnectionPoolAttachContextPtr context)
@@ -157,7 +157,7 @@ void rp_conn_pool_impl_base_incr_connecting_and_connected_stream_capacity(RpConn
 void rp_conn_pool_impl_base_decr_connecting_and_connected_stream_capacity(RpConnPoolImplBase* self,
                                                                             guint32 delta,
                                                                             RpConnectionPoolActiveClientPtr client);
-RpHostPtr rp_conn_pool_impl_base_host(RpConnPoolImplBase* self);
+RpHost* rp_conn_pool_impl_base_host(RpConnPoolImplBase* self); /* transfer none */
 RpResourcePriority_e rp_conn_pool_impl_base_priority(RpConnPoolImplBase* self);
 void rp_conn_pool_impl_base_on_pending_stream_cancel(RpConnPoolImplBase* self,
                                                         RpPendingStreamPtr stream,

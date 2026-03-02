@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_per_host_http_upstream_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_per_host_http_upstream_NOISY)
@@ -21,7 +18,7 @@
 struct _RpPerHostHttpUpstream {
     RpHttpUpstream parent_instance;
 
-    RpHostDescription* m_host;
+    RpHostDescriptionSharedPtr m_host;
 };
 
 // https://github.com/envoyproxy/envoy/blob/main/test/integration/upstreams/per_host_upstream_config.h
@@ -32,6 +29,10 @@ OVERRIDE void
 dispose(GObject* obj)
 {
     NOISY_MSG_("(%p)", obj);
+
+    RpPerHostHttpUpstream* self = RP_PER_HOST_HTTP_UPSTREAM(obj);
+    g_clear_object(&self->m_host);
+
     G_OBJECT_CLASS(rp_per_host_http_upstream_parent_class)->dispose(obj);
 }
 
@@ -51,16 +52,16 @@ rp_per_host_http_upstream_init(RpPerHostHttpUpstream* self G_GNUC_UNUSED)
 }
 
 RpPerHostHttpUpstream*
-rp_per_host_http_upstream_new(RpUpstreamToDownstream* upstream_request, RpRequestEncoder* request_encoder, RpHostDescription* host)
+rp_per_host_http_upstream_new(RpUpstreamToDownstream* upstream_request, RpRequestEncoder* request_encoder, RpHostDescriptionConstSharedPtr host)
 {
     LOGD("(%p, %p, %p)", upstream_request, request_encoder, host);
     g_return_val_if_fail(RP_IS_UPSTREAM_TO_DOWNSTREAM(upstream_request), NULL);
     g_return_val_if_fail(RP_IS_REQUEST_ENCODER(request_encoder), NULL);
-    g_return_val_if_fail(RP_IS_HOST_DESCRIPTION(host), NULL);
+    g_return_val_if_fail(rp_host_description_is_a(host), NULL);
     RpPerHostHttpUpstream* self = g_object_new(RP_TYPE_PER_HOST_HTTP_UPSTREAM,
                                                 "upstream-request", upstream_request,
                                                 "request-encoder", request_encoder,
                                                 NULL);
-    self->m_host = host;
+    rp_host_description_set_object(&self->m_host, host);
     return self;
 }

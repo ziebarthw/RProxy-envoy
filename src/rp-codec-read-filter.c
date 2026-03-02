@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_codec_read_filter_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_codec_read_filter_NOISY)
@@ -16,9 +13,8 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
-#include "rp-codec-client.h"
 #include "rp-net-connection.h"
-#include "rp-codec-read-filter.h"
+#include "rp-codec-client.h"
 
 struct _RpCodecReadFilter {
     RpNetworkReadFilterBaseImpl parent_instance;
@@ -76,11 +72,11 @@ rp_codec_read_filter_init(RpCodecReadFilter* self G_GNUC_UNUSED)
 }
 
 RpCodecReadFilter*
-rp_codec_read_filter_new(void* arg)
+rp_codec_read_filter_new(RpCodecClient* parent)
 {
-    LOGD("(%p)", arg);
-    g_return_val_if_fail(RP_IS_CODEC_CLIENT(arg), NULL);
+    LOGD("(%p)", parent);
+    g_return_val_if_fail(RP_IS_CODEC_CLIENT(parent), NULL);
     RpCodecReadFilter* self = g_object_new(RP_TYPE_CODEC_READ_FILTER, NULL);
-    self->m_parent = RP_CODEC_CLIENT(arg);
+    self->m_parent = parent;
     return self;
 }

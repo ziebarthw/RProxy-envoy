@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_codec_bridge_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_codec_bridge_NOISY)
@@ -97,7 +94,7 @@ decode_headers_i(RpResponseDecoder* self, evhtp_headers_t* response_headers, boo
 
     RpStreamDecoderFilterCallbacks* callbacks_ = CALLBACKS(me);
     if (rp_upstream_stream_filter_callbacks_paused_for_connect(
-        rp_stream_filter_callbacks_upstream_callbacks(RP_STREAM_FILTER_CALLBACKS(callbacks_))) &&
+            rp_stream_filter_callbacks_upstream_callbacks(RP_STREAM_FILTER_CALLBACKS(callbacks_))) &&
         is_2xx(http_utility_get_response_status(response_headers)))
     {
         rp_upstream_stream_filter_callbacks_set_paused_for_connect(
@@ -108,7 +105,7 @@ decode_headers_i(RpResponseDecoder* self, evhtp_headers_t* response_headers, boo
     //TODO...
 
     maybe_end_decode(me, end_stream);
-    rp_stream_decoder_filter_callbacks_encode_headers(CALLBACKS(me), response_headers, end_stream, "via_upstream");
+    rp_stream_decoder_filter_callbacks_encode_headers(callbacks_, response_headers, end_stream, "via_upstream");
 }
 
 static void
@@ -150,12 +147,10 @@ stream_callbacks_iface_init(RpStreamCallbacksInterface* iface)
     iface->on_reset_stream = on_reset_stream_i;
 }
 
-static RpRoute*
+static RpRouteSharedPtr
 route_i(RpUpstreamToDownstream* self)
 {
     NOISY_MSG_("(%p)", self);
-NOISY_MSG_("filter %p", RP_CODEC_BRIDGE(self)->m_filter);
-NOISY_MSG_("callbacks %p", STREAM_FILTER_CALLBACKS(self));
     return rp_stream_filter_callbacks_route(STREAM_FILTER_CALLBACKS(self));
 }
 

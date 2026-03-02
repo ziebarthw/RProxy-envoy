@@ -30,17 +30,17 @@ struct _RpHttpConnPoolCallbacksInterface {
     void (*on_pool_failure)(RpHttpConnPoolCallbacks*,
                             RpPoolFailureReason_e,
                             const char*,
-                            RpHostDescription*);
+                            RpHostDescriptionConstSharedPtr);
     void (*on_pool_ready)(RpHttpConnPoolCallbacks*,
                             RpRequestEncoder*,
-                            RpHostDescription*,
+                            RpHostDescriptionConstSharedPtr,
                             RpStreamInfo*,
                             evhtp_proto);
 };
 
 static inline void
 rp_http_conn_pool_callbacks_on_pool_failure(RpHttpConnPoolCallbacks* self, RpPoolFailureReason_e reason,
-                                            const char* transport_failure_reason, RpHostDescription* host)
+                                            const char* transport_failure_reason, RpHostDescriptionConstSharedPtr host)
 {
     if (RP_IS_HTTP_CONN_POOL_CALLBACKS(self))
     {
@@ -49,7 +49,7 @@ rp_http_conn_pool_callbacks_on_pool_failure(RpHttpConnPoolCallbacks* self, RpPoo
 }
 static inline void
 rp_http_conn_pool_callbacks_on_pool_ready(RpHttpConnPoolCallbacks* self, RpRequestEncoder* encoder,
-                                            RpHostDescription* host, RpStreamInfo* info, evhtp_proto protocol)
+                                            RpHostDescriptionConstSharedPtr host, RpStreamInfo* info, evhtp_proto protocol)
 {
     if (RP_IS_HTTP_CONN_POOL_CALLBACKS(self))
     {
@@ -62,7 +62,7 @@ rp_http_conn_pool_callbacks_on_pool_ready(RpHttpConnPoolCallbacks* self, RpReque
  * An instance of a generic connection pool.
  */
 #define RP_TYPE_HTTP_CONNECTION_POOL_INSTANCE rp_http_connection_pool_instance_get_type()
-G_DECLARE_INTERFACE(RpHttpConnectionPoolInstance, rp_http_connection_pool_instance, RP, HTTP_CONNECTION_POOL_INSTANCE, RpConnectionPoolInstance)
+G_DECLARE_INTERFACE(RpHttpConnectionPoolInstance, rp_http_connection_pool_instance, RP, HTTP_CONNECTION_POOL_INSTANCE, GObject/*RpConnectionPoolInstance*/)
 
 typedef struct _RpHttpConnPoolInstStreamOptions* RpHttpConnPoolInstStreamOptionsPtr;
 typedef struct _RpHttpConnPoolInstStreamOptions RpHttpConnPoolInstStreamOptions;
@@ -81,7 +81,8 @@ rp_http_conn_pool_inst_stream_options_ctor(bool can_send_early_data, bool can_us
 }
 
 struct _RpHttpConnectionPoolInstanceInterface {
-    RpConnectionPoolInstanceInterface parent_iface;
+    /*RpConnectionPoolInstanceInterface parent_iface;*/
+    GTypeInterface parent_iface;
 
     bool (*has_active_connections)(RpHttpConnectionPoolInstance*);
     RpCancellable* (*new_stream)(RpHttpConnectionPoolInstance*, RpResponseDecoder*, RpHttpConnPoolCallbacks*, RpHttpConnPoolInstStreamOptionsPtr);

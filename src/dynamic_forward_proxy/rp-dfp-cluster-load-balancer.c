@@ -94,7 +94,7 @@ choose_host_i(RpLoadBalancer* self, RpLoadBalancerContext* context)
         return rp_dfp_cluster_impl_choose_host(RP_DFP_CLUSTER_IMPL(me->m_cluster), hostname, context);
     }
 
-    RpHostConstSharedPtr host = rp_dfp_lb_find_host_by_name(RP_DFP_LB(self), hostname);
+    RpHost* host = rp_dfp_lb_find_host_by_name(RP_DFP_LB(self), hostname);
     //TODO...
     return rp_host_selection_response_ctor(host, NULL, NULL);
 }
@@ -106,7 +106,7 @@ load_balancer_iface_init(RpLoadBalancerInterface* iface)
     iface->choose_host = choose_host_i;
 }
 
-static RpHostConstSharedPtr
+static RpHost*
 find_host_by_name_i(RpDfpLb* self, const char* host)
 {
     NOISY_MSG_("(%p, %p(%s))", self, host, host);

@@ -30,8 +30,8 @@ struct _RpServerInstanceBasePrivate {
 
     RpLocalInfo* m_local_info;
     RpClusterManagerFactory* m_cluster_manager_factory;
-    UNIQUE_PTR(RpServerFactoryContextImpl) m_server_contexts;
-    UNIQUE_PTR(RpSingletonManagerImpl) m_singleton_manager;
+    RpServerFactoryContextImpl* m_server_contexts;
+    RpSingletonManagerImpl* m_singleton_manager;
     RpDispatcherPtr m_dispatcher;
     RpServerConfigurationMainImpl* m_config;
 
@@ -85,6 +85,19 @@ terminate(RpServerInstanceBasePrivate* me)
     rp_thread_local_instance_shutdown_global_threading(me->m_thread_local);
 
     //TODO...
+
+    RpClusterManager* cluster_manager = rp_server_configuration_cluster_manager(RP_SERVER_CONFIGURATION_MAIN(me->m_config));
+    if (cluster_manager)
+    {
+        NOISY_MSG_("shutting down cluster manager");
+        rp_cluster_manager_shutdown(cluster_manager);
+    }
+
+    //TODO...
+
+    // Envoy calls this in the destuctor. We need to do it earlier due to the
+    // way we integrate with libevhtp threads.
+    rp_dispatcher_shutdown(me->m_dispatcher);
 
     rp_thread_local_instance_shutdown_thread(me->m_thread_local);
 }
@@ -271,6 +284,8 @@ dispose(GObject* obj)
     g_clear_object(&me->m_dispatcher);
     g_clear_object(&me->m_singleton_manager);
     g_clear_object(&me->m_dns_resolver);
+    g_clear_object(&me->m_local_info);
+    g_clear_object(&me->m_cluster_manager_factory);
 
     G_OBJECT_CLASS(rp_server_instance_base_parent_class)->dispose(obj);
 }

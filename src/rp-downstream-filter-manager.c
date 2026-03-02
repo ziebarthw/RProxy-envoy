@@ -152,7 +152,7 @@ struct _RpDownstreamFilterManager {
 
 G_DEFINE_FINAL_TYPE(RpDownstreamFilterManager, rp_downstream_filter_manager, RP_TYPE_FILTER_MANAGER)
 
-static inline RpConnectionInfoProvider*
+static inline RpConnectionInfoProviderSharedPtr
 connection_info_provider(RpDownstreamFilterManager* self)
 {
     NOISY_MSG_("(%p)", self);
@@ -166,7 +166,6 @@ dispose(GObject* obj)
     NOISY_MSG_("(%p)", obj);
 
     RpDownstreamFilterManager* self = RP_DOWNSTREAM_FILTER_MANAGER(obj);
-NOISY_MSG_("stream info %p(%u)", self->m_stream_info, G_OBJECT(self->m_stream_info)->ref_count);
     g_clear_object(&self->m_stream_info);
 
     G_OBJECT_CLASS(rp_downstream_filter_manager_parent_class)->dispose(obj);
@@ -504,7 +503,6 @@ on_local_reply(RpFilterManager* self, struct RpStreamFilterBase_LocalReplyData* 
     rp_filter_manager_callbacks_on_local_reply(FILTER_MANAGER_CALLBACKS(self), data->m_code);
 
     GList** filters = rp_filter_manager_get_filters(self);
-NOISY_MSG_("filters %p(%p)", filters, filters ? *filters : NULL);
     for (GList* entry = *filters; entry; entry = entry->next)
     {
         RpStreamFilterBase* filter = RP_STREAM_FILTER_BASE(entry->data);

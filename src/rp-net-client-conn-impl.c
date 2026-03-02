@@ -22,7 +22,7 @@ struct _RpNetworkClientConnectionImpl {
     RpNetworkConnectionImpl parent_instance;
 
     RpStreamInfoImpl* m_stream_info;
-    RpNetworkAddressInstanceConstSharedPtr m_source_address;
+    RpNetworkAddressInstanceSharedPtr m_source_address;
 };
 
 enum
@@ -106,14 +106,8 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
     switch (prop_id)
     {
         case PROP_SOURCE_ADDRESS:
-        {
-            RpNetworkAddressInstanceConstSharedPtr addr = g_value_get_object(value);
-            if (addr)
-            {
-                RP_NETWORK_CLIENT_CONNECTION_IMPL(obj)->m_source_address = g_object_ref(addr);
-            }
+            rp_network_address_instance_set_object(&RP_NETWORK_CLIENT_CONNECTION_IMPL(obj)->m_source_address, g_value_get_object(value));
             break;
-        }
         default:
             G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
             break;
@@ -129,19 +123,20 @@ constructed(GObject* obj)
 
     RpNetworkClientConnectionImpl* self = RP_NETWORK_CLIENT_CONNECTION_IMPL(obj);
     RpSocket* socket_ = RP_SOCKET(rp_network_connection_impl_socket_(RP_NETWORK_CONNECTION_IMPL(self)));
-    RpConnectionInfoProvider* provider = RP_CONNECTION_INFO_PROVIDER(rp_socket_connection_info_provider(socket_));
+    RpConnectionInfoProviderSharedPtr provider = RP_CONNECTION_INFO_PROVIDER(rp_socket_connection_info_provider(socket_));
     self->m_stream_info = rp_stream_info_impl_new(EVHTP_PROTO_INVALID, provider, RpFilterStateLifeSpan_Connection, NULL);
 
-    rp_stream_info_set_upstream_info(RP_STREAM_INFO(self->m_stream_info),
-                                        RP_UPSTREAM_INFO(rp_upstream_info_impl_new()));
+    SHARED_PTR(RpUpstreamInfo) upstream_info = RP_UPSTREAM_INFO(rp_upstream_info_impl_new());
+    rp_stream_info_set_upstream_info(RP_STREAM_INFO(self->m_stream_info), upstream_info);
+    g_clear_object(&upstream_info); // Transfer ownership.
 
-    RpNetworkAddressInstanceConstSharedPtr source = self->m_source_address;
+    RpNetworkAddressInstanceSharedPtr source = self->m_source_address;
 
     RpNetworkAddressInstanceConstSharedPtr local_address = rp_connection_info_provider_local_address(provider);
     if (local_address)
     {
         NOISY_MSG_("setting to local");
-        source = local_address;
+//TODO...        rp_network_address_instance_set_object(&source, local_address);
     }
 
     if (source)
@@ -157,6 +152,7 @@ dispose(GObject* obj)
 
     RpNetworkClientConnectionImpl* self = RP_NETWORK_CLIENT_CONNECTION_IMPL(obj);
     g_clear_object(&self->m_source_address);
+    g_clear_object(&self->m_stream_info);
 
     G_OBJECT_CLASS(rp_network_client_connection_impl_parent_class)->dispose(obj);
 }
@@ -243,9 +239,11 @@ rp_network_client_connection_impl_new(RpDispatcher* dispatcher, RpNetworkAddress
                                         RpNetworkTransportSocket* transport_socket)
 {
     LOGD("(%p, %p, %p, %p)", dispatcher, remote_address, source_address, transport_socket);
+
     g_return_val_if_fail(RP_IS_DISPATCHER(dispatcher), NULL);
-    g_return_val_if_fail(RP_IS_NETWORK_ADDRESS_INSTANCE(remote_address), NULL);
+    g_return_val_if_fail(rp_network_address_instance_is_network_address_instance(remote_address), NULL);
     g_return_val_if_fail(RP_IS_NETWORK_TRANSPORT_SOCKET(transport_socket), NULL);
+
     RpConnectionSocket* connection_socket = create_connection_socket(transport_socket, remote_address);
     return client_connection_impl_new(dispatcher,
                                         connection_socket,

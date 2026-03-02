@@ -10,6 +10,7 @@
 #include <stdbool.h>
 #include <glib-object.h>
 #include <evhtp.h>
+#include "rp-callback.h"
 #include "rp-cluster-configuration.h"
 #include "rp-codec.h"
 #include "rp-host-description.h"
@@ -29,6 +30,13 @@ typedef enum {
     RpInitializePhase_Primary,
     RpInitializePhase_Secondary
 } RpInitializePhase_e;
+
+
+typedef enum {
+    RpHostHealth_UNHEALTHY,
+    RpHostHealth_DEGRADED,
+    RpHostHealth_HEALTHY
+} RpHostHealth_e;
 
 
 /**
@@ -54,11 +62,11 @@ typedef struct _RpCreateConnectionData RpCreateConnectionData;
 typedef RpCreateConnectionData * RpCreateConnectionDataPtr;
 struct _RpCreateConnectionData {
     RpNetworkClientConnection* m_connection;
-    RpHostDescription* m_host_description;
+    RpHostDescriptionConstSharedPtr m_host_description;
 };
 
 static inline RpCreateConnectionData
-rp_create_connection_data_ctor(RpNetworkClientConnection* connection, RpHostDescription* host_description)
+rp_create_connection_data_ctor(RpNetworkClientConnection* connection, RpHostDescriptionConstSharedPtr host_description)
 {
     RpCreateConnectionData self = {
         .m_connection = connection,
@@ -68,6 +76,39 @@ rp_create_connection_data_ctor(RpNetworkClientConnection* connection, RpHostDesc
 }
 
 
+  // We use an X-macro here to make it easier to verify that all the enum values are accounted for.
+  // clang-format off
+#define HEALTH_FLAG_ENUM_VALUES(m)                                               \
+  /* The host is currently failing active health checks. */                      \
+  m(FAILED_ACTIVE_HC, 0x1)                                                       \
+  /* The host is currently considered an outlier and has been ejected. */        \
+  m(FAILED_OUTLIER_CHECK, 0x02)                                                  \
+  /* The host is currently marked as unhealthy by EDS. */                        \
+  m(FAILED_EDS_HEALTH, 0x04)                                                     \
+  /* The host is currently marked as degraded through active health checking. */ \
+  m(DEGRADED_ACTIVE_HC, 0x08)                                                    \
+  /* The host is currently marked as degraded by EDS. */                         \
+  m(DEGRADED_EDS_HEALTH, 0x10)                                                   \
+  /* The host is pending removal from discovery but is stabilized due to */      \
+  /* active HC. */                                                               \
+  m(PENDING_DYNAMIC_REMOVAL, 0x20)                                               \
+  /* The host is pending its initial active health check. */                     \
+  m(PENDING_ACTIVE_HC, 0x40)                                                     \
+  /* The host should be excluded from panic, spillover, etc. calculations */     \
+  /* because it was explicitly taken out of rotation via protocol signal and */  \
+  /* is not meant to be routed to. */                                            \
+  m(EXCLUDED_VIA_IMMEDIATE_HC_FAIL, 0x80)                                        \
+  /* The host failed active HC due to timeout. */                                \
+  m(ACTIVE_HC_TIMEOUT, 0x100)                                                    \
+  /* The host is currently marked as draining by EDS */                          \
+  m(EDS_STATUS_DRAINING, 0x200)
+  // clang-format on
+
+#define DECLARE_ENUM(name, value) name = value,
+
+  typedef enum { HEALTH_FLAG_ENUM_VALUES(DECLARE_ENUM) } RpHostHealthFlag_e;
+
+#undef DECLARE_ENUM
 
 /**
  * An upstream host.
@@ -79,56 +120,155 @@ struct _RpHostInterface {
     GTypeInterface/*virtual RpHostDescription*/ parent_iface;
 
     //TODO...
-    RpCreateConnectionData (*create_connection)(RpHost*,
+    RpCreateConnectionData (*create_connection)(const RpHost*,
                                                 RpDispatcher*
                                                 /*Network::TransportSocketOptions,*/
                                                 /*Metadata*/);
     //TODO...
-    guint32 (*weight)(RpHost*);
+    void (*health_flag_clear)(RpHost*, RpHostHealthFlag_e);
+    bool (*health_flag_get)(const RpHost*, RpHostHealthFlag_e);
+    void (*health_flag_set)(RpHost*, RpHostHealth_e);
+    guint32 (*health_flags_get_all)(const RpHost*);
+    guint32 (*health_flags_set_all)(RpHost*, guint32);
+    RpHostHealth_e (*coarse_health)(const RpHost*);
+    guint32 (*weight)(const RpHost*);
     void (*set_wieght)(RpHost*, guint32);
-    bool (*used)(RpHost*);
+    bool (*used)(const RpHost*);
     //TODO...
 };
 
-static inline RpCreateConnectionData
-rp_host_create_connection(RpHost* self, RpDispatcher* dispatcher)
+typedef RpHost RpHost;     // GObject type.
+typedef RpHost* RpHostPtr; // Plain pointer (borrowed unless documented otherwise).
+
+static inline gboolean
+rp_host_is_a(const RpHost* self)
 {
-    return RP_IS_HOST(self) ?
-        RP_HOST_GET_IFACE(self)->create_connection(self, dispatcher) :
-        rp_create_connection_data_ctor(NULL, NULL);
+    g_return_val_if_fail(self != NULL, FALSE);
+    return RP_IS_HOST((GObject*)self);
+}
+static inline RpHostInterface*
+rp_host_iface(const RpHost* self)
+{
+    g_return_val_if_fail(rp_host_is_a(self), NULL);
+    return RP_HOST_GET_IFACE((GObject*)self);
+}
+static inline void
+rp_host_set_object(RpHost** dst, const RpHost* src)
+{
+    g_return_if_fail(dst != NULL);
+    g_set_object((GObject**)dst, (GObject*)src);
+}
+static inline RpCreateConnectionData
+rp_host_create_connection(const RpHost* self, RpDispatcher* dispatcher)
+{
+    g_return_val_if_fail(rp_host_is_a(self), rp_create_connection_data_ctor(NULL, NULL));
+    RpHostInterface* iface = rp_host_iface(self);
+    return iface->create_connection(self, dispatcher);
+}
+static inline void
+rp_host_health_flag_clear(RpHost* self, RpHostHealthFlag_e flag)
+{
+    g_return_if_fail(rp_host_is_a(self));
+    RpHostInterface* iface = rp_host_iface(self);
+    iface->health_flag_clear(self, flag);
+}
+static inline bool
+rp_host_health_flag_get(const RpHost* self, RpHostHealthFlag_e flag)
+{
+    g_return_val_if_fail(rp_host_is_a(self), false);
+    RpHostInterface* iface = rp_host_iface(self);
+    return iface->health_flag_get(self, flag);
+}
+static inline void
+rp_host_health_flag_set(RpHost* self, RpHostHealth_e flag)
+{
+    g_return_if_fail(rp_host_is_a(self));
+    RpHostInterface* iface = rp_host_iface(self);
+    iface->health_flag_set(self, flag);
 }
 static inline guint32
-rp_host_weight(RpHost* self)
+rp_host_health_flags_get_all(const RpHost* self)
 {
-    return RP_IS_HOST(self) ? RP_HOST_GET_IFACE(self)->weight(self) : 1;
+    g_return_val_if_fail(rp_host_is_a(self), 0);
+    RpHostInterface* iface = rp_host_iface(self);
+    return iface->health_flags_get_all(self);
+}
+static inline guint32
+rp_host_health_flags_set_all(RpHost* self, guint32 bits)
+{
+    g_return_val_if_fail(rp_host_is_a(self), 0);
+    RpHostInterface* iface = rp_host_iface(self);
+    return iface->health_flags_set_all(self, bits);
+}
+static inline RpHostHealth_e
+rp_host_coarse_health(const RpHost* self)
+{
+    g_return_val_if_fail(rp_host_is_a(self), RpHostHealth_UNHEALTHY);
+    RpHostInterface* iface = rp_host_iface(self);
+    return iface->coarse_health(self);
+}
+static inline guint32
+rp_host_weight(const RpHost* self)
+{
+    g_return_val_if_fail(rp_host_is_a(self), 1);
+    RpHostInterface* iface = rp_host_iface(self);
+    return iface->weight(self);
 }
 static inline void
 rp_host_set_wieght(RpHost* self, guint32 new_weight)
 {
-    if (RP_IS_HOST(self))
-    {
-        RP_HOST_GET_IFACE(self)->set_wieght(self, new_weight);
-    }
+    g_return_if_fail(rp_host_is_a(self));
+    RpHostInterface* iface = rp_host_iface(self);
+    iface->set_wieght(self, new_weight);
 }
 static inline bool
-rp_host_used(RpHost* self)
+rp_host_used(const RpHost* self)
 {
-    return RP_IS_HOST(self) ? RP_HOST_GET_IFACE(self)->used(self) : false;
+    g_return_val_if_fail(rp_host_is_a(self), false);
+    RpHostInterface* iface = rp_host_iface(self);
+    return iface->used(self);
 }
 
-typedef SHARED_PTR(RpHost) RpHostSharedPtr;
-typedef SHARED_PTR(RpHost) RpHostConstSharedPtr;
 
-typedef GPtrArray RpHostVector;
-typedef SHARED_PTR(GPtrArray) RpHostVectorSharedPtr;
-typedef SHARED_PTR(GPtrArray) RpHostVectorConstSharedPtr;
+/**
+ * RpHostVector
+ */
+typedef struct _RpHostVector RpHostVector;
 
-typedef UNIQUE_PTR(RpHostVector) RpHostListPtr;
-typedef UNIQUE_PTR(GHashTable) RpLocalityWeightsMap;
+RpHostVector* rp_host_vector_new(void);
+RpHostVector* rp_host_vector_copy(const RpHostVector* src);
+void rp_host_vector_add(RpHostVector* self, RpHost* host);         /* refs host */
+void rp_host_vector_add_take(RpHostVector* self, RpHost* host);    /* takes ownership */
+RpHostVector* rp_host_vector_ref(const RpHostVector* self);
+void rp_host_vector_unref(const RpHostVector* self);
+gint rp_host_vector_ref_count(const RpHostVector* self);
+bool rp_host_vector_is_empty(const RpHostVector* self);
+RpHost* rp_host_vector_get(const RpHostVector* self, guint index); /* transfer none */
+RpHost* rp_host_vector_dup(const RpHostVector* self, guint index); /* transfer full */
+guint rp_host_vector_len(const RpHostVector* self);
+
+
+typedef UNIQUE_PTR(RpHostVector) RpHostListPtr;      // std::unique_ptr<HostVector>
+typedef UNIQUE_PTR(GHashTable) RpLocalityWeightsMap; // absl::node_hash_map<Locality, uint32_t, LocalityHash, LocalityEqualTo>
 // std::pair<HostListsPtr, LocalityWeightsMap>
 //RP_DEFINE_PAIR_STRICT(PairHostListsPtrLocalityWeightsMap, RpHostListPtr, RpLocalityWeightsMap);
 //RP_DECLARE_PAIR_CTOR(PairHostListsPtrLocalityWeightsMap, RpHostListPtr, RpLocalityWeightsMap);
-typedef UNIQUE_PTR(GPtrArray) RpPriorityState;
+
+typedef struct _RpPriorityState RpPriorityState;       // std::vector<std::pair<HostListPtr, LocalityWeightsMap>>
+typedef UNIQUE_PTR(RpPriorityState) RpPriorityStatePtr;
+
+RpPriorityStatePtr rp_priority_state_new(void);
+guint rp_priority_state_size(const RpPriorityStatePtr self);
+void rp_priority_state_ensure(RpPriorityStatePtr self, guint32 priority);
+void rp_priority_state_set_host_list(RpPriorityStatePtr self,
+                                        guint32 priority,
+                                        RpHostListPtr host_list/*consumes*/);
+RpHostListPtr rp_priority_state_steal_host_list(RpPriorityStatePtr self,
+                                                guint32 priority);
+void rp_priority_state_unref(RpPriorityStatePtr self);
+RpHostListPtr rp_priority_state_peek_host_list(RpPriorityStatePtr self,
+                                                guint32 priority);
+
 
 /**
  * Interface to select upstream local address based on the endpoint address.
@@ -162,127 +302,156 @@ G_DECLARE_INTERFACE(RpClusterInfo, rp_cluster_info, RP, CLUSTER_INFO, RpFilterCh
 struct _RpClusterInfoInterface {
     RpFilterChainFactoryInterface parent_iface;
 
-    bool (*added_via_api)(RpClusterInfo*);
-    guint32 (*connect_timeout)(RpClusterInfo*);
-    guint32 (*idle_timeout)(RpClusterInfo*);
-    guint32 (*tcp_pool_idle_timeout)(RpClusterInfo*);
-    guint32 (*max_connection_duration)(RpClusterInfo*);
-    float (*per_upstream_preconnect_ratio)(RpClusterInfo*);
-    float (*peek_ahead_ratio)(RpClusterInfo*);
-    guint32 (*per_connection_buffer_limit_bytes)(RpClusterInfo*);
-    guint64 (*features)(RpClusterInfo*);
-    Http1SettingsPtr (*http1_settings)(RpClusterInfo*);
+    bool (*added_via_api)(const RpClusterInfo*);
+    guint32 (*connect_timeout)(const RpClusterInfo*);
+    guint32 (*idle_timeout)(const RpClusterInfo*);
+    guint32 (*tcp_pool_idle_timeout)(const RpClusterInfo*);
+    guint32 (*max_connection_duration)(const RpClusterInfo*);
+    float (*per_upstream_preconnect_ratio)(const RpClusterInfo*);
+    float (*peek_ahead_ratio)(const RpClusterInfo*);
+    guint32 (*per_connection_buffer_limit_bytes)(const RpClusterInfo*);
+    guint64 (*features)(const RpClusterInfo*);
+    Http1SettingsPtr (*http1_settings)(const RpClusterInfo*);
     //TODO...
-    RpLoadBalancerConfig* (*load_balancer_config)(RpClusterInfo*);
-    RpTypedLoadBalancerFactory* (*load_balancer_factory)(RpClusterInfo*);
-    RpDiscoveryType_e (*type)(RpClusterInfo*);
-    const RpCustomClusterTypeCfg* (*cluster_type)(RpClusterInfo*);
+    RpLoadBalancerConfig* (*load_balancer_config)(const RpClusterInfo*);
+    RpTypedLoadBalancerFactory* (*load_balancer_factory)(const RpClusterInfo*);
+    RpDiscoveryType_e (*type)(const RpClusterInfo*);
+    const RpCustomClusterTypeCfg* (*cluster_type)(const RpClusterInfo*);
     //TODO...
-    bool (*maintenance_mode)(RpClusterInfo*);
-    guint64 (*max_requests_per_connection)(RpClusterInfo*);
-    guint32 (*max_response_headers_count)(RpClusterInfo*);
-    guint16 (*max_response_headers_kb)(RpClusterInfo*);
-    const char* (*name)(RpClusterInfo*);
-    const char* (*observability_name)(RpClusterInfo*);
-    RpResourceManager* (*resource_manager)(RpClusterInfo*, RpResourcePriority_e);
-    RpTransportSocketFactoryContextPtr (*transport_socket_context)(RpClusterInfo*);
+    bool (*maintenance_mode)(const RpClusterInfo*);
+    guint64 (*max_requests_per_connection)(const RpClusterInfo*);
+    guint32 (*max_response_headers_count)(const RpClusterInfo*);
+    guint16 (*max_response_headers_kb)(const RpClusterInfo*);
+    const char* (*name)(const RpClusterInfo*);
+    const char* (*observability_name)(const RpClusterInfo*);
+    RpResourceManager* (*resource_manager)(const RpClusterInfo*, RpResourcePriority_e);
+    RpTransportSocketFactoryContextPtr (*transport_socket_context)(const RpClusterInfo*);
     //TODO...
-    RpUpstreamLocalAddressSelector* (*get_upstream_local_address_selector)(RpClusterInfo*);
+    RpUpstreamLocalAddressSelector* (*get_upstream_local_address_selector)(const RpClusterInfo*);
     //TODO...
-    bool (*drain_connections_on_host_removal)(RpClusterInfo*);
-    bool (*connection_pool_per_downstream_connection)(RpClusterInfo*);
-    bool (*warm_hosts)(RpClusterInfo*);
-    bool (*set_local_interface_name_on_upstream_connection)(RpClusterInfo*);
-    const char* (*eds_service_name)(RpClusterInfo*);
-    void (*create_network_filter_chain)(RpClusterInfo*, RpNetworkConnection*);
-    evhtp_proto* (*upstream_http_protocol)(RpClusterInfo*, evhtp_proto);
+    bool (*drain_connections_on_host_removal)(const RpClusterInfo*);
+    bool (*connection_pool_per_downstream_connection)(const RpClusterInfo*);
+    bool (*warm_hosts)(const RpClusterInfo*);
+    bool (*set_local_interface_name_on_upstream_connection)(const RpClusterInfo*);
+    const char* (*eds_service_name)(const RpClusterInfo*);
+    void (*create_network_filter_chain)(const RpClusterInfo*, RpNetworkConnection*);
+    evhtp_proto* (*upstream_http_protocol)(const RpClusterInfo*, evhtp_proto);
     //TODO...
 };
 
-/*
- * RpClusterInfoConstSharedPtr: Named for intent, not enforcement.
- * Treat as read-only in most contexts. Setters will explicitly
- * indicate when modification occurs.
- */
-typedef /*const*/ SHARED_PTR(RpClusterInfo) RpClusterInfoConstSharedPtr;
+typedef const SHARED_PTR(RpClusterInfo) RpClusterInfoConstSharedPtr;
+typedef SHARED_PTR(RpClusterInfo) RpClusterInfoSharedPtr;
 
-static inline float
-rp_cluster_info_per_upstream_preconnect_ratio(RpClusterInfo* self)
+static inline void
+rp_cluster_info_set_object(RpClusterInfoSharedPtr* dst, RpClusterInfoConstSharedPtr src)
 {
-    return RP_IS_CLUSTER_INFO(self) ?
-        RP_CLUSTER_INFO_GET_IFACE(self)->per_upstream_preconnect_ratio(self) :
-        1.0;
+    g_set_object((GObject**)dst, (GObject*)src);
+}
+static inline RpClusterInfoInterface*
+rp_cluster_info_iface(RpClusterInfoConstSharedPtr self)
+{
+    return RP_CLUSTER_INFO_GET_IFACE((RpClusterInfo*)self);
+}
+static inline gboolean
+rp_cluster_info_is_cluster_info(RpClusterInfoConstSharedPtr self)
+{
+    return self && RP_IS_CLUSTER_INFO((RpClusterInfo*)self);
+}
+static inline float
+rp_cluster_info_per_upstream_preconnect_ratio(RpClusterInfoConstSharedPtr self)
+{
+    g_return_val_if_fail(rp_cluster_info_is_cluster_info(self), 1.0);
+    RpClusterInfoInterface* iface = rp_cluster_info_iface(self);
+    g_return_val_if_fail(iface->per_upstream_preconnect_ratio != NULL, 1.0);
+    return iface->per_upstream_preconnect_ratio(self);
 }
 static inline RpLoadBalancerConfig*
-rp_cluster_info_load_balancer_config(RpClusterInfo* self)
+rp_cluster_info_load_balancer_config(RpClusterInfoConstSharedPtr self)
 {
-    return RP_IS_CLUSTER_INFO(self) ?
-        RP_CLUSTER_INFO_GET_IFACE(self)->load_balancer_config(self) : NULL;
+    g_return_val_if_fail(rp_cluster_info_is_cluster_info(self), NULL);
+    RpClusterInfoInterface* iface = rp_cluster_info_iface(self);
+    g_return_val_if_fail(iface->load_balancer_config != NULL, NULL);
+    return iface->load_balancer_config(self);
 }
 static inline RpTypedLoadBalancerFactory*
-rp_cluster_info_load_balancer_factory(RpClusterInfo* self)
+rp_cluster_info_load_balancer_factory(RpClusterInfoConstSharedPtr self)
 {
-    return RP_IS_CLUSTER_INFO(self) ?
-        RP_CLUSTER_INFO_GET_IFACE(self)->load_balancer_factory(self) : NULL;
+    g_return_val_if_fail(rp_cluster_info_is_cluster_info(self), NULL);
+    RpClusterInfoInterface* iface = rp_cluster_info_iface(self);
+    g_return_val_if_fail(iface->load_balancer_factory != NULL, NULL);
+    return iface->load_balancer_factory(self);
 }
 static inline RpDiscoveryType_e
-rp_cluster_info_type(RpClusterInfo* self)
+rp_cluster_info_type(RpClusterInfoConstSharedPtr self)
 {
-    return RP_IS_CLUSTER_INFO(self) ?
-        RP_CLUSTER_INFO_GET_IFACE(self)->type(self) : RpDiscoveryType_STATIC;
+    g_return_val_if_fail(rp_cluster_info_is_cluster_info(self), RpDiscoveryType_STATIC);
+    RpClusterInfoInterface* iface = rp_cluster_info_iface(self);
+    g_return_val_if_fail(iface->type != NULL, RpDiscoveryType_STATIC);
+    return iface->type(self);
 }
 static inline const RpCustomClusterTypeCfg*
-rp_cluster_info_cluster_type(RpClusterInfo* self)
+rp_cluster_info_cluster_type(RpClusterInfoConstSharedPtr self)
 {
-    return RP_IS_CLUSTER_INFO(self) ?
-        RP_CLUSTER_INFO_GET_IFACE(self)->cluster_type(self) : NULL;
+    g_return_val_if_fail(rp_cluster_info_is_cluster_info(self), NULL);
+    RpClusterInfoInterface* iface = rp_cluster_info_iface(self);
+    g_return_val_if_fail(iface->cluster_type != NULL, NULL);
+    return iface->cluster_type(self);
 }
 static inline RpResourceManager*
-rp_cluster_info_resource_manager(RpClusterInfo* self, RpResourcePriority_e priority)
+rp_cluster_info_resource_manager(RpClusterInfoConstSharedPtr self, RpResourcePriority_e priority)
 {
-    return RP_IS_CLUSTER_INFO(self) ?
-        RP_CLUSTER_INFO_GET_IFACE(self)->resource_manager(self, priority) : NULL;
+    g_return_val_if_fail(rp_cluster_info_is_cluster_info(self), NULL);
+    RpClusterInfoInterface* iface = rp_cluster_info_iface(self);
+    g_return_val_if_fail(iface->resource_manager != NULL, NULL);
+    return iface->resource_manager(self, priority);
 }
 static inline RpTransportSocketFactoryContextPtr
-rp_cluster_info_transport_socket_context(RpClusterInfo* self)
+rp_cluster_info_transport_socket_context(RpClusterInfoConstSharedPtr self)
 {
-    return RP_IS_CLUSTER_INFO(self) ?
-        RP_CLUSTER_INFO_GET_IFACE(self)->transport_socket_context(self) :
-        NULL;
+    g_return_val_if_fail(rp_cluster_info_is_cluster_info(self), NULL);
+    RpClusterInfoInterface* iface = rp_cluster_info_iface(self);
+    g_return_val_if_fail(iface->transport_socket_context != NULL, NULL);
+    return iface->transport_socket_context(self);
 }
 static inline RpUpstreamLocalAddressSelector*
-rp_cluster_info_get_upstream_local_address_selector(RpClusterInfo* self)
+rp_cluster_info_get_upstream_local_address_selector(RpClusterInfoConstSharedPtr self)
 {
-    return RP_IS_CLUSTER_INFO(self) ?
-        RP_CLUSTER_INFO_GET_IFACE(self)->get_upstream_local_address_selector(self) :
-        NULL;
+    g_return_val_if_fail(rp_cluster_info_is_cluster_info(self), NULL);
+    RpClusterInfoInterface* iface = rp_cluster_info_iface(self);
+    g_return_val_if_fail(iface->get_upstream_local_address_selector != NULL, NULL);
+    return iface->get_upstream_local_address_selector(self);
 }
 static inline void
-rp_cluster_info_create_network_filter_chain(RpClusterInfo* self, RpNetworkConnection* connection)
+rp_cluster_info_create_network_filter_chain(RpClusterInfoConstSharedPtr self, RpNetworkConnection* connection)
 {
-    if (RP_IS_CLUSTER_INFO(self))
-    {
-        RP_CLUSTER_INFO_GET_IFACE(self)->create_network_filter_chain(self, connection);
-    }
+    g_return_if_fail(rp_cluster_info_is_cluster_info(self));
+    RpClusterInfoInterface* iface = rp_cluster_info_iface(self);
+    g_return_if_fail(iface->create_network_filter_chain != NULL);
+    iface->create_network_filter_chain(self, connection);
 }
 static inline const char*
-rp_cluster_info_name(RpClusterInfo* self)
+rp_cluster_info_name(RpClusterInfoConstSharedPtr self)
 {
-    return RP_IS_CLUSTER_INFO(self) ?
-        RP_CLUSTER_INFO_GET_IFACE(self)->name(self) : NULL;
+    g_return_val_if_fail(rp_cluster_info_is_cluster_info(self), NULL);
+    RpClusterInfoInterface* iface = rp_cluster_info_iface(self);
+    g_return_val_if_fail(iface->name != NULL, NULL);
+    return iface->name(self);
 }
 static inline guint64
-rp_cluster_info_max_requests_per_connection(RpClusterInfo* self)
+rp_cluster_info_max_requests_per_connection(RpClusterInfoConstSharedPtr self)
 {
-    return RP_IS_CLUSTER_INFO(self) ?
-        RP_CLUSTER_INFO_GET_IFACE(self)->max_requests_per_connection(self) : 0;
+    g_return_val_if_fail(rp_cluster_info_is_cluster_info(self), 1024);
+    RpClusterInfoInterface* iface = rp_cluster_info_iface(self);
+    g_return_val_if_fail(iface->max_requests_per_connection != NULL, 1024);
+    return iface->max_requests_per_connection(self);
 }
 static inline evhtp_proto*
-rp_cluster_info_upstream_http_protocol(RpClusterInfo* self, evhtp_proto downstream_protocol)
+rp_cluster_info_upstream_http_protocol(RpClusterInfoConstSharedPtr self, evhtp_proto downstream_protocol)
 {
-    return RP_IS_CLUSTER_INFO(self) ?
-        RP_CLUSTER_INFO_GET_IFACE(self)->upstream_http_protocol(self, downstream_protocol) :
-        NULL;
+    g_return_val_if_fail(rp_cluster_info_is_cluster_info(self), NULL);
+    RpClusterInfoInterface* iface = rp_cluster_info_iface(self);
+    g_return_val_if_fail(iface->upstream_http_protocol != NULL, NULL);
+    return iface->upstream_http_protocol(self, downstream_protocol);
 }
 
 
@@ -301,47 +470,170 @@ struct _RpHostsPerLocalityInterface {
 };
 
 
+
 /**
- * Base host set interface. This contains all of the endpoints for a given LocalityLbEndpoints
- * priority level.
+ * Base host set interface. This contains all of the endpoints for a given
+ * LocalityLbEndpoints priority level.
  */
 #define RP_TYPE_HOST_SET rp_host_set_get_type()
 G_DECLARE_INTERFACE(RpHostSet, rp_host_set, RP, HOST_SET, GObject)
 
-typedef GArray RpLocalityWeights;
-typedef SHARED_PTR(RpLocalityWeights) RpLocalityWeightsSharedPtr;
-typedef SHARED_PTR(RpLocalityWeights) RpLocalityWeightsConstSharedPtr;
+/*
+ * NOTE: Ownership conventions (GLib-style):
+ *  - get_*(): returns a borrowed pointer; do NOT unref/free; lifetime tied to self.
+ *  - ref_*(): returns a new reference; caller must rp_host_vector_unref().
+ *
+ * Envoy mapping:
+ *  - HostSet::hosts()                -> get_hosts()
+ *  - HostSet::hostsPtr()             -> ref_hosts()
+ *  - ... similarly for healthy/degraded/excluded.
+ */
+
+typedef GPtrArray RpLocalityWeights;
+
+/* If locality weights ever need ownership semantics, consider wrapping in a
+ * refcounted type similar to RpHostVector. For now, treat as borrowed. */
+typedef const RpLocalityWeights* RpLocalityWeightsPtr; /* borrowed */
 
 struct _RpHostSetInterface {
     GTypeInterface parent_iface;
 
-    RpHostVector* (*hosts)(RpHostSet*);
-    RpHostVectorConstSharedPtr (*hosts_ptr)(RpHostSet*);
-    RpHostVector* (*healthy_hosts)(RpHostSet*);
-    RpHostVector* (*degraded_hosts)(RpHostSet*);
-    RpHostVector* (*excluded_hosts)(RpHostSet*);
-    RpHostsPerLocality* (*hosts_per_locality)(RpHostSet*);
-    RpHostsPerLocality* (*healthy_hosts_per_locality)(RpHostSet*);
-    RpHostsPerLocality* (*degraded_hosts_per_locality)(RpHostSet*);
-    RpHostsPerLocality* (*excluded_hosts_per_locality)(RpHostSet*);
-    RpLocalityWeights (*locality_weights)(RpHostSet*);
-    guint32 (*choose_healthy_locality)(RpHostSet*);
-    guint32 (*choose_degraded_locality)(RpHostSet*);
-    guint32 (*priority)(RpHostSet*);
-    guint32 (*overprovisioning_factor)(RpHostSet*);
-    bool (*weighted_priority_health)(RpHostSet*);
+    /* Borrowed vectors (Envoy: hosts(), healthyHosts(), ...) */
+    const RpHostVector* (*get_hosts)(RpHostSet* self);
+    const RpHostVector* (*get_healthy_hosts)(RpHostSet* self);
+    const RpHostVector* (*get_degraded_hosts)(RpHostSet* self);
+    const RpHostVector* (*get_excluded_hosts)(RpHostSet* self);
+
+    /* Owned (new ref) vectors (Envoy: hostsPtr(), healthyHostsPtr(), ...) */
+    RpHostVector* (*ref_hosts)(RpHostSet* self);
+    RpHostVector* (*ref_healthy_hosts)(RpHostSet* self);
+    RpHostVector* (*ref_degraded_hosts)(RpHostSet* self);
+    RpHostVector* (*ref_excluded_hosts)(RpHostSet* self);
+
+    /* Per-locality containers (pick borrowed vs ref semantics consistently) */
+    RpHostsPerLocality* (*get_hosts_per_locality)(RpHostSet* self);
+    RpHostsPerLocality* (*get_healthy_hosts_per_locality)(RpHostSet* self);
+    RpHostsPerLocality* (*get_degraded_hosts_per_locality)(RpHostSet* self);
+    RpHostsPerLocality* (*get_excluded_hosts_per_locality)(RpHostSet* self);
+
+    /* Locality weights (currently borrowed) */
+    RpLocalityWeightsPtr (*get_locality_weights)(RpHostSet* self);
+
+    /* Selection helpers */
+    guint32 (*choose_healthy_locality)(RpHostSet* self);
+    guint32 (*choose_degraded_locality)(RpHostSet* self);
+
+    /* Scalar properties */
+    guint32 (*get_priority)(RpHostSet* self);
+    guint32 (*get_overprovisioning_factor)(RpHostSet* self);
+    bool    (*get_weighted_priority_health)(RpHostSet* self);
 };
-static inline RpHostVector*
-rp_host_set_hosts(RpHostSet* self)
+
+/* ---- Borrowed accessors ---- */
+
+static inline const RpHostVector*
+rp_host_set_get_hosts(RpHostSet* self)
 {
-    return RP_IS_HOST_SET(self) ?
-        RP_HOST_SET_GET_IFACE(self)->hosts(self) : NULL;
+    return RP_IS_HOST_SET(self) ? RP_HOST_SET_GET_IFACE(self)->get_hosts(self) : NULL;
 }
-static inline RpHostVectorConstSharedPtr
-rp_host_set_hosts_ptr(RpHostSet* self)
+
+static inline const RpHostVector*
+rp_host_set_get_healthy_hosts(RpHostSet* self)
 {
-    return RP_IS_HOST_SET(self) ?
-        RP_HOST_SET_GET_IFACE(self)->hosts_ptr(self) : NULL;
+    return RP_IS_HOST_SET(self) ? RP_HOST_SET_GET_IFACE(self)->get_healthy_hosts(self) : NULL;
+}
+
+static inline const RpHostVector*
+rp_host_set_get_degraded_hosts(RpHostSet* self)
+{
+    return RP_IS_HOST_SET(self) ? RP_HOST_SET_GET_IFACE(self)->get_degraded_hosts(self) : NULL;
+}
+
+static inline const RpHostVector*
+rp_host_set_get_excluded_hosts(RpHostSet* self)
+{
+    return RP_IS_HOST_SET(self) ? RP_HOST_SET_GET_IFACE(self)->get_excluded_hosts(self) : NULL;
+}
+
+/* ---- Owned (new ref) accessors ---- */
+
+static inline RpHostVector*
+rp_host_set_ref_hosts(RpHostSet* self)
+{
+    return RP_IS_HOST_SET(self) ? RP_HOST_SET_GET_IFACE(self)->ref_hosts(self) : NULL;
+}
+
+static inline RpHostVector*
+rp_host_set_ref_healthy_hosts(RpHostSet* self)
+{
+    return RP_IS_HOST_SET(self) ? RP_HOST_SET_GET_IFACE(self)->ref_healthy_hosts(self) : NULL;
+}
+
+static inline RpHostVector*
+rp_host_set_ref_degraded_hosts(RpHostSet* self)
+{
+    return RP_IS_HOST_SET(self) ? RP_HOST_SET_GET_IFACE(self)->ref_degraded_hosts(self) : NULL;
+}
+
+static inline RpHostVector*
+rp_host_set_ref_excluded_hosts(RpHostSet* self)
+{
+    return RP_IS_HOST_SET(self) ? RP_HOST_SET_GET_IFACE(self)->ref_excluded_hosts(self) : NULL;
+}
+
+/* ---- Locality/per-locality helpers ---- */
+
+static inline RpHostsPerLocality*
+rp_host_set_get_hosts_per_locality(RpHostSet* self)
+{
+    return RP_IS_HOST_SET(self) ? RP_HOST_SET_GET_IFACE(self)->get_hosts_per_locality(self) : NULL;
+}
+
+static inline RpHostsPerLocality*
+rp_host_set_get_healthy_hosts_per_locality(RpHostSet* self)
+{
+    return RP_IS_HOST_SET(self) ? RP_HOST_SET_GET_IFACE(self)->get_healthy_hosts_per_locality(self) : NULL;
+}
+
+static inline RpHostsPerLocality*
+rp_host_set_get_degraded_hosts_per_locality(RpHostSet* self)
+{
+    return RP_IS_HOST_SET(self) ? RP_HOST_SET_GET_IFACE(self)->get_degraded_hosts_per_locality(self) : NULL;
+}
+
+static inline RpHostsPerLocality*
+rp_host_set_get_excluded_hosts_per_locality(RpHostSet* self)
+{
+    return RP_IS_HOST_SET(self) ? RP_HOST_SET_GET_IFACE(self)->get_excluded_hosts_per_locality(self) : NULL;
+}
+
+static inline RpLocalityWeightsPtr
+rp_host_set_get_locality_weights(RpHostSet* self)
+{
+    return RP_IS_HOST_SET(self) ? RP_HOST_SET_GET_IFACE(self)->get_locality_weights(self) : NULL;
+}
+
+/* ---- Scalar properties ---- */
+
+static inline guint32
+rp_host_set_get_priority(RpHostSet* self)
+{
+    return RP_IS_HOST_SET(self) ? RP_HOST_SET_GET_IFACE(self)->get_priority(self)
+                                : RpResourcePriority_Default;
+}
+
+static inline guint32
+rp_host_set_get_overprovisioning_factor(RpHostSet* self)
+{
+    return RP_IS_HOST_SET(self) ? RP_HOST_SET_GET_IFACE(self)->get_overprovisioning_factor(self)
+                                : 0;
+}
+
+static inline bool
+rp_host_set_get_weighted_priority_health(RpHostSet* self)
+{
+    return RP_IS_HOST_SET(self) ? RP_HOST_SET_GET_IFACE(self)->get_weighted_priority_health(self)
+                                : false;
 }
 
 
@@ -352,31 +644,146 @@ rp_host_set_hosts_ptr(RpHostSet* self)
 #define RP_TYPE_PRIORITY_SET rp_priority_set_get_type()
 G_DECLARE_INTERFACE(RpPrioritySet, rp_priority_set, RP, PRIORITY_SET, GObject)
 
-typedef GHashTable RpHostMap;
-typedef SHARED_PTR(RpHostMap) RpHostMapSharedPtr;
-typedef SHARED_PTR(RpHostMap) RpHostMapConstSharedPtr;
+typedef RpStatusCode_e (*RpPrioritySetMemberUpdateCb)(const RpHostVector*, const RpHostVector*, gpointer);
+typedef RpStatusCode_e (*RpPrioritySetPriorityUpdateCb)(guint32, const RpHostVector*, const RpHostVector*, gpointer);
+
 typedef UNIQUE_PTR(RpHostSet) RpHostSetPtr;
-typedef GPtrArray* RpHostSetPtrVector;
+typedef struct _RpHostSetPtrVector RpHostSetPtrVector;
+
+typedef struct _RpHostMapSnap RpHostMapSnap;
+typedef UNIQUE_PTR(RpHostMapSnap) RpHostMapSnapPtr;
+typedef SHARED_PTR(RpHostMapSnap) RpHostMapSnapSharedPtr;
+
+
+/**
+ * RpHostMap
+ */
+typedef struct _RpHostMap RpHostMap;
+
+RpHostMap* rp_host_map_clone_from_snapshot(const RpHostMapSnap* src);
+RpHostMap* rp_host_map_new(void);
+RpHostMap* rp_host_map_ref(RpHostMap* self);
+void rp_host_map_unref(const RpHostMap* self);
+guint rp_host_map_ref_count(const RpHostMap* self);
+void rp_host_map_add(RpHostMap* self, RpHost* host);           /* refs host */
+void rp_host_map_add_take(RpHostMap* self, RpHost* host);      /* takes ownership */
+RpHost* rp_host_map_find(const RpHostMap* self, RpHost* host); /* transfer none */
+gboolean rp_host_map_remove(RpHostMap* self, RpHost* host);
+bool rp_host_map_is_empty(const RpHostMap* self);
+const GHashTable* rp_host_map_hash_table(const RpHostMap* self);
+guint rp_host_map_size(const RpHostMap* self);
+
+/**
+ * RpPrioritySetUpdateHostsParams - PrioritySet::UpdateHostsParams
+ */
+typedef struct _RpPrioritySetUpdateHostsParams RpPrioritySetUpdateHostsParams;
+struct _RpPrioritySetUpdateHostsParams {
+    RpHostVector* hosts;
+    RpHostVector* healthy_hosts;
+    RpHostVector* degraded_hosts;
+    RpHostVector* excluded_hosts;
+
+#if WITH_HOSTS_PER_LOCALITY
+    RpHostsPerLocality* hosts_per_locality;          // Transfer full (later).
+    RpHostsPerLocality* healthy_hosts_per_locality;  // Transfer full.
+    RpHostsPerLocality* degraded_hosts_per_locality; // Transfer full.
+    RpHostsPerLocality* excluded_hosts_per_locality; // Transfer full.
+#endif//WITH_HOSTS_PER_LOCALITY
+};
+
+static inline void
+rp_priority_set_update_hosts_params_clear(RpPrioritySetUpdateHostsParams* self)
+{
+    g_return_if_fail(self != NULL);
+    g_clear_pointer(&self->hosts, rp_host_vector_unref);
+    g_clear_pointer(&self->healthy_hosts, rp_host_vector_unref);
+    g_clear_pointer(&self->degraded_hosts, rp_host_vector_unref);
+    g_clear_pointer(&self->excluded_hosts, rp_host_vector_unref);
+    //TODO...clear locality pointers
+}
+
+static inline void
+rp_priority_set_update_hosts_params_clear_gdestroy(gpointer arg)
+{
+    rp_priority_set_update_hosts_params_clear((RpPrioritySetUpdateHostsParams*)arg);
+}
+
+G_DEFINE_AUTO_CLEANUP_CLEAR_FUNC(RpPrioritySetUpdateHostsParams,
+                                 rp_priority_set_update_hosts_params_clear)
+
+
+typedef struct _RpPrioritySetHostUpdateCb RpPrioritySetHostUpdateCb;
+struct _RpPrioritySetHostUpdateCb {
+    void (*update_hosts)(RpPrioritySetHostUpdateCb*,
+                            guint32,
+                            RpPrioritySetUpdateHostsParams*,
+                            const RpHostVector*,
+                            const RpHostVector*,
+                            bool*,
+                            guint32*);
+};
 
 struct _RpPrioritySetInterface {
     GTypeInterface parent_iface;
 
     //TODO...
-    const RpHostSetPtrVector (*host_sets_per_priority)(RpPrioritySet*);
-    RpHostMapConstSharedPtr (*cross_priority_host_map)(RpPrioritySet*);
-    //TODO...
+    RpCallbackHandlePtr (*add_member_update_cb)(RpPrioritySet*,
+                                                RpPrioritySetMemberUpdateCb,
+                                                gpointer);
+    RpCallbackHandlePtr (*add_priority_update_cb)(RpPrioritySet*,
+                                                    RpPrioritySetPriorityUpdateCb,
+                                                    gpointer);
+    const RpHostSetPtrVector* (*host_sets_per_priority)(RpPrioritySet*);
+    RpHostMapSnap* (*cross_priority_host_map)(RpPrioritySet*);
+    void (*update_hosts)(RpPrioritySet*,
+                            guint32,
+                            RpPrioritySetUpdateHostsParams*,
+                            const RpHostVector*,
+                            const RpHostVector*,
+                            bool*,
+                            guint32*,
+                            RpHostMapSnap*);
 };
-static inline const RpHostSetPtrVector
+static inline RpCallbackHandlePtr
+rp_priority_set_add_member_update_cb(RpPrioritySet* self, RpPrioritySetMemberUpdateCb cb, gpointer arg)
+{
+    g_return_val_if_fail(RP_IS_PRIORITY_SET(self), NULL);
+    return RP_PRIORITY_SET_GET_IFACE(self)->add_member_update_cb(self, cb, arg);
+}
+static inline RpCallbackHandlePtr
+rp_priority_set_add_priority_update_cb(RpPrioritySet* self, RpPrioritySetPriorityUpdateCb cb, gpointer arg)
+{
+    g_return_val_if_fail(RP_IS_PRIORITY_SET(self), NULL);
+    return RP_PRIORITY_SET_GET_IFACE(self)->add_priority_update_cb(self, cb, arg);
+}
+static inline const RpHostSetPtrVector*
 rp_priority_set_host_sets_per_priority(RpPrioritySet* self)
 {
     return RP_IS_PRIORITY_SET(self) ?
         RP_PRIORITY_SET_GET_IFACE(self)->host_sets_per_priority(self) : NULL;
 }
-static inline RpHostMapConstSharedPtr
+static inline RpHostMapSnap*
 rp_priority_set_cross_priority_host_map(RpPrioritySet* self)
 {
     return RP_IS_PRIORITY_SET(self) ?
         RP_PRIORITY_SET_GET_IFACE(self)->cross_priority_host_map(self) : NULL;
+}
+static inline void
+rp_priority_set_update_hosts(RpPrioritySet* self, guint32 priority, RpPrioritySetUpdateHostsParams* params,
+                                const RpHostVector* hosts_added, const RpHostVector* hosts_removed,
+                                bool* weighted_priority_health, guint32* overprovisioning_factor, RpHostMapSnap* cross_priority_host_map)
+{
+    if (RP_IS_PRIORITY_SET(self))
+    {
+        RP_PRIORITY_SET_GET_IFACE(self)->update_hosts(self,
+                                                        priority,
+                                                        params,
+                                                        hosts_added,
+                                                        hosts_removed,
+                                                        weighted_priority_health,
+                                                        overprovisioning_factor,
+                                                        cross_priority_host_map);
+    }
 }
 
 /**
@@ -401,28 +808,46 @@ struct _RpClusterInterface {
 
 typedef SHARED_PTR(RpCluster) RpClusterSharedPtr;
 
-static inline RpClusterInfoConstSharedPtr
-rp_cluster_info(RpCluster* self)
+static inline bool
+rp_cluster_is_a(RpClusterSharedPtr self)
 {
-    return RP_IS_CLUSTER(self) ? RP_CLUSTER_GET_IFACE(self)->info(self) : NULL;
+    g_return_val_if_fail(self != NULL, false);
+    return RP_IS_CLUSTER((GObject*)self);
+}
+static inline RpClusterInterface*
+rp_cluster_iface(RpClusterSharedPtr self)
+{
+    return RP_CLUSTER_GET_IFACE((GObject*)self);
 }
 static inline void
-rp_cluster_initialize(RpCluster* self, RpClusterInitializeCb callback, gpointer arg)
+rp_cluster_set_object(RpClusterSharedPtr* dst, RpClusterSharedPtr src)
 {
-    if (RP_IS_CLUSTER(self)) \
-        RP_CLUSTER_GET_IFACE(self)->initialize(self, callback, arg);
+    g_return_if_fail(dst != NULL);
+    g_set_object((GObject**)dst, (GObject*)src);
+}
+static inline RpClusterInfoConstSharedPtr
+rp_cluster_info(RpClusterSharedPtr self)
+{
+    g_return_val_if_fail(rp_cluster_is_a(self), NULL);
+    return rp_cluster_iface(self)->info(self);
+}
+static inline void
+rp_cluster_initialize(RpClusterSharedPtr self, RpClusterInitializeCb callback, gpointer arg)
+{
+    g_return_if_fail(rp_cluster_is_a(self));
+    rp_cluster_iface(self)->initialize(self, callback, arg);
 }
 static inline RpInitializePhase_e
-rp_cluster_initialize_phase(RpCluster* self)
+rp_cluster_initialize_phase(RpClusterSharedPtr self)
 {
-    return RP_IS_CLUSTER(self) ?
-        RP_CLUSTER_GET_IFACE(self)->initialize_phase(self) : RpInitializePhase_Primary;
+    g_return_val_if_fail(rp_cluster_is_a(self), RpInitializePhase_Primary);
+    return rp_cluster_iface(self)->initialize_phase(self);
 }
 static inline RpPrioritySet*
-rp_cluster_priority_set(RpCluster* self)
+rp_cluster_priority_set(RpClusterSharedPtr self)
 {
-    return RP_IS_CLUSTER(self) ?
-        RP_CLUSTER_GET_IFACE(self)->priority_set(self) : NULL;
+    g_return_val_if_fail(rp_cluster_is_a(self), NULL);
+    return rp_cluster_iface(self)->priority_set(self);
 }
 
 G_END_DECLS

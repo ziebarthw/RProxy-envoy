@@ -17,7 +17,7 @@
 #include "network/rp-address-impl.h"
 
 #define PARENT_ADDRESS_INSTANCE_IFACE(s) \
-    ((RpNetworkAddressInstanceInterface*)g_type_interface_peek_parent(RP_NETWORK_ADDRESS_INSTANCE_GET_IFACE(s)))
+    ((RpNetworkAddressInstanceInterface*)g_type_interface_peek_parent(RP_NETWORK_ADDRESS_INSTANCE_GET_IFACE((gpointer)s)))
 
 // Helper for zero-initialization (empty IPv6 address ::/0)
 const IPv6UInt128 IPv6UInt128_ZERO = { 0, 0 };
@@ -77,7 +77,7 @@ rp_ipv6_helper_v6only(RpNetworkAddressIpv6Helper* self)
 {
     return self->m_v6only;
 }
-static inline RpNetworkAddressInstanceConstSharedPtr
+static inline RpNetworkAddressInstance*
 rp_ipv6_helper_adddress_without_scope_id(RpNetworkAddressIpv6Helper* self)
 {
     struct sockaddr_in6 ret_addr = self->m_address;
@@ -85,7 +85,7 @@ rp_ipv6_helper_adddress_without_scope_id(RpNetworkAddressIpv6Helper* self)
     return RP_NETWORK_ADDRESS_INSTANCE(
             rp_network_address_ipv6_instance_new(&ret_addr, self->m_v6only, NULL));
 }
-static inline RpNetworkAddressInstanceConstSharedPtr
+static inline RpNetworkAddressInstance*
 rp_ipv6_helper_v4_compatible_address(RpNetworkAddressIpv6Helper* self)
 {
     if (!self->m_v6only && IN6_IS_ADDR_V4MAPPED(&self->m_address.sin6_addr))
@@ -138,7 +138,7 @@ address_i(RpNetworkAddressIpv6* self)
     return rp_ipv6_helper_address(&RP_NETWORK_ADDRESS_IPV6_INSTANCE(self)->m_ip.m_ipv6);
 }
 
-static RpNetworkAddressInstanceConstSharedPtr
+static RpNetworkAddressInstance*
 address_without_scope_id_i(RpNetworkAddressIpv6* self)
 {
     NOISY_MSG_("(%p)", self);
@@ -152,7 +152,7 @@ scope_id_i(RpNetworkAddressIpv6* self)
     return rp_ipv6_helper_scope_id(&RP_NETWORK_ADDRESS_IPV6_INSTANCE(self)->m_ip.m_ipv6);
 }
 
-static RpNetworkAddressInstanceConstSharedPtr
+static RpNetworkAddressInstance*
 v4_compatible_address_i(RpNetworkAddressIpv6* self)
 {
     NOISY_MSG_("(%p)", self);
@@ -241,70 +241,70 @@ network_address_ip_iface_init(RpNetworkAddressIpInterface* iface)
 }
 
 static RpNetworkAddressIp*
-ip_i(RpNetworkAddressInstance* self)
+ip_i(RpNetworkAddressInstanceConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
-    return RP_NETWORK_ADDRESS_IP(self);
+    return RP_NETWORK_ADDRESS_IP((gpointer)self);
 }
 
 static RpNetworkAddressPipe*
-pipe_i(RpNetworkAddressInstance* self G_GNUC_UNUSED)
+pipe_i(RpNetworkAddressInstanceConstSharedPtr self G_GNUC_UNUSED)
 {
     NOISY_MSG_("(%p)", self);
     return NULL;
 }
 
 static RpNetworkAddressRProxyInternalAddress*
-rproxy_internal_address_i(RpNetworkAddressInstance* self G_GNUC_UNUSED)
+rproxy_internal_address_i(RpNetworkAddressInstanceConstSharedPtr self G_GNUC_UNUSED)
 {
     NOISY_MSG_("(%p)", self);
     return NULL;
 }
 
 static const struct sockaddr*
-sock_addr_i(RpNetworkAddressInstance* self)
+sock_addr_i(RpNetworkAddressInstanceConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
-    return (const struct sockaddr*)&RP_NETWORK_ADDRESS_IPV6_INSTANCE(self)->m_ip.m_ipv6.m_address;
+    return (const struct sockaddr*)&RP_NETWORK_ADDRESS_IPV6_INSTANCE((gpointer)self)->m_ip.m_ipv6.m_address;
 }
 
 static socklen_t
-sock_addr_len_i(RpNetworkAddressInstance* self)
+sock_addr_len_i(RpNetworkAddressInstanceConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
-    return sizeof(RP_NETWORK_ADDRESS_IPV6_INSTANCE(self)->m_ip.m_ipv6.m_address);
+    return sizeof(RP_NETWORK_ADDRESS_IPV6_INSTANCE((gpointer)self)->m_ip.m_ipv6.m_address);
 }
 
 static string_view
-address_type_i(RpNetworkAddressInstance* self G_GNUC_UNUSED)
+address_type_i(RpNetworkAddressInstanceConstSharedPtr self G_GNUC_UNUSED)
 {
     NOISY_MSG_("(%p)", self);
     return string_view_ctor("default", 7);
 }
 
 static const char*
-as_string_i(RpNetworkAddressInstance* self)
+as_string_i(RpNetworkAddressInstanceConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
     return PARENT_ADDRESS_INSTANCE_IFACE(self)->as_string(self);
 }
 
 static const char*
-logical_name_i(RpNetworkAddressInstance* self)
+logical_name_i(RpNetworkAddressInstanceConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
     return PARENT_ADDRESS_INSTANCE_IFACE(self)->logical_name(self);
 }
 
 static RpNetworkAddressSocketInterface*
-socket_interface_i(RpNetworkAddressInstance* self)
+socket_interface_i(RpNetworkAddressInstanceConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
     return PARENT_ADDRESS_INSTANCE_IFACE(self)->socket_interface(self);
 }
 
 static RpNetworkAddressType_e
-type_i(RpNetworkAddressInstance* self)
+type_i(RpNetworkAddressInstanceConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
     return PARENT_ADDRESS_INSTANCE_IFACE(self)->type(self);

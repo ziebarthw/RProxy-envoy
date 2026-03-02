@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_stream_encoder_impl_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_stream_encoder_impl_NOISY)
@@ -143,7 +140,7 @@ set_flush_timeout_i(RpStream* self G_GNUC_UNUSED, guint32 timeout_ms G_GNUC_UNUS
     NOISY_MSG_("(%p, %u)", self, timeout_ms);
 }
 
-static RpConnectionInfoProvider*
+static RpConnectionInfoProviderSharedPtr
 connection_info_provider_i(RpStream* self)
 {
     NOISY_MSG_("(%p)", self);

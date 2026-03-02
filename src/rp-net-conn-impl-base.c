@@ -162,6 +162,10 @@ OVERRIDE void
 dispose(GObject* obj)
 {
     NOISY_MSG_("(%p)", obj);
+
+    RpNetworkConnectionImplBasePrivate* me = PRIV(obj);
+    g_slist_free(g_steal_pointer(&me->m_callbacks));
+
     G_OBJECT_CLASS(rp_network_connection_impl_base_parent_class)->dispose(obj);
 }
 
@@ -216,15 +220,17 @@ rp_network_connection_impl_base_raise_connection_event(RpNetworkConnectionImplBa
     LOGD("(%p(fd %d), %d)", self, SOCKFD(self), event);
     g_return_if_fail(RP_IS_NETWORK_CONNECTION_IMPL_BASE(self));
     RpNetworkConnectionImplBasePrivate* me = PRIV(self);
-    for (GSList* entry = me->m_callbacks; entry; entry = entry->next)
+    g_object_ref(self);
+    for (GSList* entry = me->m_callbacks; entry; )
     {
         NOISY_MSG_("entry %p(%p)", entry, entry->data);
+        GSList* next = entry->next;
         if (event != RpNetworkConnectionEvent_LocalClose &&
             event != RpNetworkConnectionEvent_RemoteClose &&
             rp_network_connection_state(RP_NETWORK_CONNECTION(self)) != RpNetworkConnectionState_Open)
         {
-            NOISY_MSG_("returning");
-            return;
+            NOISY_MSG_("breaking");
+            break;
         }
 
         if (entry->data)
@@ -233,7 +239,9 @@ rp_network_connection_impl_base_raise_connection_event(RpNetworkConnectionImplBa
             NOISY_MSG_("calling rp_network_connection_callbacks_on_event(%p, %d)", callback, event);
             rp_network_connection_callbacks_on_event(callback, event);
         }
+        entry = next;
     }
+    g_object_unref(self);
 }
 
 void

@@ -60,13 +60,13 @@ rp_async_host_selection_handle_cancel(RpAsyncHostSelectionHandle* self)
  */
 typedef struct _RpHostSelectionResponse RpHostSelectionResponse;
 struct _RpHostSelectionResponse {
-    RpHostConstSharedPtr m_host;
+    RpHost* m_host;
     const char* m_details;
     RpAsyncHostSelectionHandle* m_cancelable;
 };
 
 static inline RpHostSelectionResponse
-rp_host_selection_response_ctor(RpHostConstSharedPtr host, RpAsyncHostSelectionHandle* cancelable, const char* details)
+rp_host_selection_response_ctor(RpHost* host, RpAsyncHostSelectionHandle* cancelable, const char* details)
 {
     struct _RpHostSelectionResponse self = {
         .m_host = host,
@@ -150,6 +150,25 @@ rp_load_balancer_context_on_async_host_selection(RpLoadBalancerContext* self, Rp
 
 
 /**
+ * Identifies a specific connection within a pool.
+ */
+typedef struct _RpSelectedPoolAndConnection RpSelectedPoolAndConnection;
+struct _RpSelectedPoolAndConnection {
+    RpConnectionPoolInstance* m_pool;
+    RpNetworkConnection* m_connection;
+};
+static inline RpSelectedPoolAndConnection
+rp_selected_pool_and_connection_ctor(RpConnectionPoolInstance* pool, RpNetworkConnection* connection)
+{
+    RpSelectedPoolAndConnection self = {
+        .m_pool = pool,
+        .m_connection = connection
+    };
+    return self;
+}
+
+
+/**
  * Abstract load balancing interface.
  */
 #define RP_TYPE_LOAD_BALANCER rp_load_balancer_get_type()
@@ -160,7 +179,9 @@ struct _RpLoadBalancerInterface {
 
     RpHostSelectionResponse (*choose_host)(RpLoadBalancer*, RpLoadBalancerContext*);
     //TODO...
-    //TODO...selectExistingConnection(...);
+    RpSelectedPoolAndConnection (*select_existing_connection)(RpLoadBalancer*,
+                                                                const RpHost*,
+                                                                GArray*);
 };
 
 typedef UNIQUE_PTR(RpLoadBalancer) RpLoadBalancerPtr;
@@ -172,12 +193,19 @@ rp_load_balancer_choose_host(RpLoadBalancer* self, RpLoadBalancerContext* contex
         RP_LOAD_BALANCER_GET_IFACE(self)->choose_host(self, context) :
         rp_host_selection_response_ctor(NULL, NULL, NULL);
 }
+static inline RpSelectedPoolAndConnection
+rp_load_balancer_select_existing_connection(RpLoadBalancer* self, const RpHost* host, GArray* hash_key)
+{
+    return RP_IS_LOAD_BALANCER(self) ?
+        RP_LOAD_BALANCER_GET_IFACE(self)->select_existing_connection(self, host, hash_key) :
+        rp_selected_pool_and_connection_ctor(NULL, NULL);
+}
 
 
 typedef struct _RpLoadBalancerParams RpLoadBalancerParams;
 struct _RpLoadBalancerParams {
-    const RpPrioritySet* priority_set;
-    const RpPrioritySet* local_priority_set;
+    RpPrioritySet* priority_set;
+    RpPrioritySet* local_priority_set;
 };
 
 /**
@@ -291,7 +319,7 @@ struct _RpTypedLoadBalancerFactoryInterface {
 
     RpThreadAwareLoadBalancerPtr (*create)(RpTypedLoadBalancerFactory*,
                                             RpLoadBalancerConfig*,
-                                            RpClusterInfo*,
+                                            RpClusterInfoConstSharedPtr,
                                             RpPrioritySet*,
                                             RpTimeSource*);
     RpLoadBalancerConfig* (*load_legacy)(RpTypedLoadBalancerFactory*, RpServerFactoryContext*, const RpClusterCfg*);
@@ -299,7 +327,7 @@ struct _RpTypedLoadBalancerFactoryInterface {
 };
 
 static inline RpThreadAwareLoadBalancerPtr
-rp_typed_load_balancer_factory_create(RpTypedLoadBalancerFactory* self, RpLoadBalancerConfig* lb_config, RpClusterInfo* cluster_info, RpPrioritySet* priority_set, RpTimeSource* time_source)
+rp_typed_load_balancer_factory_create(RpTypedLoadBalancerFactory* self, RpLoadBalancerConfig* lb_config, RpClusterInfoConstSharedPtr cluster_info, RpPrioritySet* priority_set, RpTimeSource* time_source)
 {
     return RP_IS_TYPED_LOAD_BALANCER_FACTORY(self) ?
         RP_TYPED_LOAD_BALANCER_FACTORY_GET_IFACE(self)->create(self, lb_config, cluster_info, priority_set, time_source) :

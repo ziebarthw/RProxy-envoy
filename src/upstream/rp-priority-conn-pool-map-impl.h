@@ -17,6 +17,6 @@ G_BEGIN_DECLS
 G_DECLARE_FINAL_TYPE(RpPriorityConnPoolMapImpl, rp_priority_conn_pool_map_impl, RP, PRIORITY_CONN_POOL_MAP_IMPL, RpPriorityConnPoolMap)
 
 RpPriorityConnPoolMapImpl* rp_priority_conn_pool_map_impl_new(RpDispatcher* dispatcher,
-                                                                RpHostConstSharedPtr host);
+                                                                RpHost* host);
 
 G_END_DECLS

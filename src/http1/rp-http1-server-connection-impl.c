@@ -60,6 +60,7 @@ ActiveRequest_free(ActiveRequest* self)
     NOISY_MSG_("(%p)", self);
     g_string_free_and_clear(&self->m_request_url);
     g_clear_object(&self->m_response_encoder);
+    g_free(self);
 }
 
 struct _RpHttp1ServerConnectionImpl {

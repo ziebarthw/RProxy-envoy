@@ -75,7 +75,7 @@ struct _RpConnectionPoolInstanceInterface {
     void (*add_idle_callback)(RpConnectionPoolInstance*, RpIdleCb);
     bool (*is_idle)(RpConnectionPoolInstance*);
     void (*drain_connections)(RpConnectionPoolInstance*, RpDrainBehavior_e);
-    RpHostDescription* (*host)(RpConnectionPoolInstance*);
+    RpHostDescriptionConstSharedPtr (*host)(RpConnectionPoolInstance*);
     bool (*maybe_preconnect)(RpConnectionPoolInstance*, float);
 };
 
@@ -101,7 +101,7 @@ rp_connection_pool_instance_drain_connections(RpConnectionPoolInstance* self, Rp
         RP_CONNECTION_POOL_INSTANCE_GET_IFACE(self)->drain_connections(self, drain_behavior);
     }
 }
-static inline RpHostDescription*
+static inline RpHostDescriptionConstSharedPtr
 rp_connection_pool_instance_host(RpConnectionPoolInstance* self)
 {
     return RP_IS_CONNECTION_POOL_INSTANCE(self) ?
@@ -113,6 +113,80 @@ rp_connection_pool_instance_maybe_preconnect(RpConnectionPoolInstance* self, flo
     return RP_IS_CONNECTION_POOL_INSTANCE(self) ?
         RP_CONNECTION_POOL_INSTANCE_GET_IFACE(self)->maybe_preconnect(self, preconnect_ratio) :
         false;
+}
+
+static inline void
+append_u8(GByteArray* b, guint8 v)
+{
+    g_byte_array_append(b, &v, 1);
+}
+static inline void
+append_u16_be(GByteArray* b, guint16 v)
+{
+    guint8 tmp[2] = { (guint8)(v >> 8), (guint8)(v & 0xff) };
+    g_byte_array_append(b, tmp, 2);
+}
+static inline void
+append_u32_be(GByteArray* b, guint32 v)
+{
+    guint8 tmp[4] = {
+        (guint8)(v >> 24), (guint8)(v >> 16), (guint8)(v >> 8), (guint8)(v)
+    };
+    g_byte_array_append(b, tmp, 4);
+}
+static inline void
+append_bytes_len(GByteArray* b, const guint8* p, gsize n)
+{
+    /* length-prefix so boundaries are unambiguous */
+    g_return_if_fail(n <= G_MAXUINT32);
+    append_u32_be(b, (guint32)n);
+    if (n) g_byte_array_append(b, p, (guint)n);
+}
+static inline void
+append_str_len(GByteArray* b, const char* s)
+{
+    if (!s) {
+        append_u32_be(b, 0);
+        return;
+    }
+    append_bytes_len(b, (const guint8*)s, strlen(s));
+}
+
+/* Sample of a stable, deterministic digest of options */
+typedef struct _RpOptionsDigest RpOptionsDigest;
+struct _RpOptionsDigest {
+    guint8  digest[32]; /* e.g., SHA-256 */
+    gsize   len;        /* 32 */
+};
+
+static inline GBytes*
+rp_conn_pool_key_new(int seed, // evhtp_proto/priority
+                     const guint8* alpn_bytes, gsize alpn_len,
+                     const char* sni,
+                     const RpOptionsDigest* opt_digest)
+{
+    GByteArray* b = g_byte_array_new();
+
+    /* Version tag: lets you evolve format safely */
+    append_u8(b, 1);
+
+    /* Fixed-order fields */
+    append_u8(b, (guint8)seed);
+    append_bytes_len(b, alpn_bytes, alpn_len);
+    append_str_len(b, sni);
+
+    if (opt_digest)
+    {
+        append_u8(b, 1);
+        append_bytes_len(b, opt_digest->digest, opt_digest->len);
+    }
+    else
+    {
+        append_u8(b, 0);
+    }
+
+    /* Freeze: GBytes owns the data now */
+    return g_byte_array_free_to_bytes(b);
 }
 
 G_END_DECLS

@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_conn_manager_impl_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_conn_manager_impl_NOISY)
@@ -35,7 +32,7 @@ struct _RpHttpConnectionManagerImpl {
     RpConnectionManagerConfig* m_config;
     RpLocalInfo* m_local_info;
     RpClusterManager* m_cluster_manager;
-    RpHttpServerConnection* m_codec;
+    RpHttpServerConnectionPtr m_codec;
     RpDrainState_e m_drain_state;
 
     GSList* m_streams;
@@ -475,7 +472,7 @@ rp_http_connection_manager_impl_do_deferred_stream_destroy(RpHttpConnectionManag
     rp_filter_manager_destroy_filters(RP_FILTER_MANAGER(filter_manager));
 
     self->m_streams = g_slist_remove(self->m_streams, stream);
-    rp_dispatcher_deferred_delete(
+    rp_dispatcher_deferred_delete_take(
         rp_network_connection_dispatcher(
             rp_network_filter_callbacks_connection(RP_NETWORK_FILTER_CALLBACKS(self->m_read_callbacks))), G_OBJECT(stream));
 
@@ -684,7 +681,7 @@ rp_http_connection_manager_impl_send_go_away_and_close(RpHttpConnectionManagerIm
     do_connection_close(self, RpNetworkConnectionCloseType_FlushWriteAndDelay, "forced_goaway");
 }
 
-RpHttpServerConnection*
+RpHttpServerConnectionPtr
 rp_http_connection_manager_impl_codec_(RpHttpConnectionManagerImpl* self)
 {
     NOISY_MSG_("(%p)", self);

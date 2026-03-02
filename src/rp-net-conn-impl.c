@@ -21,7 +21,7 @@
 typedef struct _RpNetworkConnectionImplPrivate RpNetworkConnectionImplPrivate;
 struct _RpNetworkConnectionImplPrivate {
 
-    UNIQUE_PTR(RpNetworkTransportSocket) m_transport_socket;
+    RpNetworkTransportSocketPtr m_transport_socket;
     UNIQUE_PTR(RpConnectionSocket) m_socket;
     UNIQUE_PTR(RpNetworkFilterManagerImpl) m_filter_manager;
 
@@ -40,7 +40,7 @@ struct _RpNetworkConnectionImplPrivate {
 
     guint32 m_read_disable_count;
 
-    RpDelayedCloseState_e m_detected_close_type;
+    RpDetectedCloseType_e m_detected_close_type;
     RpNetworkConnectionEvent_e m_immediate_error_event;
 
     bool m_write_buffer_above_high_watermark : 1;
@@ -273,14 +273,14 @@ filter_manager_connection_iface_init(RpFilterManagerConnectionInterface* iface)
 }
 
 static void
-add_read_filter_i(RpNetworkFilterManager* self, RpNetworkReadFilter* filter)
+add_read_filter_i(RpNetworkFilterManager* self, RpNetworkReadFilterSharedPtr filter)
 {
     NOISY_MSG_("(%p, %p(%s))", self, filter, G_OBJECT_TYPE_NAME(filter));
     rp_network_filter_manager_impl_add_read_filter(PRIV(self)->m_filter_manager, filter);
 }
 
 static void
-add_write_filter_i(RpNetworkFilterManager* self, RpNetworkWriteFilter* filter)
+add_write_filter_i(RpNetworkFilterManager* self, RpNetworkWriteFilterSharedPtr filter)
 {
     NOISY_MSG_("(%p, %p(%s))", self, filter, G_OBJECT_TYPE_NAME(filter));
     rp_network_filter_manager_impl_add_write_filter(PRIV(self)->m_filter_manager, filter);
@@ -340,7 +340,7 @@ state_i(RpNetworkConnection* self)
     }
 }
 
-static RpConnectionInfoProvider*
+static RpConnectionInfoProviderSharedPtr
 connection_info_provider_i(RpNetworkConnection* self)
 {
     NOISY_MSG_("(%p)", self);
@@ -600,7 +600,7 @@ detect_early_close_when_read_disabled_i(RpNetworkConnection* self, bool value)
     PRIV(self)->m_detect_early_close = value;
 }
 
-static RpConnectionInfoSetter*
+static RpConnectionInfoSetterSharedPtr
 connection_info_setter_i(RpNetworkConnection* self)
 {
     NOISY_MSG_("(%p)", self);
@@ -930,6 +930,7 @@ dispose(GObject* obj)
     NOISY_MSG_("(%p)", obj);
 
     RpNetworkConnectionImplPrivate* me = PRIV(obj);
+    g_clear_object(&me->m_transport_socket);
     g_clear_object(&me->m_filter_manager);
     g_clear_object(&me->m_socket);
     g_clear_pointer(&me->m_read_buffer, evbuffer_free);

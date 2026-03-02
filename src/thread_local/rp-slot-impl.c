@@ -21,7 +21,7 @@ extern __thread RpThreadLocalData thread_local_data_;
 struct _RpSlotImpl {
     GObject parent_instance;
 
-    SHARED_PTR(RpThreadLocalInstanceImpl) m_parent;
+    GWeakRef m_parent_ref;
     guint32 m_index;
 };
 
@@ -66,10 +66,10 @@ rp_data_callback_cb_ctx_new(guint32 index, RpUpdateCb cb, gpointer arg)
 }
 
 static void
-rp_data_callback_cb_ctx_free(RpDataCallbackCbCtx* self)
+rp_data_callback_cb_ctx_free(gpointer arg)
 {
-    NOISY_MSG_("(%p)", self);
-    g_free(self);
+    NOISY_MSG_("(%p)", arg);
+    g_free(arg);
 }
 
 static void
@@ -89,7 +89,7 @@ set_thread_local(guint32 index, RpThreadLocalObjectSharedPtr obj)
         NOISY_MSG_("expanding array");
         g_ptr_array_add(thread_local_data_.m_data, NULL);
     }
-    thread_local_data_.m_data->pdata[index] = g_object_ref(obj);
+    thread_local_data_.m_data->pdata[index] = obj;
 }
 
 typedef struct _RpSetCbCtx RpSetCbCtx;
@@ -166,7 +166,8 @@ static inline bool
 is_shutdown_impl(RpSlotImpl* self)
 {
     NOISY_MSG_("(%p)", self);
-    return rp_thread_local_instance_impl_shutdown_(self->m_parent);
+    g_autoptr(RpThreadLocalInstanceImpl) parent = g_weak_ref_get(&self->m_parent_ref);
+    return parent ? rp_thread_local_instance_impl_shutdown_(parent) : true;
 }
 
 static inline bool
@@ -191,11 +192,11 @@ get_i(RpSlot* self)
 }
 
 static void
-run_on_all_threads_completed_i(RpSlot* self, RpUpdateCb cb, const void (*complete_cb)(gpointer), gpointer arg)
+run_on_all_threads_completed_i(RpSlot* self, RpUpdateCb cb, void (*complete_cb)(gpointer), gpointer arg)
 {
     NOISY_MSG_("(%p, %p, %p, %p)", self, cb, complete_cb, arg);
     RpSlotImpl* me = RP_SLOT_IMPL(self);
-    RpThreadLocalInstanceImpl* parent = me->m_parent;
+    g_autoptr(RpThreadLocalInstanceImpl) parent = g_weak_ref_get(&me->m_parent_ref);
     RpDataCallbackCbCtx* ctx = rp_data_callback_cb_ctx_new(me->m_index, cb, arg);
     rp_thread_local_instance_impl_run_on_all_threads_completed(parent, data_callback_cb, ctx, complete_cb, arg, (GDestroyNotify)rp_data_callback_cb_ctx_free);
 }
@@ -205,7 +206,7 @@ run_on_all_threads_i(RpSlot* self, RpUpdateCb cb, gpointer arg)
 {
     NOISY_MSG_("(%p, %p, %p)", self, cb, arg);
     RpSlotImpl* me = RP_SLOT_IMPL(self);
-    RpThreadLocalInstanceImpl* parent = me->m_parent;
+    g_autoptr(RpThreadLocalInstanceImpl) parent = g_weak_ref_get(&me->m_parent_ref);
     RpDataCallbackCbCtx* ctx = rp_data_callback_cb_ctx_new(me->m_index, cb, arg);
     rp_thread_local_instance_impl_run_on_all_threads(parent, data_callback_cb, ctx);
 }
@@ -216,9 +217,9 @@ set_i(RpSlot* self, RpInitializeCb cb, gpointer arg)
     NOISY_MSG_("(%p, %p, %p)", self, cb, arg);
 
     RpSlotImpl* me = RP_SLOT_IMPL(self);
+    g_autoptr(RpThreadLocalInstanceImpl) parent = g_weak_ref_get(&me->m_parent_ref);
     guint index_ = me->m_index;
-    GList* itr = rp_thread_local_instance_impl_registered_threads_(RP_SLOT_IMPL(self)->m_parent);
-NOISY_MSG_("%u elements", g_list_length(itr));
+    GList* itr = rp_thread_local_instance_impl_registered_threads_(parent);
     while (itr)
     {
         RpDispatcher* dispatcher = itr->data;
@@ -228,7 +229,7 @@ NOISY_MSG_("%u elements", g_list_length(itr));
     }
 
     // Handle main thread.
-    set_thread_local(index_, cb(rp_thread_local_instance_impl_dispatcher_(me->m_parent), arg));
+    set_thread_local(index_, cb(rp_thread_local_instance_impl_dispatcher_(parent), arg));
 }
 
 static bool
@@ -255,22 +256,36 @@ dispose(GObject* obj)
 {
     NOISY_MSG_("(%p)", obj);
 
+    G_OBJECT_CLASS(rp_slot_impl_parent_class)->dispose(obj);
+
     RpSlotImpl* self = RP_SLOT_IMPL(obj);
-    if (!is_shutdown_impl(self))
+    g_autoptr(RpThreadLocalInstanceImpl) parent = g_weak_ref_get(&self->m_parent_ref);
+    bool is_shutdown = is_shutdown_impl(self);
+
+    g_weak_ref_clear(&self->m_parent_ref);
+
+    if (is_shutdown)
     {
-        RpDispatcher* main_thread_dispatcher = rp_thread_local_instance_impl_main_thread_dispatcher_(self->m_parent);
-        if (!main_thread_dispatcher || rp_dispatcher_base_is_thread_safe(RP_DISPATCHER_BASE(main_thread_dispatcher)))
-        {
-            rp_thread_local_instance_impl_remove_slot(self->m_parent, self->m_index);
-        }
-        else
-        {
-            RpRemoveSlotCbCtx* ctx = rp_remove_slot_cb_ctx_new(self->m_index, self->m_parent);
-            rp_dispatcher_base_post(RP_DISPATCHER_BASE(main_thread_dispatcher), remove_slot_cb, ctx);
-        }
+        NOISY_MSG_("shut down");
+        return;
     }
 
-    G_OBJECT_CLASS(rp_slot_impl_parent_class)->dispose(obj);
+    if (!parent)
+    {
+        NOISY_MSG_("parent is null");
+        return;
+    }
+
+    RpDispatcher* main_thread_dispatcher = rp_thread_local_instance_impl_main_thread_dispatcher_(parent);
+    if (!main_thread_dispatcher || rp_dispatcher_base_is_thread_safe(RP_DISPATCHER_BASE(main_thread_dispatcher)))
+    {
+        rp_thread_local_instance_impl_remove_slot(parent, self->m_index);
+    }
+    else
+    {
+        RpRemoveSlotCbCtx* ctx = rp_remove_slot_cb_ctx_new(self->m_index, parent);
+        rp_dispatcher_base_post(RP_DISPATCHER_BASE(main_thread_dispatcher), remove_slot_cb, ctx);
+    }
 }
 
 static void
@@ -296,7 +311,7 @@ rp_slot_impl_new(RpThreadLocalInstanceImpl* parent, guint32 index)
     g_return_val_if_fail(RP_IS_THREAD_LOCAL_INSTANCE_IMPL(parent), NULL);
 
     RpSlotImpl* self = g_object_new(RP_TYPE_SLOT_IMPL, NULL);
-    self->m_parent = parent;
+    g_weak_ref_init(&self->m_parent_ref, parent);
     self->m_index = index;
     return RP_SLOT(self);
 }

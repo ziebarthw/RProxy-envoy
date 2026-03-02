@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_per_host_tcp_conn_pool_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_per_host_tcp_conn_pool_NOISY)
@@ -30,7 +27,7 @@ struct _RpPerHostTcpConnPool {
 G_DEFINE_FINAL_TYPE(RpPerHostTcpConnPool, rp_per_host_tcp_conn_pool, RP_TYPE_TCP_CONN_POOL)
 
 static void
-on_pool_ready_i(RpTcpConnPoolCallbacks* self, RpTcpConnPoolConnectionData* conn_data, RpHostDescription* host)
+on_pool_ready_i(RpTcpConnPoolCallbacks* self, RpTcpConnPoolConnectionData* conn_data, RpHostDescriptionConstSharedPtr host)
 {
     NOISY_MSG_("(%p, %p, %p)", self, conn_data, host);
     g_clear_object(rp_tcp_conn_pool_conn_pool_upstream_handle_(RP_TCP_CONN_POOL(self)));
@@ -47,7 +44,7 @@ on_pool_ready_i(RpTcpConnPoolCallbacks* self, RpTcpConnPoolConnectionData* conn_
 }
 
 static void
-on_pool_failure_i(RpTcpConnPoolCallbacks* self, RpPoolFailureReason_e reason, const char* failure_reason, RpHostDescription* host_description)
+on_pool_failure_i(RpTcpConnPoolCallbacks* self, RpPoolFailureReason_e reason, const char* failure_reason, RpHostDescriptionConstSharedPtr host_description)
 {
     NOISY_MSG_("(%p, %d, %p(%s), %p)",
         self, reason, failure_reason, failure_reason, host_description);
@@ -95,7 +92,7 @@ rp_per_host_tcp_conn_pool_init(RpPerHostTcpConnPool* self G_GNUC_UNUSED)
 }
 
 RpPerHostTcpConnPool*
-rp_per_host_tcp_conn_pool_new(RpHostConstSharedPtr host, RpThreadLocalCluster* thread_local_cluster,
+rp_per_host_tcp_conn_pool_new(RpHostDescriptionConstSharedPtr host, RpThreadLocalCluster* thread_local_cluster,
                                 RpResourcePriority_e priority, evhtp_proto downstream_protocol, RpLoadBalancerContext* context)
 {
     LOGD("(%p, %p, %d, %d, %p)", host, thread_local_cluster, priority, downstream_protocol, context);

@@ -128,7 +128,7 @@ struct _RpStreamInterface {
     void (*read_disable)(RpStream*, bool);
     guint32 (*buffer_limit)(RpStream*);
     const char* (*response_details)(RpStream*);
-    RpConnectionInfoProvider* (*connection_info_provider)(RpStream*);
+    RpConnectionInfoProviderSharedPtr (*connection_info_provider)(RpStream*);
     void (*set_flush_timeout)(RpStream*, guint32);
 };
 
@@ -169,7 +169,7 @@ rp_stream_buffer_limit(RpStream* self)
     return RP_IS_STREAM(self) ?
         RP_STREAM_GET_IFACE(self)->buffer_limit(self) : 0;
 }
-static inline RpConnectionInfoProvider*
+static inline RpConnectionInfoProviderSharedPtr
 rp_stream_connection_info_provider(RpStream* self)
 {
     return RP_IS_STREAM(self) ?
@@ -359,6 +359,7 @@ struct _RpRequestDecoderInterface {
                                 modify_headers_cb,
                                 const char*,
                                 void*);
+    RpStreamInfo* (*stream_info)(const RpRequestDecoder*);
 };
 
 static inline void
@@ -391,6 +392,12 @@ rp_request_decoder_send_local_reply(RpRequestDecoder* self, evhtp_res code, evbu
                                                                 details,
                                                                 arg);
     }
+}
+static inline RpStreamInfo*
+rp_request_decoder_stream_info(const RpRequestDecoder* self)
+{
+    return RP_IS_REQUEST_DECODER((GObject*)self) ?
+        RP_REQUEST_DECODER_GET_IFACE((GObject*)self)->stream_info(self) : NULL;
 }
 
 /**
@@ -640,6 +647,8 @@ struct _RpHttpServerConnectionInterface {
     RpHttpConnectionInterface parent_iface;
 
 };
+
+typedef UNIQUE_PTR(RpHttpServerConnection) RpHttpServerConnectionPtr;
 
 /**
  * A client side HTTP connection.

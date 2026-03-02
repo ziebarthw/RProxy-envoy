@@ -37,75 +37,103 @@ G_DECLARE_INTERFACE(RpConnectionInfoProvider, rp_connection_info_provider, RP, C
 struct _RpConnectionInfoProviderInterface {
     GTypeInterface parent_iface;
 
-    RpNetworkAddressInstanceConstSharedPtr (*local_address)(RpConnectionInfoProvider*);
-    RpNetworkAddressInstanceConstSharedPtr (*direct_local_address)(RpConnectionInfoProvider*);
-    bool (*local_address_restored)(RpConnectionInfoProvider*);
-    RpNetworkAddressInstanceConstSharedPtr (*remote_address)(RpConnectionInfoProvider*);
-    RpNetworkAddressInstanceConstSharedPtr (*direct_remote_address)(RpConnectionInfoProvider*);
-    const char* (*requested_server_name)(RpConnectionInfoProvider*);
-    guint64 (*connection_id)(RpConnectionInfoProvider*);
-    const char* (*interface_name)(RpConnectionInfoProvider*);
-    RpSslConnectionInfo* (*ssl_connection)(RpConnectionInfoProvider*);
+    RpNetworkAddressInstanceConstSharedPtr (*local_address)(const RpConnectionInfoProvider*);
+    RpNetworkAddressInstanceConstSharedPtr (*direct_local_address)(const RpConnectionInfoProvider*);
+    bool (*local_address_restored)(const RpConnectionInfoProvider*);
+    RpNetworkAddressInstanceConstSharedPtr (*remote_address)(const RpConnectionInfoProvider*);
+    RpNetworkAddressInstanceConstSharedPtr (*direct_remote_address)(const RpConnectionInfoProvider*);
+    const char* (*requested_server_name)(const RpConnectionInfoProvider*);
+    guint64 (*connection_id)(const RpConnectionInfoProvider*);
+    const char* (*interface_name)(const RpConnectionInfoProvider*);
+    RpSslConnectionInfo* (*ssl_connection)(const RpConnectionInfoProvider*);
     //TODO...
 };
 
-static inline RpNetworkAddressInstanceConstSharedPtr
-rp_connection_info_provider_local_address(RpConnectionInfoProvider* self)
+typedef SHARED_PTR(RpConnectionInfoProvider) RpConnectionInfoProviderSharedPtr;
+typedef const SHARED_PTR(RpConnectionInfoProvider) RpConnectionInfoProviderConstSharedPtr;
+
+static inline gboolean
+rp_connection_info_provider_is_a(RpConnectionInfoProviderConstSharedPtr self)
 {
-    return RP_IS_CONNECTION_INFO_PROVIDER(self) ?
-        RP_CONNECTION_INFO_PROVIDER_GET_IFACE(self)->local_address(self) : NULL;
+    g_return_val_if_fail(self != NULL, false);
+    return RP_IS_CONNECTION_INFO_PROVIDER((GObject*)self);
+}
+static inline void
+rp_connection_info_provider_set_object(RpConnectionInfoProviderSharedPtr* dst, RpConnectionInfoProviderConstSharedPtr src)
+{
+    g_return_if_fail(dst != NULL);
+    g_set_object((GObject**)dst, (GObject*)src);
+}
+static inline RpConnectionInfoProviderInterface*
+rp_connection_info_provider_iface(RpConnectionInfoProviderConstSharedPtr self)
+{
+    g_return_val_if_fail(rp_connection_info_provider_is_a(self), NULL);
+    return RP_CONNECTION_INFO_PROVIDER_GET_IFACE((GObject*)self);
 }
 static inline RpNetworkAddressInstanceConstSharedPtr
-rp_connection_info_provider_direct_local_address(RpConnectionInfoProvider* self)
+rp_connection_info_provider_local_address(RpConnectionInfoProviderConstSharedPtr self)
 {
-    return RP_IS_CONNECTION_INFO_PROVIDER(self) ?
-        RP_CONNECTION_INFO_PROVIDER_GET_IFACE(self)->direct_local_address(self) :
-        NULL;
+    g_return_val_if_fail(rp_connection_info_provider_is_a(self), NULL);
+    RpConnectionInfoProviderInterface* iface = rp_connection_info_provider_iface(self);
+    return iface->local_address ? iface->local_address(self) : NULL;
+}
+static inline RpNetworkAddressInstanceConstSharedPtr
+rp_connection_info_provider_direct_local_address(RpConnectionInfoProviderConstSharedPtr self)
+{
+    g_return_val_if_fail(rp_connection_info_provider_is_a(self), NULL);
+    RpConnectionInfoProviderInterface* iface = rp_connection_info_provider_iface(self);
+    return iface->direct_local_address ? iface->direct_local_address(self) : NULL;
 }
 static inline bool
-rp_connection_info_provider_local_address_restored(RpConnectionInfoProvider* self)
+rp_connection_info_provider_local_address_restored(RpConnectionInfoProviderConstSharedPtr self)
 {
-    return RP_IS_CONNECTION_INFO_PROVIDER(self) ?
-        RP_CONNECTION_INFO_PROVIDER_GET_IFACE(self)->local_address_restored(self) :
-        false;
+    g_return_val_if_fail(rp_connection_info_provider_is_a(self), false);
+    RpConnectionInfoProviderInterface* iface = rp_connection_info_provider_iface(self);
+    return iface->local_address_restored ?
+        iface->local_address_restored(self) : false;
 }
 static inline RpNetworkAddressInstanceConstSharedPtr
-rp_connection_info_provider_remote_address(RpConnectionInfoProvider* self)
+rp_connection_info_provider_remote_address(RpConnectionInfoProviderConstSharedPtr self)
 {
-    return RP_IS_CONNECTION_INFO_PROVIDER(self) ?
-        RP_CONNECTION_INFO_PROVIDER_GET_IFACE(self)->remote_address(self) : NULL;
+    g_return_val_if_fail(rp_connection_info_provider_is_a(self), NULL);
+    RpConnectionInfoProviderInterface* iface = rp_connection_info_provider_iface(self);
+    return iface->remote_address ? iface->remote_address(self) : NULL;
 }
 static inline RpNetworkAddressInstanceConstSharedPtr
-rp_connection_info_provider_direct_remote_address(RpConnectionInfoProvider* self)
+rp_connection_info_provider_direct_remote_address(RpConnectionInfoProviderConstSharedPtr self)
 {
-    return RP_IS_CONNECTION_INFO_PROVIDER(self) ?
-        RP_CONNECTION_INFO_PROVIDER_GET_IFACE(self)->direct_remote_address(self) :
-        NULL;
+    g_return_val_if_fail(rp_connection_info_provider_is_a(self), NULL);
+    RpConnectionInfoProviderInterface* iface = rp_connection_info_provider_iface(self);
+    return iface->direct_remote_address ? iface->direct_remote_address(self) : NULL;
 }
 static inline const char*
-rp_connection_info_provider_requested_server_name(RpConnectionInfoProvider* self)
+rp_connection_info_provider_requested_server_name(RpConnectionInfoProviderConstSharedPtr self)
 {
-    return RP_IS_CONNECTION_INFO_PROVIDER(self) ?
-        RP_CONNECTION_INFO_PROVIDER_GET_IFACE(self)->requested_server_name(self) :
-        NULL;
+    g_return_val_if_fail(rp_connection_info_provider_is_a(self), NULL);
+    RpConnectionInfoProviderInterface* iface = rp_connection_info_provider_iface(self);
+    return iface->requested_server_name ?
+        iface->requested_server_name(self) : NULL;
 }
 static inline guint64
-rp_connection_info_provider_connection_id(RpConnectionInfoProvider* self)
+rp_connection_info_provider_connection_id(RpConnectionInfoProviderConstSharedPtr self)
 {
-    return RP_IS_CONNECTION_INFO_PROVIDER(self) ?
-        RP_CONNECTION_INFO_PROVIDER_GET_IFACE(self)->connection_id(self) : 0;
+    g_return_val_if_fail(rp_connection_info_provider_is_a(self), 0);
+    RpConnectionInfoProviderInterface* iface = rp_connection_info_provider_iface(self);
+    return iface->connection_id ? iface->connection_id(self) : 0;
 }
 static inline const char*
-rp_connection_info_provider_interface_name(RpConnectionInfoProvider* self)
+rp_connection_info_provider_interface_name(RpConnectionInfoProviderConstSharedPtr self)
 {
-    return RP_IS_CONNECTION_INFO_PROVIDER(self) ?
-        RP_CONNECTION_INFO_PROVIDER_GET_IFACE(self)->interface_name(self) : NULL;
+    g_return_val_if_fail(rp_connection_info_provider_is_a(self), NULL);
+    RpConnectionInfoProviderInterface* iface = rp_connection_info_provider_iface(self);
+    return iface->interface_name ? iface->interface_name(self) : NULL;
 }
 static inline RpSslConnectionInfo*
-rp_connection_info_provider_ssl_connection(RpConnectionInfoProvider* self)
+rp_connection_info_provider_ssl_connection(RpConnectionInfoProviderConstSharedPtr self)
 {
-    return RP_IS_CONNECTION_INFO_PROVIDER(self) ?
-        RP_CONNECTION_INFO_PROVIDER_GET_IFACE(self)->ssl_connection(self) : NULL;
+    g_return_val_if_fail(rp_connection_info_provider_is_a(self), NULL);
+    RpConnectionInfoProviderInterface* iface = rp_connection_info_provider_iface(self);
+    return iface->ssl_connection ? iface->ssl_connection(self) : NULL;
 }
 
 
@@ -124,60 +152,74 @@ struct _RpConnectionInfoSetterInterface {
     void (*set_ssl_connection)(RpConnectionInfoSetter*, RpSslConnectionInfo*);
 };
 
-static inline void
-rp_connection_info_setter_set_local_address(RpConnectionInfoSetter* self, RpNetworkAddressInstanceConstSharedPtr local_address)
+typedef SHARED_PTR(RpConnectionInfoSetter) RpConnectionInfoSetterSharedPtr;
+
+static inline gboolean
+rp_connection_info_setter_is_a(RpConnectionInfoSetterSharedPtr self)
 {
-    if (RP_IS_CONNECTION_INFO_SETTER(self))
-    {
-        RP_CONNECTION_INFO_SETTER_GET_IFACE(self)->set_local_address(self, local_address);
-    }
+    g_return_val_if_fail(self != NULL, false);
+    return RP_IS_CONNECTION_INFO_SETTER(self);
+}
+static inline RpConnectionInfoSetterInterface*
+rp_connection_info_setter_iface(RpConnectionInfoSetterSharedPtr self)
+{
+    g_return_val_if_fail(rp_connection_info_setter_is_a(self), NULL);
+    return RP_CONNECTION_INFO_SETTER_GET_IFACE((GObject*)self);
 }
 static inline void
-rp_connection_info_setter_restore_local_address(RpConnectionInfoSetter* self, RpNetworkAddressInstanceConstSharedPtr local_address)
+rp_connection_info_setter_set_local_address(RpConnectionInfoSetterSharedPtr self, RpNetworkAddressInstanceConstSharedPtr local_address)
 {
-    if (RP_IS_CONNECTION_INFO_SETTER(self))
-    {
-        RP_CONNECTION_INFO_SETTER_GET_IFACE(self)->restore_local_address(self, local_address);
-    }
+    g_return_if_fail(rp_connection_info_setter_is_a(self));
+    RpConnectionInfoSetterInterface* iface = rp_connection_info_setter_iface(self);
+    if (iface && iface->set_local_address) \
+        iface->set_local_address(self, local_address);
 }
 static inline void
-rp_connection_info_setter_set_remote_address(RpConnectionInfoSetter* self, RpNetworkAddressInstanceConstSharedPtr remote_address)
+rp_connection_info_setter_restore_local_address(RpConnectionInfoSetterSharedPtr self, RpNetworkAddressInstanceConstSharedPtr local_address)
 {
-    if (RP_IS_CONNECTION_INFO_SETTER(self))
-    {
-        RP_CONNECTION_INFO_SETTER_GET_IFACE(self)->set_remote_address(self, remote_address);
-    }
+    g_return_if_fail(rp_connection_info_setter_is_a(self));
+    RpConnectionInfoSetterInterface* iface = rp_connection_info_setter_iface(self);
+    if (iface && iface->restore_local_address) \
+        iface->restore_local_address(self, local_address);
 }
 static inline void
-rp_connection_info_setter_set_requested_server_name(RpConnectionInfoSetter* self, const char* requested_server_name)
+rp_connection_info_setter_set_remote_address(RpConnectionInfoSetterSharedPtr self, RpNetworkAddressInstanceConstSharedPtr remote_address)
 {
-    if (RP_IS_CONNECTION_INFO_SETTER(self))
-    {
-        RP_CONNECTION_INFO_SETTER_GET_IFACE(self)->set_requested_server_name(self, requested_server_name);
-    }
-}
-static inline void rp_connection_info_setter_set_connection_id(RpConnectionInfoSetter* self, guint64 id)
-{
-    if (RP_IS_CONNECTION_INFO_SETTER(self))
-    {
-        RP_CONNECTION_INFO_SETTER_GET_IFACE(self)->set_connection_id(self, id);
-    }
+    g_return_if_fail(rp_connection_info_setter_is_a(self));
+    RpConnectionInfoSetterInterface* iface = rp_connection_info_setter_iface(self);
+    if (iface && iface->set_remote_address) \
+        iface->set_remote_address(self, remote_address);
 }
 static inline void
-rp_connection_info_setter_enable_setting_interface_name(RpConnectionInfoSetter* self, bool enable)
+rp_connection_info_setter_set_requested_server_name(RpConnectionInfoSetterSharedPtr self, const char* requested_server_name)
 {
-    if (RP_IS_CONNECTION_INFO_SETTER(self))
-    {
-        RP_CONNECTION_INFO_SETTER_GET_IFACE(self)->enable_setting_interface_name(self, enable);
-    }
+    g_return_if_fail(rp_connection_info_setter_is_a(self));
+    RpConnectionInfoSetterInterface* iface = rp_connection_info_setter_iface(self);
+    if (iface && iface->set_requested_server_name) \
+        iface->set_requested_server_name(self, requested_server_name);
+}
+static inline void rp_connection_info_setter_set_connection_id(RpConnectionInfoSetterSharedPtr self, guint64 id)
+{
+    g_return_if_fail(rp_connection_info_setter_is_a(self));
+    RpConnectionInfoSetterInterface* iface = rp_connection_info_setter_iface(self);
+    if (iface && iface->set_connection_id) \
+        iface->set_connection_id(self, id);
 }
 static inline void
-rp_connection_info_setter_set_ssl_connection(RpConnectionInfoSetter* self, RpSslConnectionInfo* ssl_connection_info)
+rp_connection_info_setter_enable_setting_interface_name(RpConnectionInfoSetterSharedPtr self, bool enable)
 {
-    if (RP_IS_CONNECTION_INFO_SETTER(self))
-    {
-        RP_CONNECTION_INFO_SETTER_GET_IFACE(self)->set_ssl_connection(self, ssl_connection_info);
-    }
+    g_return_if_fail(rp_connection_info_setter_is_a(self));
+    RpConnectionInfoSetterInterface* iface = rp_connection_info_setter_iface(self);
+    if (iface && iface->enable_setting_interface_name) \
+        iface->enable_setting_interface_name(self, enable);
+}
+static inline void
+rp_connection_info_setter_set_ssl_connection(RpConnectionInfoSetterSharedPtr self, RpSslConnectionInfo* ssl_connection_info)
+{
+    g_return_if_fail(rp_connection_info_setter_is_a(self));
+    RpConnectionInfoSetterInterface* iface = rp_connection_info_setter_iface(self);
+    if (iface && iface->set_ssl_connection) \
+        iface->set_ssl_connection(self, ssl_connection_info);
 }
 
 

@@ -12,6 +12,7 @@
 #include "rp-rds.h"
 #include "rp-cluster-manager.h"
 #include "rp-factory-context.h"
+#include "rp-route-configuration.h"
 
 G_BEGIN_DECLS
 
@@ -26,11 +27,16 @@ G_DECLARE_INTERFACE(RpRouteConfigProviderManager, rp_route_config_provider_manag
 struct _RpRouteConfigProviderManagerInterface {
     GTypeInterface parent_iface;
 
-    RpRouteConfigProvider* (*create_static_route_config_provider)(RpRouteConfigProviderManager*, void*, RpServerFactoryContext*);
+    RpRouteConfigProvider* (*create_static_route_config_provider)(RpRouteConfigProviderManager*,
+                                                                    const RpRouteConfiguration*,
+                                                                    RpServerFactoryContext*);
 };
 
-static inline RpRouteConfigProvider*
-rp_route_config_provider_manager_create_static_route_config_provider(RpRouteConfigProviderManager* self, void* config, RpServerFactoryContext* factory_context)
+typedef UNIQUE_PTR(RpRouteConfigProviderManager) RpRouteConfigProviderManagerPtr;
+typedef SHARED_PTR(RpRouteConfigProviderManager) RpRouteConfigProviderManagerSharedPtr;
+
+static inline RpRouteConfigProviderPtr
+rp_route_config_provider_manager_create_static_route_config_provider(RpRouteConfigProviderManager* self, const RpRouteConfiguration* config, RpServerFactoryContext* factory_context)
 {
     return RP_IS_ROUTE_CONFIG_PROVIDER_MANAGER(self) ?
         RP_ROUTE_CONFIG_PROVIDER_MANAGER_GET_IFACE(self)->create_static_route_config_provider(self, config, factory_context) :

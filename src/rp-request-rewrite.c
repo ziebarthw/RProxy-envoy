@@ -143,7 +143,8 @@ rewrite_header_cb_(evhtp_header_t* header, gpointer arg)
         g_ascii_strcasecmp(header->key, RpHeaderValues.HostLegacy) == 0)
     {
         NOISY_MSG_("header val %p(%s)", header->val, header->val);
-        evhtp_header_val_set(header, get_host_value(ctx->m_replacement), 1);
+        g_autofree gchar* host = get_host_value(ctx->m_replacement);
+        evhtp_header_val_set(header, host, 1);
         ctx->m_saw_host = true;
     }
     else if (!ctx->m_saw_origin &&
@@ -151,7 +152,8 @@ rewrite_header_cb_(evhtp_header_t* header, gpointer arg)
         g_ascii_strcasecmp(header->key, RpCustomHeaderValues.Origin) == 0)
     {
         NOISY_MSG_("header val %p(%s)", header->val, header->val);
-        evhtp_header_val_set(header, get_origin_value(ctx->m_replacement), 1);
+        g_autofree gchar* origin = get_origin_value(ctx->m_replacement);
+        evhtp_header_val_set(header, origin, 1);
         ctx->m_saw_origin = true;
     }
     else
@@ -161,13 +163,13 @@ rewrite_header_cb_(evhtp_header_t* header, gpointer arg)
         if (g_match_info_matches(match_info))
         {
             NOISY_MSG_("%d matches", g_match_info_get_match_count(match_info));
-            gchar* res = g_regex_replace(ctx->m_regex,
-                                            header->val,
-                                            header->vlen,
-                                            0,
-                                            ctx->m_replacement,
-                                            G_REGEX_MATCH_DEFAULT,
-                                            NULL);
+            g_autofree gchar* res = g_regex_replace(ctx->m_regex,
+                                                    header->val,
+                                                    header->vlen,
+                                                    0,
+                                                    ctx->m_replacement,
+                                                    G_REGEX_MATCH_DEFAULT,
+                                                    NULL);
             NOISY_MSG_("\"%.*s\" -> \"%s\"", (int)header->vlen, header->val, res);
             evhtp_header_val_set(header, res, 1);
         }
@@ -177,7 +179,7 @@ rewrite_header_cb_(evhtp_header_t* header, gpointer arg)
 }
 
 RpRequestRewrite
-rp_request_rewrite_ctor(const gchar* original_uri, GSList* rewrite_urls, RpHostDescription* host_description, bool ssl_connection)
+rp_request_rewrite_ctor(const gchar* original_uri, GSList* rewrite_urls, RpHostDescriptionConstSharedPtr host_description, bool ssl_connection)
 {
     LOGD("(%p(%s), %p, %p, %u)",
         original_uri, original_uri, rewrite_urls, host_description, ssl_connection);

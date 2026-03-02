@@ -49,7 +49,7 @@ rp_client_socket_impl_new(RpIoHandle* io_handle, RpNetworkAddressInstanceConstSh
 {
     LOGD("(%p, %p)", io_handle, remote_address);
     g_return_val_if_fail(RP_IS_IO_HANDLE(io_handle), NULL);
-    g_return_val_if_fail(RP_IS_NETWORK_ADDRESS_INSTANCE(remote_address), NULL);
+    g_return_val_if_fail(rp_network_address_instance_is_network_address_instance(remote_address), NULL);
     return g_object_new(RP_TYPE_CLIENT_SOCKET_IMPL,
                         "io-handle", io_handle,
                         "remote-address", remote_address,

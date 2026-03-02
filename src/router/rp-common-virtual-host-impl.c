@@ -27,7 +27,7 @@ struct _RpCommonVirtualHostImpl {
     RpStatusCode_e* m_creation_status;
 
     const char* m_name;
-    RpRouteCommonConfig* m_global_route_config;
+    RpRouterCommonConfig* m_global_route_config;
 };
 
 enum
@@ -55,7 +55,7 @@ name_i(RpVirtualHost* self)
     return RP_COMMON_VIRTUAL_HOST_IMPL(self)->m_name;
 }
 
-static RpRouteCommonConfig*
+static RpRouterCommonConfig*
 route_config_i(RpVirtualHost* self)
 {
     NOISY_MSG_("(%p)", self);
@@ -158,7 +158,7 @@ rp_common_virtual_host_impl_class_init(RpCommonVirtualHostImplClass* klass)
     obj_properties[PROP_GLOBAL_ROUTE_CONFIG] = g_param_spec_object("global-route-config",
                                                     "Global route config",
                                                     "Global Route Config",
-                                                    RP_TYPE_ROUTE_COMMON_CONFIG,
+                                                    RP_TYPE_ROUTER_COMMON_CONFIG,
                                                     G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
     obj_properties[PROP_FACTORY_CONTEXT] = g_param_spec_object("factory-context",
                                                     "Factory context",
@@ -180,7 +180,7 @@ rp_common_virtual_host_impl_init(RpCommonVirtualHostImpl* self G_GNUC_UNUSED)
 }
 
 static RpCommonVirtualHostImpl*
-common_virtual_host_impl_new(RpVirtualHostCfg* virtual_host, RpRouteCommonConfig* global_route_config, RpServerFactoryContext* factory_context, RpStatusCode_e* creation_status)
+common_virtual_host_impl_new(RpVirtualHostCfg* virtual_host, RpRouterCommonConfig* global_route_config, RpServerFactoryContext* factory_context, RpStatusCode_e* creation_status)
 {
     LOGD("(%p, %p, %p, %p)", virtual_host, global_route_config, factory_context, creation_status);
     return g_object_new(RP_TYPE_COMMON_VIRTUAL_HOST_IMPL,
@@ -192,11 +192,11 @@ common_virtual_host_impl_new(RpVirtualHostCfg* virtual_host, RpRouteCommonConfig
 }
 
 RpCommonVirtualHostImpl*
-rp_common_virtual_host_impl_create(RpVirtualHostCfg* virtual_host, RpRouteCommonConfig* global_route_config, RpServerFactoryContext* factory_context)
+rp_common_virtual_host_impl_create(RpVirtualHostCfg* virtual_host, RpRouterCommonConfig* global_route_config, RpServerFactoryContext* factory_context)
 {
     LOGD("(%p, %p, %p)", virtual_host, global_route_config, factory_context);
     g_return_val_if_fail(virtual_host != NULL, NULL);
-    g_return_val_if_fail(RP_IS_ROUTE_COMMON_CONFIG(global_route_config), NULL);
+    g_return_val_if_fail(RP_IS_ROUTER_COMMON_CONFIG(global_route_config), NULL);
     g_return_val_if_fail(RP_IS_SERVER_FACTORY_CONTEXT(factory_context), NULL);
     RpStatusCode_e creation_status = RpStatusCode_Ok;
     RpCommonVirtualHostImpl* ret = common_virtual_host_impl_new(virtual_host, global_route_config, factory_context, &creation_status);

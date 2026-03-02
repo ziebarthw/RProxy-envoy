@@ -17,7 +17,7 @@ G_BEGIN_DECLS
 #define RP_TYPE_ROUTE_IMPL rp_route_impl_get_type()
 G_DECLARE_FINAL_TYPE(RpRouteImpl, rp_route_impl, RP, ROUTE_IMPL, GObject)
 
-RpRouteImpl* rp_route_impl_new(SHARED_PTR(RpRouteConfig) parent, SHARED_PTR(rule_cfg_t) rule_cfg);
-SHARED_PTR(rule_cfg_t) rp_route_impl_get_rule_cfg(RpRouteImpl* self);
+RpRouteImpl* rp_route_impl_new(RpRouterConfigConstSharedPtr parent, rule_cfg_t* rule_cfg);
+rule_cfg_t* rp_route_impl_get_rule_cfg(RpRouteImpl* self);
 
 G_END_DECLS

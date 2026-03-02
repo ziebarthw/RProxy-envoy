@@ -92,6 +92,10 @@ OVERRIDE void
 dispose(GObject* obj)
 {
     NOISY_MSG_("(%p)", obj);
+
+    RpClusterFactoryImplBasePrivate* me = PRIV(obj);
+    g_clear_pointer(&me->m_name, g_free);
+
     G_OBJECT_CLASS(rp_cluster_factory_impl_base_parent_class)->dispose(obj);
 }
 
@@ -157,7 +161,7 @@ NOISY_MSG_("cluster name \"%s\"", cluster_name);
     }
     else
     {
-NOISY_MSG_("no cluster type");
+NOISY_MSG_("does not have cluster type cfg");
         switch (rp_cluster_cfg_type(cluster))
         {
             case RpDiscoveryType_STATIC:

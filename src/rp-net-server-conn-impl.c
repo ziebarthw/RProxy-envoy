@@ -5,19 +5,12 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_net_server_conn_impl_NOISY) || defined(ALL_NOISY)) && !defined(NO_net_server_conn_impl_NOISY)
 #   define NOISY_MSG_ LOGD
 #else
 #   define NOISY_MSG_(x, ...)
-#endif
-
-#ifndef OVERRIDE
-#define OVERRIDE static
 #endif
 
 #include "rp-net-server-conn-impl.h"
@@ -207,8 +200,8 @@ rp_network_server_connection_impl_new(RpDispatcher* dispatcher, RpConnectionSock
     g_return_val_if_fail(RP_IS_STREAM_INFO(stream_info), NULL);
     return g_object_new(RP_TYPE_NETWORK_SERVER_CONNECTION_IMPL,
                         "dispatcher", dispatcher,
-                        "socket", socket,
-                        "transport-socket", transport_socket,
+                        "socket", g_steal_pointer(&socket),
+                        "transport-socket", g_steal_pointer(&transport_socket),
                         "stream-info", stream_info,
                         "connected", true,
                         NULL);

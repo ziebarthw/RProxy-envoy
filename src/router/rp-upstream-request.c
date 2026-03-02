@@ -27,6 +27,8 @@
 #include "rp-http-utility.h"
 #include "rp-upstream-request.h"
 
+#define FILTER_CHAIN_FACTORY(s) RP_FILTER_CHAIN_FACTORY((RpClusterInfo*)s)
+
 #define STREAM_INFO(s) RP_STREAM_INFO(RP_UPSTREAM_REQUEST(s)->m_stream_info)
 #define STREAM_DECODER_FILTER_CALLBACKS(s) \
     rp_router_filter_interface_callbacks(RP_UPSTREAM_REQUEST(s)->m_parent)
@@ -42,13 +44,13 @@ struct _RpUpstreamRequest {
     RpRouterFilterInterface* m_parent;
 
     UNIQUE_PTR(RpGenericConnPool) m_conn_pool;
-    UNIQUE_PTR(RpGenericUpstream) m_upstream;
-    UNIQUE_PTR(RpUpstreamRequestFmc) m_filter_manager_callbacks;
-    UNIQUE_PTR(RpFilterManager) m_filter_manager;
+    RpGenericUpstream* m_upstream;
+    RpUpstreamRequestFmc* m_filter_manager_callbacks;
+    RpFilterManager* m_filter_manager;
 
     UNIQUE_PTR(RpDownstreamWatermarkManager) m_downstream_watermark_manager;
 
-    RpHostDescription* m_upstream_host;
+    RpHostDescriptionSharedPtr m_upstream_host;
     RpStreamInfoImpl* m_stream_info;
     evhtp_headers_t* m_upstream_headers;
     evhtp_headers_t* m_upstream_trailers;
@@ -230,7 +232,7 @@ get_reset_reason(RpPoolFailureReason_e reason)
 }
 
 static void
-on_pool_failure_i(RpGenericConnectionPoolCallbacks* self, RpPoolFailureReason_e reason, const char* transport_failure_reason, RpHostDescription* host)
+on_pool_failure_i(RpGenericConnectionPoolCallbacks* self, RpPoolFailureReason_e reason, const char* transport_failure_reason, RpHostDescriptionConstSharedPtr host)
 {
     NOISY_MSG_("(%p, %d, %p(%s), %p)", self, reason, transport_failure_reason, transport_failure_reason, host);
     //TODO...recordConnectionPoolCallbackLatency(...)
@@ -244,15 +246,16 @@ on_pool_failure_i(RpGenericConnectionPoolCallbacks* self, RpPoolFailureReason_e 
 
     // Mimic an upstream reset.
     rp_upstream_request_on_upstream_host_selected(me, host, false);
-    rp_stream_callbacks_on_reset_stream(RP_STREAM_CALLBACKS(self), reason, transport_failure_reason);
+    rp_stream_callbacks_on_reset_stream(RP_STREAM_CALLBACKS(self), get_reset_reason(reason), transport_failure_reason);
 }
 
 static void
-on_pool_ready_i(RpGenericConnectionPoolCallbacks* self, UNIQUE_PTR(RpGenericUpstream) upstream, RpHostDescription* host,
-                RpConnectionInfoProvider* address_provider, RpStreamInfo* info, evhtp_proto protocol)
+on_pool_ready_i(RpGenericConnectionPoolCallbacks* self, RpGenericUpstream* upstream, RpHostDescriptionConstSharedPtr host,
+                RpConnectionInfoProviderSharedPtr address_provider, RpStreamInfo* info, evhtp_proto protocol)
 {
     NOISY_MSG_("(%p, %p, %p, %p, %p, %d)", self, upstream, host, address_provider, info, protocol);
     RpUpstreamRequest* me = RP_UPSTREAM_REQUEST(self);
+    //TODO...recordConnectionPoolCallbackLatency();
     me->m_upstream = g_steal_pointer(&upstream);
     me->m_had_upstream = true;
 
@@ -380,7 +383,7 @@ clean_up(RpUpstreamRequest* self)
 
     //TODO..while (downstream_data_disabled_ != 0) {...}
 
-    rp_dispatcher_deferred_delete(
+    rp_dispatcher_deferred_delete_take(
         rp_stream_filter_callbacks_dispatcher(
             RP_STREAM_FILTER_CALLBACKS(
                 rp_router_filter_interface_callbacks(self->m_parent))), G_OBJECT(g_steal_pointer(&self->m_filter_manager_callbacks)));
@@ -394,8 +397,11 @@ dispose(GObject* obj)
     RpUpstreamRequest* self = RP_UPSTREAM_REQUEST(obj);
     clean_up(self);
     g_clear_object(&self->m_conn_pool);
+    g_clear_object(&self->m_filter_manager_callbacks);
     g_clear_object(&self->m_filter_manager);
     g_clear_object(&self->m_downstream_watermark_manager);
+    g_clear_object(&self->m_stream_info);
+    g_slist_free(g_steal_pointer(&self->m_upstream_callbacks));
 
     G_OBJECT_CLASS(rp_upstream_request_parent_class)->dispose(obj);
 }
@@ -432,12 +438,9 @@ rp_upstream_request_accept_headers_from_router(RpUpstreamRequest* self, bool end
     LOGD("(%p, %u)", self, end_stream);
 
     RpUpstreamRequest* me = RP_UPSTREAM_REQUEST(self);
+g_assert(!me->m_router_sent_end_stream);
     me->m_router_sent_end_stream = end_stream;
 
-    rp_generic_conn_pool_new_stream(me->m_conn_pool, RP_GENERIC_CONNECTION_POOL_CALLBACKS(self));
-
-    rp_filter_manager_request_headers_initialized(me->m_filter_manager);
-    RpStreamInfo* stream_info = rp_filter_manager_stream_info(me->m_filter_manager);
     evhtp_headers_t* headers = rp_router_filter_interface_downstream_headers(me->m_parent);
     const char* method_value = evhtp_header_find(headers, RpHeaderValues.Method);
     if (g_ascii_strcasecmp(method_value, RpHeaderValues.MethodValues.Connect) == 0)
@@ -445,7 +448,12 @@ rp_upstream_request_accept_headers_from_router(RpUpstreamRequest* self, bool end
         NOISY_MSG_("CONNECT");
         me->m_paused_for_connect = true;
     }
-    rp_stream_info_set_request_headers(stream_info, headers);
+
+    rp_generic_conn_pool_new_stream(me->m_conn_pool, RP_GENERIC_CONNECTION_POOL_CALLBACKS(self));
+
+    rp_filter_manager_request_headers_initialized(me->m_filter_manager);
+    rp_stream_info_set_request_headers(
+        rp_filter_manager_stream_info(me->m_filter_manager), headers);
     rp_filter_manager_decode_headers(me->m_filter_manager, headers, end_stream);
 }
 
@@ -492,12 +500,13 @@ constructed(RpUpstreamRequest* self)
 {
     NOISY_MSG_("(%p)", self);
 
-    RpHostDescription* upstream_host = rp_generic_conn_pool_host(RP_GENERIC_CONN_POOL(self->m_conn_pool));
+    RpHostDescriptionConstSharedPtr upstream_host = rp_generic_conn_pool_host(RP_GENERIC_CONN_POOL(self->m_conn_pool));
     RpStreamInfo* downstream_stream_info = rp_stream_filter_callbacks_stream_info(CALLBACKS(self));
     self->m_stream_info = rp_stream_info_impl_new(EVHTP_PROTO_INVALID, /*NULL*/rp_stream_info_downstream_address_provider(downstream_stream_info), RpFilterStateLifeSpan_FilterChain, NULL);
 
-    rp_stream_info_set_upstream_info(STREAM_INFO(self),
-        RP_UPSTREAM_INFO(rp_upstream_info_impl_new()));
+    SHARED_PTR(RpUpstreamInfo) upstream_info = RP_UPSTREAM_INFO(rp_upstream_info_impl_new());
+    rp_stream_info_set_upstream_info(STREAM_INFO(self), upstream_info);
+    g_clear_object(&upstream_info);
     rp_stream_info_impl_set_route_(self->m_stream_info,
         rp_stream_filter_callbacks_route(CALLBACKS(self)));
     rp_upstream_info_set_upstream_host(
@@ -524,7 +533,7 @@ constructed(RpUpstreamRequest* self)
                                     self));
 
     struct RpCreateChainResult res = rp_filter_manager_create_filter_chain(FILTER_MANAGER(self),
-                                        RP_FILTER_CHAIN_FACTORY(rp_router_filter_interface_cluster(self->m_parent)));
+                                        FILTER_CHAIN_FACTORY(rp_router_filter_interface_cluster(self->m_parent)));
     if (!res.m_created)
     {
         res = rp_filter_manager_create_filter_chain(FILTER_MANAGER(self),
@@ -546,18 +555,26 @@ constructed(RpUpstreamRequest* self)
 }
 
 RpUpstreamRequest*
-rp_upstream_request_new(RpRouterFilterInterface* parent, UNIQUE_PTR(RpGenericConnPool) conn_pool, bool can_send_early_data, bool can_use_http3, bool enable_half_close)
+rp_upstream_request_new(RpRouterFilterInterface* parent, RpGenericConnPool* conn_pool, bool can_send_early_data, bool can_use_http3, bool enable_half_close)
 {
     LOGD("(%p, %p, %u, %u, %u)", parent, conn_pool, can_send_early_data, can_use_http3, enable_half_close);
+
     g_return_val_if_fail(RP_IS_ROUTER_FILTER_INTERFACE(parent), NULL);
     g_return_val_if_fail(RP_IS_GENERIC_CONN_POOL(conn_pool), NULL);
-    RpUpstreamRequest* self = g_object_new(RP_TYPE_UPSTREAM_REQUEST, NULL);
+    g_autoptr(RpUpstreamRequest) self = g_object_new(RP_TYPE_UPSTREAM_REQUEST, NULL);
+
     self->m_parent = parent;
     self->m_conn_pool = g_steal_pointer(&conn_pool);
     self->m_can_send_early_data = can_send_early_data;
     self->m_can_use_http3 = can_use_http3;
     self->m_enable_half_close = enable_half_close;
-    return constructed(self);
+
+    if (!constructed(self))
+    {
+        LOGE("failed");
+        return NULL;
+    }
+    return g_steal_pointer(&self);
 }
 
 RpRouterFilterInterface*
@@ -652,13 +669,13 @@ rp_upstream_request_stream_info(RpUpstreamRequest* self)
 }
 
 void
-rp_upstream_request_on_upstream_host_selected(RpUpstreamRequest* self, RpHostDescription* host, bool pool_success)
+rp_upstream_request_on_upstream_host_selected(RpUpstreamRequest* self, RpHostDescriptionConstSharedPtr host, bool pool_success)
 {
     LOGD("(%p, %p, %u)", self, host, pool_success);
     g_return_if_fail(RP_IS_UPSTREAM_REQUEST(self));
     RpUpstreamInfo* upstream_info = rp_stream_info_upstream_info(rp_upstream_request_stream_info(self));
     rp_upstream_info_set_upstream_host(upstream_info, host);
-    self->m_upstream_host = host;
+    rp_host_description_set_object(&self->m_upstream_host, host);
     rp_router_filter_interface_on_upstream_host_selected(self->m_parent, host, pool_success);
 }
 

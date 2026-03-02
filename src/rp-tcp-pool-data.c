@@ -68,7 +68,7 @@ rp_tcp_pool_data_new_connection(RpTcpPoolData* self, RpTcpConnPoolCallbacks* cal
     return rp_tcp_conn_pool_instance_new_connection(self->m_pool, callbacks);
 }
 
-RpHostDescription*
+RpHostDescriptionConstSharedPtr
 rp_tcp_pool_data_host(RpTcpPoolData* self)
 {
     LOGD("(%p)", self);

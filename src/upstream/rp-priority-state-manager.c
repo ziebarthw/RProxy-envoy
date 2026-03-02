@@ -19,58 +19,16 @@ struct _RpPriorityStateManager {
     GObject parent_instance;
 
     RpClusterImplBase* m_parent;
-    RpLocalInfo* m_local_info;
-//    GPtrArray/*std::vector<std::pair<HostListPtr, LocalityWeightsMap>>*/* m_priority_state;
-    RpPriorityState m_priority_state;
-};
+    const RpLocalInfo* m_local_info;
+    RpPrioritySetHostUpdateCb* m_update_cb;
+    RpPriorityStatePtr m_priority_state;
 
-enum
-{
-    PROP_0, // Reserved.
-    PROP_PARENT,
-    PROP_LOCAL_INFO,
-    N_PROPERTIES
-};
+    RpPrioritySetUpdateHostsParams m_params;
 
-static GParamSpec* obj_properties[N_PROPERTIES] = { NULL, };
+    RpHostVector* m_host_vector;
+};
 
 G_DEFINE_FINAL_TYPE(RpPriorityStateManager, rp_priority_state_manager, G_TYPE_OBJECT)
-
-OVERRIDE void
-get_property(GObject* obj, guint prop_id, GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_PARENT:
-            g_value_set_object(value, RP_PRIORITY_STATE_MANAGER(obj)->m_parent);
-            break;
-        case PROP_LOCAL_INFO:
-            g_value_set_object(value, RP_PRIORITY_STATE_MANAGER(obj)->m_local_info);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
-
-OVERRIDE void
-set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec)
-{
-    NOISY_MSG_("(%p, %u, %p, %p(%s))", obj, prop_id, value, pspec, pspec->name);
-    switch (prop_id)
-    {
-        case PROP_PARENT:
-            RP_PRIORITY_STATE_MANAGER(obj)->m_parent = g_value_get_object(value);
-            break;
-        case PROP_LOCAL_INFO:
-            RP_PRIORITY_STATE_MANAGER(obj)->m_local_info = g_value_get_object(value);
-            break;
-        default:
-            G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
-            break;
-    }
-}
 
 OVERRIDE void
 dispose(GObject* obj)
@@ -78,12 +36,9 @@ dispose(GObject* obj)
     NOISY_MSG_("(%p)", obj);
 
     RpPriorityStateManager* self = RP_PRIORITY_STATE_MANAGER(obj);
-    for (guint i=0; i < self->m_priority_state->len; ++i)
-    {
-        RpHostVector* hosts = g_ptr_array_index(self->m_priority_state, i);
-        if (hosts) g_ptr_array_free(g_steal_pointer(&hosts), true);
-    }
-    g_ptr_array_free(g_steal_pointer(&self->m_priority_state), true);
+    g_clear_pointer(&self->m_priority_state, rp_priority_state_unref);
+    g_clear_pointer(&self->m_host_vector, rp_host_vector_unref);
+    rp_priority_set_update_hosts_params_clear(&self->m_params);
 
     G_OBJECT_CLASS(rp_priority_state_manager_parent_class)->dispose(obj);
 }
@@ -94,44 +49,30 @@ rp_priority_state_manager_class_init(RpPriorityStateManagerClass* klass)
     LOGD("(%p)", klass);
 
     GObjectClass* object_class = G_OBJECT_CLASS(klass);
-    object_class->get_property = get_property;
-    object_class->set_property = set_property;
     object_class->dispose = dispose;
-
-    obj_properties[PROP_PARENT] = g_param_spec_object("cluster",
-                                                    "Cluster",
-                                                    "Parent ClusterImplBase Instance",
-                                                    RP_TYPE_CLUSTER_IMPL_BASE,
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-    obj_properties[PROP_LOCAL_INFO] = g_param_spec_object("local-info",
-                                                    "Local info",
-                                                    "Local Info Instance",
-                                                    RP_TYPE_LOCAL_INFO,
-                                                    G_PARAM_READWRITE|G_PARAM_CONSTRUCT_ONLY|G_PARAM_STATIC_STRINGS);
-
-    g_object_class_install_properties(object_class, N_PROPERTIES, obj_properties);
 }
 
 static void
 rp_priority_state_manager_init(RpPriorityStateManager* self)
 {
     LOGD("(%p)", self);
-    self->m_priority_state = g_ptr_array_new_full(128, NULL); //REVISIT - max priority value.
+    self->m_priority_state = rp_priority_state_new();
 }
 
 RpPriorityStateManager*
-rp_priority_state_manager_new(RpClusterImplBase* cluster, const RpLocalInfo* local_info/*, RpHostUpdateCb*/)
+rp_priority_state_manager_new(RpClusterImplBase* cluster, const RpLocalInfo* local_info, RpPrioritySetHostUpdateCb* update_cb)
 {
-    LOGD("(%p, %p)", cluster, local_info);
+    LOGD("(%p(%s), %p, %p)", cluster, G_OBJECT_TYPE_NAME(cluster), local_info, update_cb);
     g_return_val_if_fail(RP_IS_CLUSTER_IMPL_BASE(cluster), NULL);
-    return g_object_new(RP_TYPE_PRIORITY_STATE_MANAGER,
-                        "cluster", cluster,
-                        "local-info", local_info,
-                        NULL);
+    RpPriorityStateManager* self = g_object_new(RP_TYPE_PRIORITY_STATE_MANAGER, NULL);
+    self->m_parent = cluster;
+    self->m_local_info = local_info;
+    self->m_update_cb = update_cb;
+    return self;
 }
 
 void
-rp_priority_state_manager_register_host_for_priority_2(RpPriorityStateManager* self, const RpHostSharedPtr host,
+rp_priority_state_manager_register_host_for_priority_2(RpPriorityStateManager* self, RpHost* host,
                                                         const RpLocalityLbEndpointsCfg* locality_lb_endpoint)
 {
     LOGD("(%p, %p, %p)", self, host, locality_lb_endpoint);
@@ -141,9 +82,19 @@ rp_priority_state_manager_register_host_for_priority_2(RpPriorityStateManager* s
     g_return_if_fail(locality_lb_endpoint != NULL);
 
     guint32 priority = rp_locality_lb_endpoints_cfg_priority(locality_lb_endpoint);
-    g_assert(self->m_priority_state->pdata[priority]);
-    RpHostVector* host_vector = g_ptr_array_index(self->m_priority_state, priority);
-    g_ptr_array_add(host_vector, host);
+    g_assert(rp_priority_state_peek_host_list(self->m_priority_state, priority));
+    RpHostVector* host_vector = rp_priority_state_peek_host_list(self->m_priority_state, priority);
+    rp_host_vector_add(host_vector, host);
+}
+
+static inline void
+register_host_for_priority_2_take(RpPriorityStateManager* self, RpHost* host /* transfer full */,
+                                        const RpLocalityLbEndpointsCfg* locality_lb_endpoint)
+{
+    NOISY_MSG_("(%p, %p, %p)", self, host, locality_lb_endpoint);
+    guint32 priority = rp_locality_lb_endpoints_cfg_priority(locality_lb_endpoint);
+    RpHostVector* host_vector = rp_priority_state_peek_host_list(self->m_priority_state, priority);
+    rp_host_vector_add_take(host_vector, g_steal_pointer(&host)); // transfer full
 }
 
 #if 0
@@ -172,8 +123,6 @@ rp_priority_state_manager_register_host_for_priority(RpPriorityStateManager* sel
     g_return_if_fail(lb_endpoint != NULL);
     g_return_if_fail(RP_IS_TIME_SOURCE(time_source));
 
-NOISY_MSG_("cluster %p, cluster info %p", self->m_parent, rp_cluster_info(RP_CLUSTER(self->m_parent)));
-
     RpHostImpl* host = rp_host_impl_create(rp_cluster_info(RP_CLUSTER(self->m_parent)),
                                             hostname,
                                             address,
@@ -181,13 +130,7 @@ NOISY_MSG_("cluster %p, cluster info %p", self->m_parent, rp_cluster_info(RP_CLU
                                             lb_endpoint->load_balancing_weight,
                                             locality_lb_endpoint->priority,
                                             time_source);
-    rp_priority_state_manager_register_host_for_priority_2(self, RP_HOST(host), locality_lb_endpoint);
-}
-
-static RpHostVector*
-rp_host_vector_new(void)
-{
-    return g_ptr_array_new();
+    register_host_for_priority_2_take(self, RP_HOST(host), locality_lb_endpoint);
 }
 
 void
@@ -197,22 +140,60 @@ rp_priority_state_manager_initialize_priority_for(RpPriorityStateManager* self, 
     g_return_if_fail(RP_IS_PRIORITY_STATE_MANAGER(self));
     g_return_if_fail(locality_lb_endpoints != NULL);
     guint32 priority = locality_lb_endpoints->priority;
-    if (self->m_priority_state->len <= priority)
+    rp_priority_state_ensure(self->m_priority_state, priority);
+    if (!rp_priority_state_peek_host_list(self->m_priority_state, priority))
     {
-        NOISY_MSG_("expanding priority state array to %u", priority + 1);
-        g_ptr_array_set_size(self->m_priority_state, priority + 1);
-    }
-    if (!self->m_priority_state->pdata[priority])
-    {
-        NOISY_MSG_("allocating host vector");
-        self->m_priority_state->pdata[priority] = rp_host_vector_new();
+        g_assert(self->m_host_vector == NULL);
+        RpHostVector* host_vector = rp_host_vector_new();
+        NOISY_MSG_("%p, allocated host vector %p", self, host_vector);
+        rp_priority_state_set_host_list(self->m_priority_state, priority, host_vector);
+        self->m_host_vector = host_vector;
     }
 }
 
-RpPriorityState
+RpPriorityStatePtr
 rp_priority_state_manager_priority_state(RpPriorityStateManager* self)
 {
     LOGD("(%p)", self);
     g_return_val_if_fail(RP_IS_PRIORITY_STATE_MANAGER(self), NULL);
     return self->m_priority_state;
+}
+
+void
+rp_priority_state_manager_update_cluster_priority_set(RpPriorityStateManager* self, guint32 priority,
+                                                        RpHostVector** current_hosts, const RpHostVector* hosts_added, const RpHostVector* hosts_removed,
+                                                        bool* weighted_priority_health, guint32* overprovisioning_factor)
+{
+    LOGD("(%p, %u, %p, %p(%u), %p, %p, %p)",
+        self, priority, current_hosts, hosts_added, rp_host_vector_len(hosts_added), hosts_removed, weighted_priority_health, overprovisioning_factor);
+
+    RpHostVector* hosts = g_steal_pointer(current_hosts);
+
+    rp_priority_set_update_hosts_params_clear(&self->m_params);
+
+    self->m_params = rp_host_set_impl_partition_hosts_take(&hosts);
+    g_assert(hosts == NULL);
+
+    if (self->m_update_cb)
+    {
+        self->m_update_cb->update_hosts(self->m_update_cb,
+                                        priority,
+                                        &self->m_params,
+                                        hosts_added,
+                                        hosts_removed,
+                                        weighted_priority_health,
+                                        overprovisioning_factor);
+    }
+    else
+    {
+        RpPrioritySet* priority_set = rp_cluster_priority_set(RP_CLUSTER(self->m_parent));
+        rp_priority_set_update_hosts(priority_set,
+                                        priority,
+                                        &self->m_params,
+                                        hosts_added,
+                                        hosts_removed,
+                                        weighted_priority_health,
+                                        overprovisioning_factor,
+                                        NULL);
+    }
 }

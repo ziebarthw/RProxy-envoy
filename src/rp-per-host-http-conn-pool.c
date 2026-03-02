@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_per_host_http_conn_pool_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_per_host_http_conn_pool_NOISY)
@@ -30,16 +27,16 @@ struct _RpPerHostHttpConnPool {
 G_DEFINE_FINAL_TYPE(RpPerHostHttpConnPool, rp_per_host_http_conn_pool, RP_TYPE_HTTP_CONN_POOL)
 
 static void
-on_pool_ready_i(RpHttpConnPoolCallbacks* self, RpRequestEncoder* request_encoder, RpHostDescription* host, RpStreamInfo* info, evhtp_proto protocol)
+on_pool_ready_i(RpHttpConnPoolCallbacks* self, RpRequestEncoder* request_encoder, RpHostDescriptionConstSharedPtr host, RpStreamInfo* info, evhtp_proto protocol)
 {
     NOISY_MSG_("(%p, %p, %p, %p, %d)", self, request_encoder, host, info, protocol);
 g_clear_object(rp_http_conn_pool_conn_pool_stream_handle_(RP_HTTP_CONN_POOL(self)));
 //*rp_http_conn_pool_conn_pool_stream_handle_(RP_HTTP_CONN_POOL(self)) = NULL;
     RpGenericConnectionPoolCallbacks* callbacks_ = rp_http_conn_pool_callbacks_(RP_HTTP_CONN_POOL(self));
     RpUpstreamToDownstream* downstream_request = rp_generic_connection_pool_callbacks_upstream_to_downstream(callbacks_);
-    UNIQUE_PTR(RpPerHostHttpUpstream) upstream = rp_per_host_http_upstream_new(downstream_request, request_encoder, host);
+    RpPerHostHttpUpstream* upstream = rp_per_host_http_upstream_new(downstream_request, request_encoder, host);
 
-    RpConnectionInfoProvider* provider = rp_stream_connection_info_provider(
+    RpConnectionInfoProviderSharedPtr provider = rp_stream_connection_info_provider(
         rp_stream_encoder_get_stream(RP_STREAM_ENCODER(request_encoder)));
     rp_generic_connection_pool_callbacks_on_pool_ready(callbacks_,
                                                         RP_GENERIC_UPSTREAM(g_steal_pointer(&upstream)),
@@ -50,7 +47,7 @@ g_clear_object(rp_http_conn_pool_conn_pool_stream_handle_(RP_HTTP_CONN_POOL(self
 }
 
 static void
-on_pool_failure_i(RpHttpConnPoolCallbacks* self, RpPoolFailureReason_e reason, const char* failure_reason, RpHostDescription* host_description)
+on_pool_failure_i(RpHttpConnPoolCallbacks* self, RpPoolFailureReason_e reason, const char* failure_reason, RpHostDescriptionConstSharedPtr host_description)
 {
     NOISY_MSG_("(%p, %d, %p(%s), %p)",
         self, reason, failure_reason, failure_reason, host_description);
@@ -98,11 +95,11 @@ rp_per_host_http_conn_pool_init(RpPerHostHttpConnPool* self G_GNUC_UNUSED)
 }
 
 RpPerHostHttpConnPool*
-rp_per_host_http_conn_pool_new(RpHostConstSharedPtr host, RpThreadLocalCluster* thread_local_cluster,
+rp_per_host_http_conn_pool_new(RpHostDescriptionConstSharedPtr host, RpThreadLocalCluster* thread_local_cluster,
                                 RpResourcePriority_e priority, evhtp_proto downstream_protocol, RpLoadBalancerContext* context)
 {
     LOGD("(%p, %p, %d, %d, %p)", host, thread_local_cluster, priority, downstream_protocol, context);
-    g_return_val_if_fail(RP_IS_HOST((RpHost*)host), NULL);
+    g_return_val_if_fail(rp_host_description_is_a(host), NULL);
     g_return_val_if_fail(RP_IS_THREAD_LOCAL_CLUSTER(thread_local_cluster), NULL);
     return g_object_new(RP_TYPE_PER_HOST_HTTP_CONN_POOL,
                         "host", host,

@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_stream_info_impl_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_stream_info_impl_NOISY)
@@ -23,13 +20,13 @@ typedef struct _RpStreamInfoImplPrivate RpStreamInfoImplPrivate;
 struct _RpStreamInfoImplPrivate {
 
     RpFilterStateImpl* m_filter_state;
-    RpClusterInfoConstSharedPtr m_upstream_cluster_info;
-    RpRoute* m_route;
+    RpClusterInfoSharedPtr m_upstream_cluster_info;
+    RpRouteSharedPtr m_route;
 
     evhtp_headers_t* m_request_headers;
 
-    RpUpstreamInfo* m_upstream_info;
-    RpConnectionInfoProvider* m_downstream_connection_info_provider;
+    SHARED_PTR(RpUpstreamInfo) m_upstream_info;
+    RpConnectionInfoProviderSharedPtr m_downstream_connection_info_provider;
     RpFilterState* m_ancestor_filter_state;
     RpFilterStateLifeSpan_e m_life_span;
 
@@ -65,7 +62,7 @@ G_DEFINE_TYPE_WITH_CODE(RpStreamInfoImpl, rp_stream_info_impl, G_TYPE_OBJECT,
 )
 
 #define PRIV(obj) \
-    ((RpStreamInfoImplPrivate*)rp_stream_info_impl_get_instance_private(RP_STREAM_INFO_IMPL(obj)))
+    ((RpStreamInfoImplPrivate*)rp_stream_info_impl_get_instance_private(RP_STREAM_INFO_IMPL((GObject*)obj)))
 
 static inline GHashTable*
 ensure_metadata(RpStreamInfoImplPrivate* me)
@@ -82,14 +79,14 @@ ensure_metadata(RpStreamInfoImplPrivate* me)
 }
 
 static GHashTable*
-dynamic_metadata_i(RpStreamInfo* self)
+dynamic_metadata_i(const RpStreamInfo* self)
 {
     NOISY_MSG_("(%p)", self);
     return ensure_metadata(PRIV(self));
 }
 
 static evhtp_proto
-protocol_i(RpStreamInfo* self)
+protocol_i(const RpStreamInfo* self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_protocol;
@@ -103,7 +100,7 @@ set_protocol_i(RpStreamInfo* self, evhtp_proto protocol)
 }
 
 static evhtp_headers_t*
-get_request_headers_i(RpStreamInfo* self)
+get_request_headers_i(const RpStreamInfo* self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_request_headers;
@@ -124,14 +121,14 @@ set_response_flag_i(RpStreamInfo* self, RpCoreResponseFlag_e response_flag)
 }
 
 static RpDownstreamTiming*
-downstream_timing_i(RpStreamInfo* self)
+downstream_timing_i(const RpStreamInfo* self)
 {
     NOISY_MSG_("(%p)", self);
     return &PRIV(self)->m_downstream_timing;
 }
 
 static bool
-should_drain_connection_upon_completion_i(RpStreamInfo* self)
+should_drain_connection_upon_completion_i(const RpStreamInfo* self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_should_drain_connection;
@@ -145,28 +142,29 @@ set_should_drain_connection_upon_completion_i(RpStreamInfo* self, bool should_dr
 }
 
 static void
-set_upstream_info_i(RpStreamInfo* self, RpUpstreamInfo* info)
+set_upstream_info_i(RpStreamInfo* self, SHARED_PTR(RpUpstreamInfo) info)
 {
     NOISY_MSG_("(%p, %p)", self, info);
-    PRIV(self)->m_upstream_info = info;
+    RpStreamInfoImplPrivate* me = PRIV(self);
+    g_set_object(&me->m_upstream_info, info);
 }
 
 static RpUpstreamInfo*
-upstream_info_i(RpStreamInfo* self)
+upstream_info_i(const RpStreamInfo* self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_upstream_info;
 }
 
-static RpClusterInfoConstSharedPtr
-upstream_cluster_info_i(RpStreamInfo* self)
+static RpClusterInfoSharedPtr
+upstream_cluster_info_i(const RpStreamInfo* self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_upstream_cluster_info;
 }
 
 static RpFilterState*
-filter_state_i(RpStreamInfo* self)
+filter_state_i(const RpStreamInfo* self)
 {
     NOISY_MSG_("(%p)", self);
     return RP_FILTER_STATE(PRIV(self)->m_filter_state);
@@ -180,17 +178,16 @@ set_response_code_i(RpStreamInfo* self, evhtp_res code)
 }
 
 static evhtp_res
-response_code_i(RpStreamInfo* self)
+response_code_i(const RpStreamInfo* self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_response_code;
 }
 
-static RpRoute*
-route_i(RpStreamInfo* self)
+static RpRouteSharedPtr
+route_i(const RpStreamInfo* self)
 {
     NOISY_MSG_("(%p)", self);
-NOISY_MSG_("route %p", PRIV(self)->m_route);
     return PRIV(self)->m_route;
 }
 
@@ -212,8 +209,8 @@ on_request_complete_i(RpStreamInfo* self)
     //TODO...final_time_ = time_source_.monotonicTime();
 }
 
-static RpConnectionInfoProvider*
-downstream_address_provider_i(RpStreamInfo* self)
+static RpConnectionInfoProviderSharedPtr
+downstream_address_provider_i(const RpStreamInfo* self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_downstream_connection_info_provider;
@@ -223,11 +220,11 @@ static void
 set_upstream_cluster_info_i(RpStreamInfo* self, RpClusterInfoConstSharedPtr upstream_cluster_info)
 {
     NOISY_MSG_("(%p, %p)", self, upstream_cluster_info);
-    PRIV(self)->m_upstream_cluster_info = upstream_cluster_info;
+    rp_cluster_info_set_object(&PRIV(self)->m_upstream_cluster_info, upstream_cluster_info);
 }
 
 static bool
-has_response_flag_i(RpStreamInfo* self, RpCoreResponseFlag_e flag)
+has_response_flag_i(const RpStreamInfo* self, RpCoreResponseFlag_e flag)
 {
     NOISY_MSG_("(%p, %d)", self, flag);
     return (PRIV(self)->m_response_flags & flag);
@@ -294,7 +291,9 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
             PRIV(obj)->m_protocol = g_value_get_int(value);
             break;
         case PROP_DOWNSTREAM_INFO_PROVIDER:
-            PRIV(obj)->m_downstream_connection_info_provider = g_value_get_object(value);
+NOISY_MSG_("downstream info provider %p(%u)", g_value_get_object(value), G_OBJECT(g_value_get_object(value))->ref_count);
+            rp_connection_info_provider_set_object(&PRIV(obj)->m_downstream_connection_info_provider, g_value_get_object(value));
+NOISY_MSG_("downstream info provider %p(%u)", PRIV(obj)->m_downstream_connection_info_provider, G_OBJECT(PRIV(obj)->m_downstream_connection_info_provider)->ref_count);
             break;
         case PROP_ANCESTOR_FILTER_STATE:
             PRIV(obj)->m_ancestor_filter_state = g_value_get_object(value);
@@ -333,8 +332,15 @@ dispose(GObject* obj)
     g_clear_pointer(&me->m_metadata, g_hash_table_unref);
     g_clear_object(&me->m_ancestor_filter_state);
     g_clear_object(&me->m_filter_state);
+if (me->m_upstream_info) NOISY_MSG_("upstream info %p(%u)", me->m_upstream_info, G_OBJECT(me->m_upstream_info)->ref_count);
+    g_clear_object(&me->m_upstream_info);
+if (me->m_downstream_connection_info_provider) NOISY_MSG_("downstream info provider %p(%u)", me->m_downstream_connection_info_provider, G_OBJECT(me->m_downstream_connection_info_provider)->ref_count);
+    g_clear_object(&me->m_downstream_connection_info_provider);
+if (me->m_route) NOISY_MSG_("%p, clearing route %p(%u)", obj, me->m_route, G_OBJECT(me->m_route)->ref_count);
+    g_clear_object(&me->m_route);
 
     G_OBJECT_CLASS(rp_stream_info_impl_parent_class)->dispose(obj);
+NOISY_MSG_("done");
 }
 
 static void
@@ -389,7 +395,8 @@ rp_stream_info_impl_init(RpStreamInfoImpl* self)
 }
 
 RpStreamInfoImpl*
-rp_stream_info_impl_new(evhtp_proto protocol, RpConnectionInfoProvider* downstream_info_provider, RpFilterStateLifeSpan_e life_span, RpFilterState* ancestor_filter_state)
+rp_stream_info_impl_new(evhtp_proto protocol, RpConnectionInfoProviderSharedPtr downstream_info_provider,
+                        RpFilterStateLifeSpan_e life_span, RpFilterState* ancestor_filter_state)
 {
     LOGD("(%d, %p, %d, %p)", protocol, downstream_info_provider, life_span, ancestor_filter_state);
     return g_object_new(RP_TYPE_STREAM_INFO_IMPL,
@@ -401,9 +408,9 @@ rp_stream_info_impl_new(evhtp_proto protocol, RpConnectionInfoProvider* downstre
 }
 
 void
-rp_stream_info_impl_set_route_(RpStreamInfoImpl* self, RpRoute* route)
+rp_stream_info_impl_set_route_(RpStreamInfoImpl* self, RpRouteConstSharedPtr route)
 {
     LOGD("(%p, %p)", self, route);
     g_return_if_fail(RP_IS_STREAM_INFO_IMPL(self));
-    PRIV(self)->m_route = route;
+    rp_route_set_object(&PRIV(self)->m_route, route);
 }

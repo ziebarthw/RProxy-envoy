@@ -44,12 +44,12 @@ struct _RpRouterFilter {
     RpGenericConnPoolFactory* m_generic_conn_pool_factory;
 
     RpStreamDecoderFilterCallbacks* m_callbacks;
-    RpRoute* m_route;
+    RpRouteSharedPtr m_route;
     RpRouteEntry* m_route_entry;
-    RpClusterInfoConstSharedPtr m_cluster;
+    RpClusterInfoSharedPtr m_cluster;
 //TODO...    void (*m_on_host_selected)(RpRouterFilter*, RpHostDescription*, const char*);
     GSList/*<UpstreamRequestPtr>*/* m_upstream_requests;
-    RpUpstreamRequest* m_final_upstream_request;
+//REVISIT: Not sure why this exists?    RpUpstreamRequest* m_final_upstream_request;
     SHARED_PTR(RpClusterManager) m_cluster_manager;
 
     evhtp_headers_t* m_downstream_headers;
@@ -120,7 +120,8 @@ reset_all(RpRouterFilter* self)
         RpUpstreamRequestPtr request_ptr = RP_UPSTREAM_REQUEST(entry->data);
         self->m_upstream_requests = g_slist_delete_link(self->m_upstream_requests, entry);
         rp_upstream_request_reset_stream(request_ptr);
-        rp_dispatcher_deferred_delete(DISPATCHER(self), G_OBJECT(g_steal_pointer(&request_ptr)));
+NOISY_MSG_("%p, calling deferred delete of request ptr %p(%u)", self, request_ptr, G_IS_OBJECT(request_ptr));
+        rp_dispatcher_deferred_delete_take(DISPATCHER(self), G_OBJECT(g_steal_pointer(&request_ptr)));
     }
 }
 
@@ -128,7 +129,7 @@ static void
 reset_other_upstreams(RpRouterFilter* self, RpUpstreamRequest* upstream_request)
 {
     NOISY_MSG_("(%p, %p)", self, upstream_request);
-    GSList* final_upstream_request;
+    GSList* final_upstream_request = NULL;
     while (self->m_upstream_requests)
     {
         GSList* entry = g_slist_last(self->m_upstream_requests);
@@ -146,7 +147,10 @@ reset_other_upstreams(RpRouterFilter* self, RpUpstreamRequest* upstream_request)
     }
 
     // Now put the final request back in the list.
-    self->m_upstream_requests = g_slist_concat(self->m_upstream_requests, final_upstream_request);
+    if (final_upstream_request)
+    {
+        self->m_upstream_requests = g_slist_concat(self->m_upstream_requests, final_upstream_request);
+    }
 }
 
 static void
@@ -179,7 +183,7 @@ on_upstream_complete(RpRouterFilter* self, RpUpstreamRequest* upstream_request)
 
     self->m_upstream_requests = g_slist_remove(self->m_upstream_requests, upstream_request);
     NOISY_MSG_("%u upstream requests", g_slist_length(self->m_upstream_requests));
-    rp_dispatcher_deferred_delete(DISPATCHER(self), G_OBJECT(upstream_request));
+    rp_dispatcher_deferred_delete_take(DISPATCHER(self), G_OBJECT(upstream_request));
     cleanup(self);
 }
 
@@ -217,7 +221,7 @@ stream_filter_base_iface_init(RpStreamFilterBaseInterface* iface)
 }
 
 static UNIQUE_PTR(RpGenericConnPool)
-create_conn_pool(RpRouterFilter* self, RpThreadLocalCluster* cluster, RpHostConstSharedPtr host)
+create_conn_pool(RpRouterFilter* self, RpThreadLocalCluster* cluster, RpHostDescriptionConstSharedPtr host)
 {
     NOISY_MSG_("(%p, %p, %p)", self, cluster, host);
     if (!host)
@@ -251,7 +255,7 @@ create_conn_pool(RpRouterFilter* self, RpThreadLocalCluster* cluster, RpHostCons
 static RpFilterHeadersStatus_e
 continue_decode_headers(RpRouterFilter* self, RpThreadLocalCluster* cluster, evhtp_headers_t* request_headers, bool end_stream,
                         modify_headers_cb modify_headers, bool* should_continue_decoding,
-                        RpHostConstSharedPtr selected_host, const char* selected_host_details)
+                        RpHostDescriptionConstSharedPtr selected_host, const char* selected_host_details)
 {
     NOISY_MSG_("(%p, %p, %p, %u, %p, %p, %p, %p(%s))",
         self, cluster, request_headers, end_stream, modify_headers, should_continue_decoding,
@@ -265,28 +269,27 @@ continue_decode_headers(RpRouterFilter* self, RpThreadLocalCluster* cluster, evh
         return RpFilterHeadersStatus_StopIteration;
     }
 
-    IF_NOISY_(RpHostDescription* host = rp_generic_conn_pool_host(generic_conn_pool);)
+    IF_NOISY_(RpHostDescriptionConstSharedPtr host = rp_generic_conn_pool_host(generic_conn_pool);)
     NOISY_MSG_("host %p", host);
 
-#if 0
-    RpStreamFilterCallbacks* callbacks = RP_STREAM_FILTER_CALLBACKS(self->m_callbacks);
-#endif//0
-    RpStreamInfo* stream_info = STREAM_INFO(self);
+    RpStreamInfo* stream_info = rp_stream_filter_callbacks_stream_info(RP_STREAM_FILTER_CALLBACKS(self->m_callbacks));
     rp_route_entry_finalize_request_headers(self->m_route_entry, request_headers, stream_info, /*!config_->suppress_envoy_headers_*/false);
 
 //TODO...FilterUtility::setUpstreamScheme()
 
+    self->m_modify_headers = modify_headers;
+
     RpUpstreamRequestPtr upstream_request = rp_upstream_request_new(RP_ROUTER_FILTER_INTERFACE(self),
-                                                                    generic_conn_pool,
+                                                                    g_steal_pointer(&generic_conn_pool),
                                                                     false,
                                                                     false,
                                                                     self->m_allow_multiplexed_upstream_half_close);
-    self->m_upstream_requests = g_slist_prepend(self->m_upstream_requests, upstream_request);
-    rp_upstream_request_accept_headers_from_router(upstream_request, end_stream);
-    self->m_modify_headers = modify_headers;
+    self->m_upstream_requests = g_slist_prepend(self->m_upstream_requests, g_steal_pointer(&upstream_request));
+    rp_upstream_request_accept_headers_from_router(self->m_upstream_requests->data, end_stream);
 
     if (end_stream)
     {
+        NOISY_MSG_("on_request_complete(%p)", self);
         on_request_complete(self);
     }
 
@@ -304,7 +307,8 @@ decode_headers_i(RpStreamDecoderFilter* self, evhtp_headers_t* request_headers, 
 
     modify_headers_cb modify_headers = default_modify_headers;
 
-    me->m_route = rp_stream_filter_callbacks_route(RP_STREAM_FILTER_CALLBACKS(me->m_callbacks));
+    rp_route_set_object(&me->m_route,
+        rp_stream_filter_callbacks_route(RP_STREAM_FILTER_CALLBACKS(me->m_callbacks)));
     if (!me->m_route)
     {
         LOGD("no route match for URL(%s)", evhtp_header_find(request_headers, RpHeaderValues.Path));
@@ -346,7 +350,7 @@ return RpFilterHeadersStatus_StopIteration;
                                                             self);
         return RpFilterHeadersStatus_StopIteration;
     }
-    me->m_cluster = rp_thread_local_cluster_info(cluster);
+    rp_cluster_info_set_object(&me->m_cluster, rp_thread_local_cluster_info(cluster));
 
 NOISY_MSG_("calling rp_thread_local_cluster_choose_host(%p, %p)", cluster, self);
     RpHostSelectionResponse host_selection_response = rp_thread_local_cluster_choose_host(cluster, RP_LOAD_BALANCER_CONTEXT(self));
@@ -354,11 +358,13 @@ NOISY_MSG_("calling rp_thread_local_cluster_choose_host(%p, %p)", cluster, self)
     {
         return continue_decode_headers(me, cluster, request_headers, end_stream,
                                         modify_headers, NULL,
-                                        g_steal_pointer(&host_selection_response.m_host), host_selection_response.m_details);
+                                        (RpHostDescriptionConstSharedPtr)host_selection_response.m_host,
+                                        host_selection_response.m_details);
     }
 
 //TODO...async host selection
-return RpFilterHeadersStatus_StopIteration;
+    NOISY_MSG_("%p, returning StopIteration", self);
+    return RpFilterHeadersStatus_StopIteration;
 }
 
 static RpFilterDataStatus_e
@@ -497,7 +503,6 @@ override_host_to_select_i(RpLoadBalancerContext* self)
         NOISY_MSG_("returning empty result");
         return RpOverrideHost_make(NULL, false);
     }
-NOISY_MSG_("callbacks %p", me->m_callbacks);
     return rp_stream_decoder_filter_callbacks_upstream_override_host(me->m_callbacks);
 }
 
@@ -516,7 +521,7 @@ load_balancer_context_iface_init(RpLoadBalancerContextInterface* iface)
 static RpStreamDecoderFilterCallbacks*
 callbacks_i(RpRouterFilterInterface* self)
 {
-    NOISY_MSG_("(%p)", self);
+    NOISY_MSG_("(%p) ref count %u", self, G_OBJECT(self)->ref_count);
     return RP_ROUTER_FILTER(self)->m_callbacks;
 }
 
@@ -570,7 +575,7 @@ attempt_count_i(RpRouterFilterInterface* self)
 }
 
 static void
-on_upstream_host_selected_i(RpRouterFilterInterface* self G_GNUC_UNUSED, RpHostDescription* host G_GNUC_UNUSED, bool pool_success)
+on_upstream_host_selected_i(RpRouterFilterInterface* self G_GNUC_UNUSED, RpHostDescriptionConstSharedPtr host G_GNUC_UNUSED, bool pool_success)
 {
     NOISY_MSG_("(%p, %p, %u)", self, host, pool_success);
     //TODO...
@@ -594,7 +599,7 @@ on_upstream_1xx_headers_i(RpRouterFilterInterface* self, evhtp_headers_t* respon
 #endif//0
 
     me->m_downstream_response_started = true;
-    me->m_final_upstream_request = upstream_request;
+//    me->m_final_upstream_request = g_steal_pointer(&upstream_request);
     reset_other_upstreams(me, upstream_request);
 
     //TODO...rety_state_.reset();
@@ -625,10 +630,11 @@ on_upstream_headers_i(RpRouterFilterInterface* self, guint64 response_code, evht
     rp_response_entry_finalize_response_headers(RP_RESPONSE_ENTRY(me->m_route_entry), response_headers, stream_info);
 
     me->m_downstream_response_started = true;
-    me->m_final_upstream_request = upstream_request;
+//    me->m_final_upstream_request = g_steal_pointer(&upstream_request);
     rp_stream_info_set_upstream_info(stream_info,
         rp_stream_info_upstream_info(
             rp_upstream_request_stream_info(upstream_request)));
+//            rp_upstream_request_stream_info(me->m_final_upstream_request)));
     reset_other_upstreams(me, upstream_request);
     if (end_stream)
     {
@@ -746,7 +752,7 @@ on_upstream_reset_i(RpRouterFilterInterface* self, RpStreamResetReason_e reset_r
     evhtp_res error_code = (reset_reason == RpStreamResetReason_ProtocolError) ? EVHTP_RES_BADGATEWAY : EVHTP_RES_SERVUNAVAIL;
     //TODO...chargeUpstreamAbort(...);
     me->m_upstream_requests = g_slist_remove(me->m_upstream_requests, upstream_request);
-    rp_dispatcher_deferred_delete(
+    rp_dispatcher_deferred_delete_take(
         rp_stream_filter_callbacks_dispatcher(RP_STREAM_FILTER_CALLBACKS(me->m_callbacks)), G_OBJECT(g_steal_pointer(&upstream_request)));
 
     if (num_requests_awaiting_headers(me) > 0 || me->m_pending_retries > 0)
@@ -788,6 +794,10 @@ dispose(GObject* obj)
 
     RpRouterFilter* self = RP_ROUTER_FILTER(obj);
     g_clear_object(&self->m_cluster_manager);
+    g_clear_object(&self->m_route);
+    g_clear_object(&self->m_cluster);
+//    g_clear_object(&self->m_final_upstream_request);
+    g_slist_free_full(g_steal_pointer(&self->m_upstream_requests), g_object_unref);
 
     G_OBJECT_CLASS(rp_router_filter_parent_class)->dispose(obj);
 }
@@ -808,6 +818,7 @@ rp_router_filter_init(RpRouterFilter* self)
 
     self->m_attempt_count = 1;
     self->m_pending_retries = 0;
+//    self->m_final_upstream_request = NULL;
 }
 
 static inline RpRouterFilter*
@@ -819,7 +830,7 @@ router_filter_new(RpRouterFilterConfig* config, RpGenericConnPoolFactory* factor
     RpRouterFilter* self = g_object_new(RP_TYPE_ROUTER_FILTER, NULL);
     self->m_config = config;
     self->m_generic_conn_pool_factory = factory;
-    self->m_cluster_manager = g_object_ref(cluster_manager);
+    g_set_object(&self->m_cluster_manager, cluster_manager);
     return self;
 }
 
@@ -840,9 +851,10 @@ filter_factory_cb(RpFilterFactoryCb* self, RpFilterChainFactoryCallbacks* callba
 }
 
 static void
-destroy_router_filter_cb(RpRouterFilterCb* self)
+destroy_router_filter_cb(gpointer arg)
 {
-    NOISY_MSG_("(%p)", self);
+    NOISY_MSG_("(%p)", arg);
+    RpRouterFilterCb* self = arg;
     g_clear_object(&self->m_config);
     g_free(self);
 }
@@ -906,13 +918,5 @@ rp_router_filter_stream_reset_reason_to_response_flag(RpStreamResetReason_e rese
         default:
             break;
     }
-    return RpStreamResetReason_LocalReset;
-}
-
-GSList*
-rp_router_filter_upstream_requests(RpRouterFilter* self)
-{
-    LOGD("(%p)", self);
-    g_return_val_if_fail(RP_IS_ROUTER_FILTER(self), NULL);
-    return self->m_upstream_requests;
+    return RpCoreResponseFlag_LocalReset;
 }

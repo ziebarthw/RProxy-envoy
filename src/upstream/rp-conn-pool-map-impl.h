@@ -16,8 +16,8 @@ G_BEGIN_DECLS
 #define RP_TYPE_CONN_POOL_MAP_IMPL rp_conn_pool_map_impl_get_type()
 G_DECLARE_FINAL_TYPE(RpConnPoolMapImpl, rp_conn_pool_map_impl, RP, CONN_POOL_MAP_IMPL, RpConnPoolMap)
 
-RpConnPoolMapImpl* rp_conn_pool_map_impl_new(SHARED_PTR(RpDispatcher) dispatcher,
-                                                SHARED_PTR(RpHost) host,
+RpConnPoolMapImpl* rp_conn_pool_map_impl_new(RpDispatcher* dispatcher,
+                                                RpHost* host,
                                                 RpResourcePriority_e priority);
 
 G_END_DECLS
