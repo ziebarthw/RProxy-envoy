@@ -129,6 +129,7 @@ rp_network_utiliy_get_address_with_port(const RpNetworkAddressInstance* address,
 static inline void
 add_upstream_internal(rule_t* rule, upstream_t* upstream)
 {
+    NOISY_MSG_("(%p, %p)", rule, upstream);
     upstream_cfg_t* ucfg = upstream->config;
     rproxy_t* rproxy = rule->parent_vhost->rproxy;
     server_cfg_t* server_cfg = rule->parent_vhost->config->server_cfg;
