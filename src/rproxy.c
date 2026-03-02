@@ -1311,6 +1311,9 @@ create_rp_instances(RpServerInstance* server, RpThreadLocalInstance* tls)
     default_cluster_provided_lb_factory = rp_cluster_provided_lb_factory_new();
     default_route_config_provider_manager_factory =
         rp_route_config_provider_manager_factory_new(singleton_manager);
+    // Initialize the route config provider manger factory singleton here to
+    // avoid workers stepping on each other.
+    rp_route_config_provider_manager_factory_get(default_route_config_provider_manager_factory);
 }
 
 static void
