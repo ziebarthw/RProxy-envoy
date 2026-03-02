@@ -135,8 +135,8 @@ struct _RpNetworkConnectionInterface {
     RpReadDisabaleStatus_e (*read_disable)(RpNetworkConnection*, bool);
     void (*detect_early_close_when_read_disabled)(RpNetworkConnection*, bool);
     bool (*read_enabled)(RpNetworkConnection*);
-    RpConnectionInfoSetter* (*connection_info_setter)(RpNetworkConnection*);
-    RpConnectionInfoProvider* (*connection_info_provider)(RpNetworkConnection*);
+    RpConnectionInfoSetterSharedPtr (*connection_info_setter)(RpNetworkConnection*);
+    RpConnectionInfoProviderSharedPtr (*connection_info_provider)(RpNetworkConnection*);
     RpSslConnectionInfo* (*ssl)(RpNetworkConnection*);
     const char* (*requested_server_name)(RpNetworkConnection*);
     RpNetworkConnectionState_e (*state)(RpNetworkConnection*);
@@ -160,6 +160,14 @@ rp_network_connection_add_connection_callbacks(RpNetworkConnection* self, RpNetw
     if (RP_IS_NETWORK_CONNECTION(self))
     {
         RP_NETWORK_CONNECTION_GET_IFACE(self)->add_connection_callbacks(self, callbacks);
+    }
+}
+static inline void
+rp_network_connection_remove_connection_callbacks(RpNetworkConnection* self, RpNetworkConnectionCallbacks* callbacks)
+{
+    if (RP_IS_NETWORK_CONNECTION(self))
+    {
+        RP_NETWORK_CONNECTION_GET_IFACE(self)->remove_connection_callbacks(self, callbacks);
     }
 }
 static inline void
@@ -261,14 +269,14 @@ rp_network_connection_read_enabled(RpNetworkConnection* self)
     return RP_IS_NETWORK_CONNECTION(self) ?
         RP_NETWORK_CONNECTION_GET_IFACE(self)->read_enabled(self) : false;
 }
-static inline RpConnectionInfoSetter*
+static inline RpConnectionInfoSetterSharedPtr
 rp_network_connection_connection_info_setter(RpNetworkConnection* self)
 {
     return RP_IS_NETWORK_CONNECTION(self) ?
         RP_NETWORK_CONNECTION_GET_IFACE(self)->connection_info_setter(self) :
         NULL;
 }
-static inline RpConnectionInfoProvider*
+static inline RpConnectionInfoProviderSharedPtr
 rp_network_connection_connection_info_provider(RpNetworkConnection* self)
 {
     return RP_IS_NETWORK_CONNECTION(self) ?

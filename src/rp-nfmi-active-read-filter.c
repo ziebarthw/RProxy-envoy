@@ -5,14 +5,7 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
-
-#ifndef OVERRIDE
-#define OVERRIDE static
-#endif
 
 #if (defined(rp_nfmi_active_read_filter_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_nfmi_active_read_filter_NOISY)
 #   define NOISY_MSG_ LOGD
@@ -29,7 +22,7 @@ struct _RpNfmiActiveReadFilter {
     GObject rp_nfmi_instance;
 
     RpNetworkFilterManagerImpl* m_parent;
-    UNIQUE_PTR(RpNetworkReadFilter) m_filter;
+    RpNetworkReadFilterSharedPtr m_filter;
     GSList* m_entry;
     bool m_initialized;
 };
@@ -45,6 +38,8 @@ G_DEFINE_FINAL_TYPE_WITH_CODE(RpNfmiActiveReadFilter, rp_nfmi_active_read_filter
 extern RpNetworkConnection* rp_nfmi_get_connection(RpNetworkFilterManagerImpl*);
 extern RpSocket* rp_nfmi_get_socket(RpNetworkFilterManagerImpl*);
 extern void rp_nfmi_on_continue_reading(RpNetworkFilterManagerImpl*, RpNfmiActiveReadFilter*, RpReadBufferSource*);
+extern RpHostDescriptionConstSharedPtr rp_nfmi_get_host_description(RpNetworkFilterManagerImpl*);
+extern void rp_nfmi_set_host_description(RpNetworkFilterManagerImpl*, RpHostDescriptionConstSharedPtr);
 
 static RpNetworkConnection*
 connection_i(RpNetworkFilterCallbacks* self)
@@ -94,6 +89,20 @@ start_upstream_secure_transport_i(RpNetworkReadFilterCallbacks* self)
     rp_network_filter_manager_impl_start_upstream_secure_transport(me->m_parent);
 }
 
+static RpHostDescriptionConstSharedPtr
+upstream_host_i(RpNetworkReadFilterCallbacks* self)
+{
+    NOISY_MSG_("(%p)", self);
+    return rp_nfmi_get_host_description(RP_NFMI_ACTIVE_READ_FILTER(self)->m_parent);
+}
+
+static void
+set_upstream_host_i(RpNetworkReadFilterCallbacks* self, RpHostDescriptionConstSharedPtr host)
+{
+    NOISY_MSG_("(%p, %p)", self, host);
+    rp_nfmi_set_host_description(RP_NFMI_ACTIVE_READ_FILTER(self)->m_parent, host);
+}
+
 static void
 network_read_filter_callbacks_iface_init(RpNetworkReadFilterCallbacksInterface* iface)
 {
@@ -101,6 +110,8 @@ network_read_filter_callbacks_iface_init(RpNetworkReadFilterCallbacksInterface* 
     iface->continue_reading = continue_reading_i;
     iface->inject_read_data_to_filter_chain = inject_read_data_to_filter_chain_i;
     iface->start_upstream_secure_transport = start_upstream_secure_transport_i;
+    iface->upstream_host = upstream_host_i;
+    iface->set_upstream_host = set_upstream_host_i;
 }
 
 OVERRIDE void
@@ -110,7 +121,7 @@ dispose(GObject* obj)
 
     RpNfmiActiveReadFilter* self = RP_NFMI_ACTIVE_READ_FILTER(obj);
 //NOISY_MSG_("clearing filter %p(%u)", self->m_filter, G_OBJECT(self->m_filter)->ref_count);
-NOISY_MSG_("clearing filter %p(%s)", self->m_filter, G_OBJECT_TYPE_NAME(self->m_filter));
+NOISY_MSG_("clearing filter %p(%s), ref count %u", self->m_filter, G_OBJECT_TYPE_NAME(self->m_filter), G_OBJECT(self->m_filter)->ref_count);
     g_clear_object(&self->m_filter);
 
     G_OBJECT_CLASS(rp_nfmi_active_read_filter_parent_class)->dispose(obj);
@@ -133,14 +144,15 @@ rp_nfmi_active_read_filter_init(RpNfmiActiveReadFilter* self)
 }
 
 RpNfmiActiveReadFilter*
-rp_nfmi_active_read_filter_new(RpNetworkFilterManagerImpl* parent, RpNetworkReadFilter* filter)
+rp_nfmi_active_read_filter_new(RpNetworkFilterManagerImpl* parent, RpNetworkReadFilterSharedPtr filter)
 {
     LOGD("(%p, %p)", parent, filter);
     g_return_val_if_fail(RP_IS_NETWORK_FILTER_MANAGER_IMPL(parent), NULL);
     g_return_val_if_fail(RP_IS_NETWORK_READ_FILTER(filter), NULL);
     RpNfmiActiveReadFilter* self = g_object_new(RP_TYPE_NFMI_ACTIVE_READ_FILTER, NULL);
     self->m_parent = parent;
-    self->m_filter = g_object_ref(g_steal_pointer(&filter));
+    self->m_filter = g_object_ref(filter);
+NOISY_MSG_("%p, increasing reference count of filter %p(%u)", self, filter, G_OBJECT(filter)->ref_count);
     return self;
 }
 

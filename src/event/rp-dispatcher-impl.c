@@ -31,11 +31,11 @@ struct _pointer_node {
 struct _RpDispatcherImpl {
     GObject parent_instance;
 
-    UNIQUE_PTR(gchar) m_name;
-    UNIQUE_PTR(evdns_base_t) m_dns_base;
-    SHARED_PTR(evthr_t) m_thr;
+    gchar* m_name;
+    evdns_base_t* m_dns_base;
+    evthr_t* m_thr;
 
-    UNIQUE_PTR(RpTimeSystem) m_time_system;
+    RpTimeSystem* m_time_system;
     RpLibeventScheduler* m_base_scheduler;
     RpScheduler* m_scheduler;
     RpSchedulableCallback* m_deferred_delete_cb;
@@ -66,6 +66,13 @@ G_DEFINE_FINAL_TYPE_WITH_CODE(RpDispatcherImpl, rp_dispatcher_impl, G_TYPE_OBJEC
     G_IMPLEMENT_INTERFACE(RP_TYPE_DISPATCHER_BASE, dispatcher_base_iface_init)
     G_IMPLEMENT_INTERFACE(RP_TYPE_DISPATCHER, dispatcher_iface_init)
 )
+
+static void
+evdns_free(gpointer arg)
+{
+    NOISY_MSG_("(%p)", arg);
+    evdns_base_free((evdns_base_t*)arg, 0);
+}
 
 static inline pointer_node*
 ensure_pointer_node(RpDispatcherImpl* self)
@@ -284,6 +291,17 @@ create_timer_i(RpDispatcher* self, RpTimerCb cb, gpointer arg)
     return create_timer_internal(RP_DISPATCHER_IMPL(self), cb, arg);
 }
 
+/**
+ * rp_dispatcher_deferred_delete:
+ * @dispatcher: (not nullable): dispatcher
+ * @obj: (transfer none) (not nullable): a GObject pointer
+ *
+ * Schedules @obj for deferred deletion by taking an additional reference internally.
+ * Caller retains ownership of its reference(s) and may continue to use @obj until it
+ * releases them. The object will only be destroyed when the caller’s refs are gone.
+ *
+ * Prefer rp_dispatcher_deferred_delete_take() when you are *transferring* ownership.
+ */
 static void
 deferred_delete_i(RpDispatcher* self, GObject* to_delete)
 {
@@ -302,6 +320,52 @@ deferred_delete_i(RpDispatcher* self, GObject* to_delete)
             rp_schedulable_callback_schedule_callback_current_iteration(me->m_deferred_delete_cb);
         }
     }
+}
+
+static inline void
+enqueue_deferred_unref_(RpDispatcherImpl* me, GObject* obj_owned_ref)
+{
+    NOISY_MSG_("(%p, %p)", me, obj_owned_ref);
+
+    GArray* current = *me->m_current_to_delete;
+    g_array_append_val(current, obj_owned_ref);
+
+    if (current->len == 1)
+    {
+        rp_schedulable_callback_schedule_callback_current_iteration(me->m_deferred_delete_cb);
+    }
+}
+
+/**
+ * rp_dispatcher_deferred_delete_take:
+ * @dispatcher: (not nullable): dispatcher
+ * @obj: (transfer full) (not nullable): a GObject with an owned reference
+ *
+ * Transfers ownership of one reference of @obj to @dispatcher, which will drop that
+ * reference at the end of the current dispatcher iteration (or the next scheduled
+ * clear pass). This models Envoy's deferred delete of a moved unique_ptr.
+ *
+ * After calling this function, the caller MUST treat @obj as invalid and MUST NOT
+ * unref it (ownership has been transferred).
+ */
+static void
+deferred_delete_take_i(RpDispatcher* self, GObject* obj)
+{
+    NOISY_MSG_("(%p, %p)", self, obj);
+
+    RpDispatcherImpl* me = RP_DISPATCHER_IMPL(self);
+
+    // We are *taking* ownership of the caller's reference.
+    // Keep that ref alive by moving it into the queue.
+    // To safely "move" in GObject, we:
+    //   1) take an extra ref for the queue
+    //   2) immediately drop the caller's ref
+    // Net effect: refcount stays the same, but ownership transfers to the queue.
+    GObject* keep = g_object_ref(obj);
+    enqueue_deferred_unref_(me, keep);
+
+    // consume caller’s ref
+    g_object_unref(obj);
 }
 
 static void
@@ -386,6 +450,16 @@ run_i(RpDispatcher* self, RpRunType_e type)
     rp_libevent_scheduler_run(me->m_base_scheduler, type);
 }
 
+static inline void
+clear_libevent_related_objects(RpDispatcherImpl* self)
+{
+    NOISY_MSG_("(%p)", self);
+    g_clear_pointer(&self->m_dns_base, evdns_free);
+    g_clear_object(&self->m_deferred_delete_cb);
+    g_clear_object(&self->m_deferred_destroy_cb);
+    g_clear_object(&self->m_post_cb);
+}
+
 static void
 shutdown_i(RpDispatcher* self)
 {
@@ -402,9 +476,13 @@ shutdown_i(RpDispatcher* self)
 
     //TODO...std::list<DispatcherThreadDeletableConstPtr> local_deletables;
 
+    // Need to clear objects that register anything with the libevent event
+    // loop here before the loop is destroyed in libevhtp threading logic.
+    clear_libevent_related_objects(me);
+
     g_assert(!me->m_shutdown_called);
     me->m_shutdown_called = true;
-    NOISY_MSG_("%s detroyed %u thread local objects. %u thread local pointers. %u post callbacks",
+    NOISY_MSG_("%s destroyed %u thread local objects. %u thread local pointers. %u post callbacks",
         G_STRFUNC, deferred_deletables_size, deferred_destroyables_size, post_callbacks_size);
 }
 
@@ -433,6 +511,7 @@ dispatcher_iface_init(RpDispatcherInterface* iface)
     iface->name = name_i;
     iface->create_timer = create_timer_i;
     iface->deferred_delete = deferred_delete_i;
+    iface->deferred_delete_take = deferred_delete_take_i;
     iface->clear_deferred_delete_list = clear_deferred_delete_list_i;
     iface->create_schedulable_callback = create_schedulable_callback_i;
     iface->deferred_destroy = deferred_destroy_i;
@@ -470,13 +549,6 @@ reinit_scheduler(RpDispatcherImpl* self)
     return rval;
 }
 
-static void
-evdns_free(gpointer arg)
-{
-    NOISY_MSG_("(%p)", arg);
-    evdns_base_free((evdns_base_t*)arg, 0);
-}
-
 OVERRIDE void
 dispose(GObject* obj)
 {
@@ -487,7 +559,6 @@ dispose(GObject* obj)
     self->m_scheduler = reinit_scheduler(self);//RIVISIT...
 
     g_clear_pointer(&self->m_name, g_free);
-    g_clear_pointer(&self->m_dns_base, evdns_free);
 
     g_clear_object(&self->m_deferred_delete_cb);
     g_clear_object(&self->m_deferred_destroy_cb);
@@ -511,6 +582,8 @@ dispose(GObject* obj)
         g_free(g_ptr_array_remove_index_fast(self->m_free_nodes, 0));
     }
     g_ptr_array_free(g_steal_pointer(&self->m_free_nodes), true);
+
+    g_mutex_clear(&self->m_post_lock);
 
     G_OBJECT_CLASS(rp_dispatcher_impl_parent_class)->dispose(obj);
 }
@@ -542,8 +615,10 @@ constructed(RpDispatcherImpl* self)
     self->m_base_scheduler = rp_libevent_scheduler_new(self->m_thr);
     self->m_scheduler = rp_time_system_create_scheduler(self->m_time_system, RP_SCHEDULER(self->m_base_scheduler), NULL);
 
+NOISY_MSG_("%p, allocating dns base using evthr base %p from thr %p", self, evthr_get_base(self->m_thr), self->m_thr);
     self->m_dns_base = evdns_base_new(evthr_get_base(self->m_thr), 1);
     g_assert(self->m_dns_base != NULL);
+NOISY_MSG_("%p, allocate dns base %p", self, self->m_dns_base);
 
     self->m_deferred_delete_cb = RP_SCHEDULABLE_CALLBACK(
         rp_schedulable_callback_impl_new(rp_libevent_scheduler_base(self->m_base_scheduler), clear_deferred_delete_list, self));

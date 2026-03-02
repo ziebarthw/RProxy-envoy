@@ -106,11 +106,9 @@ G_DECLARE_FINAL_TYPE(RpNetworkFilterManagerImpl, rp_network_filter_manager_impl,
 RpNetworkFilterManagerImpl* rp_network_filter_manager_impl_new(RpFilterManagerConnection* connection,
                                                                 RpSocket* socket);
 void rp_network_filter_manager_impl_add_write_filter(RpNetworkFilterManagerImpl* self,
-                                                        RpNetworkWriteFilter* filter);
+                                                        RpNetworkWriteFilterSharedPtr filter);
 void rp_network_filter_manager_impl_add_read_filter(RpNetworkFilterManagerImpl* self,
-                                                    RpNetworkReadFilter* filter);
-void rp_network_filter_manager_impl_remove_read_filter(RpNetworkFilterManagerImpl* self,
-                                                        RpNetworkReadFilter* filter);
+                                                    RpNetworkReadFilterSharedPtr filter);
 bool rp_network_filter_manager_impl_initialize_read_filters(RpNetworkFilterManagerImpl* self);
 void rp_network_filter_manager_impl_on_read(RpNetworkFilterManagerImpl* self);
 RpNetworkFilterStatus_e rp_network_filter_manager_impl_on_write(RpNetworkFilterManagerImpl* self);

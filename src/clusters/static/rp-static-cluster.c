@@ -23,9 +23,8 @@
 struct _RpStaticClusterImpl {
     RpClusterImplBase parent_instance;
 
-    UNIQUE_PTR(GHashTable) m_host_map;
+    GHashTable* m_host_map;
 
-    RpThreadAwareLoadBalancerPtr m_thread_aware_lb;
     RpPriorityStateManagerPtr m_priority_state_manager;
     guint32 m_overprovisioning_factor;
     bool m_weighted_priority_health;
@@ -40,28 +39,28 @@ G_DEFINE_TYPE_WITH_CODE(RpStaticClusterImpl, rp_static_cluster_impl, RP_TYPE_CLU
 )
 
 static RpInitializePhase_e
-initialize_phase_i(RpCluster* self G_GNUC_UNUSED)
+initialize_phase_i(RpClusterSharedPtr self G_GNUC_UNUSED)
 {
     NOISY_MSG_("(%p)", self);
     return RpInitializePhase_Primary;
 }
 
 static RpClusterInfoConstSharedPtr
-info_i(RpCluster* self)
+info_i(RpClusterSharedPtr self)
 {
-    NOISY_MSG_("(%p)", self);
+    NOISY_MSG_("(%p(%u))", self, G_OBJECT(self)->ref_count);
     return PARENT_CLUSTER_IFACE(self)->info(self);
 }
 
 static void
-initialize_i(RpCluster* self, RpClusterInitializeCb cb, gpointer arg)
+initialize_i(RpClusterSharedPtr self, RpClusterInitializeCb cb, gpointer arg)
 {
     NOISY_MSG_("(%p, %p, %p)", self, cb, arg);
     PARENT_CLUSTER_IFACE(self)->initialize(self, cb, arg);
 }
 
 static RpPrioritySet*
-priority_set_i(RpCluster* self)
+priority_set_i(RpClusterSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
     return PARENT_CLUSTER_IFACE(self)->priority_set(self);
@@ -85,7 +84,7 @@ choose_host_i(RpLoadBalancer* self, RpLoadBalancerContext* context)
     RpStaticClusterImpl* me = RP_STATIC_CLUSTER_IMPL(self);
     const RpClusterCfg* config = rp_cluster_impl_base_config_(RP_CLUSTER_IMPL_BASE(self));
     upstream_t* upstream = upstream_get(rp_cluster_cfg_rule(config));
-    RpHostConstSharedPtr host = g_hash_table_lookup(me->m_host_map, upstream);
+    RpHost* host = g_hash_table_lookup(me->m_host_map, upstream);
     return rp_host_selection_response_ctor(host, NULL, NULL);
 }
 
@@ -104,7 +103,6 @@ dispose(GObject* obj)
     RpStaticClusterImpl* self = RP_STATIC_CLUSTER_IMPL(obj);
     g_clear_pointer(&self->m_host_map, g_hash_table_unref);
     g_clear_object(&self->m_priority_state_manager);
-    g_clear_object(&self->m_thread_aware_lb);
 
     G_OBJECT_CLASS(rp_static_cluster_impl_parent_class)->dispose(obj);
 }
@@ -112,7 +110,30 @@ dispose(GObject* obj)
 OVERRIDE void
 start_pre_init(RpClusterImplBase* self)
 {
-    NOISY_MSG_("(%p)", self);
+    NOISY_MSG_("(%p(%u))", self, G_OBJECT(self)->ref_count);
+
+    bool health_checker_flag = false;//TODO...
+
+    RpStaticClusterImpl* me = RP_STATIC_CLUSTER_IMPL(self);
+    RpPriorityStatePtr priority_state = rp_priority_state_manager_priority_state(me->m_priority_state_manager);
+    for (guint i = 0; i < rp_priority_state_size(priority_state); ++i)
+    {
+        RpHostVector* tmp = rp_priority_state_steal_host_list(priority_state, i);
+        if (!tmp)
+        {
+            tmp = rp_host_vector_new();
+        }
+        rp_priority_state_manager_update_cluster_priority_set(me->m_priority_state_manager,
+                                                                i,
+                                                                &tmp,
+                                                                NULL,
+                                                                NULL,
+                                                                &health_checker_flag,
+                                                                &me->m_overprovisioning_factor);
+g_assert(tmp == NULL);
+    }
+    g_clear_object(&me->m_priority_state_manager);
+
     rp_cluster_impl_base_on_pre_init_complete(self);
 }
 
@@ -138,16 +159,14 @@ static RpLoadBalancerPtr
 lb_create_fn(RpClusterSharedPtr self, RpLoadBalancerParams* params G_GNUC_UNUSED)
 {
     NOISY_MSG_("(%p, %p)", self, params);
-    return RP_LOAD_BALANCER(self);
+    return RP_LOAD_BALANCER(g_object_ref(self));
 }
 
 static void
 rp_static_cluster_impl_init(RpStaticClusterImpl* self)
 {
-    NOISY_MSG_("(%p)", self);
+    NOISY_MSG_("(%p(%u))", self, G_OBJECT(self)->ref_count);
     self->m_host_map = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_object_unref);
-    self->m_thread_aware_lb = rp_simple_thread_aware_load_balancer_new(
-                                rp_delegate_load_balancer_factory_new(RP_CLUSTER(self), lb_create_fn, false));
 }
 
 static inline RpLocalInfo*
@@ -166,7 +185,7 @@ main_thread_dispatcher_from_cluster_factory_context(RpClusterFactoryContext* con
             rp_cluster_factory_context_server_factory_context(context)));
 }
 
-static RpNetworkAddressInstanceConstSharedPtr
+static RpNetworkAddressInstance*
 parse_internet_address(const char* ip_address, guint16 port, bool v6only)
 {
     NOISY_MSG_("(%p(%s), %u, %u)", ip_address, ip_address, port, v6only);
@@ -199,7 +218,7 @@ parse_internet_address(const char* ip_address, guint16 port, bool v6only)
     return NULL;
 }
 
-static inline RpNetworkAddressInstanceConstSharedPtr
+static inline RpNetworkAddressInstance*
 resolve_proto_socket_address(const RpSocketAddressCfg* socket_address)
 {
     NOISY_MSG_("(%p)", socket_address);
@@ -208,7 +227,7 @@ resolve_proto_socket_address(const RpSocketAddressCfg* socket_address)
                                     true);
 }
 
-RpNetworkAddressInstanceConstSharedPtr
+RpNetworkAddressInstance*
 resolve_proto_address(const RpAddressCfg* address, GError** err)
 {
     LOGD("(%p, %p)", address, err);
@@ -232,10 +251,10 @@ resolve_proto_address(const RpAddressCfg* address, GError** err)
 static inline RpStaticClusterImpl*
 constructed(RpStaticClusterImpl* self, const RpClusterCfg* cluster, RpClusterFactoryContext* context)
 {
-    NOISY_MSG_("(%p, %p, %p)", self, cluster, context);
+    NOISY_MSG_("(%p(%u), %p(%s), %p)", self, G_OBJECT(self)->ref_count, cluster, rp_cluster_cfg_name(cluster), context);
 
     RpLocalInfo* local_info = local_info_from_cluster_factory_context(context);
-    self->m_priority_state_manager = rp_priority_state_manager_new(RP_CLUSTER_IMPL_BASE(self), local_info);
+    self->m_priority_state_manager = rp_priority_state_manager_new(RP_CLUSTER_IMPL_BASE(self), local_info, NULL);
     self->m_overprovisioning_factor = kDefaultOverProvisioningFactor;
     self->m_weighted_priority_health = false; //kDefaultWeightedPriorityHealth;
 
@@ -243,7 +262,6 @@ constructed(RpStaticClusterImpl* self, const RpClusterCfg* cluster, RpClusterFac
 
     const RpClusterLoadAssignmentCfg* cluster_load_assignment = rp_cluster_cfg_load_assignment(cluster);
     const RpLocalityLbEndpointsCfg* endpoints = rp_cluster_load_assignment_cfg_endpoints(cluster_load_assignment);
-//    RpLocalityLbEndpointsCfg endpoints = cluster->endpoints;
     gsize n_endpoints = rp_cluster_load_assignment_cfg_endpoints_len(cluster_load_assignment);
     for (gsize endpoint_i = 0; endpoint_i < n_endpoints; ++endpoint_i)
     {
@@ -257,8 +275,7 @@ constructed(RpStaticClusterImpl* self, const RpClusterCfg* cluster, RpClusterFac
             RpLbEndpointCfg lb_endpoint = lb_endpoints[lb_endpoint_i];
             //TODO...additional addresses...
             const RpEndpointCfg* endpoint = rp_lb_endpoint_cfg_endpoint(&lb_endpoint);
-            RpNetworkAddressInstanceConstSharedPtr address = resolve_proto_address(
-                                                                rp_endpoint_cfg_address(endpoint), NULL);
+            g_autoptr(RpNetworkAddressInstance) address = resolve_proto_address(rp_endpoint_cfg_address(endpoint), NULL);
             rp_priority_state_manager_register_host_for_priority(self->m_priority_state_manager,
                                                                     rp_endpoint_cfg_hostname(endpoint),
                                                                     address,
@@ -266,13 +283,11 @@ constructed(RpStaticClusterImpl* self, const RpClusterCfg* cluster, RpClusterFac
                                                                     &lb_endpoint,
                                                                     rp_dispatcher_time_source(dispatcher));
             // Associate |upstream| with the newly-created host.
-            RpPriorityState priority_state = rp_priority_state_manager_priority_state(self->m_priority_state_manager);
-            RpHostListPtr host_list = g_ptr_array_index(priority_state, 0);
-            RpHostConstSharedPtr host = g_ptr_array_index(host_list, host_list->len - 1);
+            RpPriorityStatePtr priority_state = rp_priority_state_manager_priority_state(self->m_priority_state_manager);
+            RpHostListPtr host_list = rp_priority_state_peek_host_list(priority_state, 0);
+            RpHost* host = rp_host_vector_get(host_list, rp_host_vector_len(host_list) - 1);
             upstream_t* upstream = rp_lb_endpoint_cfg_metadata(&lb_endpoint);
             g_hash_table_insert(self->m_host_map, upstream, g_object_ref(host));
-
-            g_clear_object(&address);
         }
     }
 
@@ -289,10 +304,10 @@ rp_static_cluster_impl_new(const RpClusterCfg* cluster, RpClusterFactoryContext*
     g_return_val_if_fail(creation_status != NULL, NULL);
 
     RpStaticClusterImpl* self = g_object_new(RP_TYPE_STATIC_CLUSTER_IMPL,
-                                                            "config", cluster,
-                                                            "cluster-context", context,
-                                                            "creation-status", creation_status,
-                                                            NULL);
+                                                "config", cluster,
+                                                "cluster-context", context,
+                                                "creation-status", creation_status,
+                                                NULL);
     if (*creation_status != RpStatusCode_Ok)
     {
         LOGE("failed");
@@ -322,6 +337,8 @@ rp_static_cluster_impl_create(const RpClusterCfg* cluster, RpClusterFactoryConte
         LOGE("failed");
         return null_pair();
     }
-    return PairClusterSharedPtrThreadAwareLoadBalancerPtr_make(
-            RP_CLUSTER(g_steal_pointer(&new_cluster)), new_cluster->m_thread_aware_lb);
+    RpLoadBalancerFactorySharedPtr factory =
+        rp_delegate_load_balancer_factory_new(RP_CLUSTER(new_cluster), lb_create_fn, false);
+    RpThreadAwareLoadBalancerPtr lb = rp_simple_thread_aware_load_balancer_new(factory);
+    return PairClusterSharedPtrThreadAwareLoadBalancerPtr_make(RP_CLUSTER(g_steal_pointer(&new_cluster)), lb);
 }

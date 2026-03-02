@@ -41,17 +41,17 @@ G_DEFINE_ABSTRACT_TYPE_WITH_CODE(RpNetworkAddressInstanceBase, rp_network_addres
 )
 
 #define PRIV(obj) \
-    ((RpNetworkAddressInstanceBasePrivate*) rp_network_address_instance_base_get_instance_private(RP_NETWORK_ADDRESS_INSTANCE_BASE(obj)))
+    ((RpNetworkAddressInstanceBasePrivate*) rp_network_address_instance_base_get_instance_private(RP_NETWORK_ADDRESS_INSTANCE_BASE((GObject*)obj)))
 
 static const char*
-as_string_i(RpNetworkAddressInstance* self)
+as_string_i(RpNetworkAddressInstanceConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_friendly_name->str;
 }
 
 static string_view
-as_string_view_i(RpNetworkAddressInstance* self)
+as_string_view_i(RpNetworkAddressInstanceConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
     GString* friendly_name_ = PRIV(self)->m_friendly_name;
@@ -59,21 +59,21 @@ as_string_view_i(RpNetworkAddressInstance* self)
 }
 
 static const char*
-logical_name_i(RpNetworkAddressInstance* self)
+logical_name_i(RpNetworkAddressInstanceConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
     return as_string_i(self);
 }
 
 static RpNetworkAddressType_e
-type_i(RpNetworkAddressInstance* self)
+type_i(RpNetworkAddressInstanceConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_type;
 }
 
 static RpNetworkAddressSocketInterface*
-socket_interface_i(RpNetworkAddressInstance* self)
+socket_interface_i(RpNetworkAddressInstanceConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_socket_interface;
@@ -173,7 +173,7 @@ rp_network_address_instance_base_init(RpNetworkAddressInstanceBase* self G_GNUC_
     NOISY_MSG_("(%p)", self);
 }
 
-UNIQUE_PTR(GString)*
+GString**
 rp_network_address_instance_base_friendly_name_(RpNetworkAddressInstanceBase* self)
 {
     LOGD("(%p)", self);

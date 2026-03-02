@@ -455,7 +455,7 @@ vhost_cfg_new(void)
 }
 
 void
-vhost_cfg_free(void* arg)
+vhost_cfg_free(gpointer arg)
 {
     LOGD("(%p)", arg);
 
@@ -469,6 +469,7 @@ vhost_cfg_free(void* arg)
     g_clear_pointer(&cfg->ssl_cfg, ssl_cfg_free);
     g_clear_pointer(&cfg->err_log, logger_cfg_free);
     g_clear_pointer(&cfg->req_log, logger_cfg_free);
+    g_clear_pointer(&cfg->server_name, g_free);
     g_slist_free(g_steal_pointer(&cfg->rules)); // rules container does not own rule.
     g_slist_free_full(g_steal_pointer(&cfg->rule_cfgs), rule_cfg_free);
     g_slist_free_full(g_steal_pointer(&cfg->aliases), g_free);
@@ -486,7 +487,7 @@ server_cfg_new(void)
     g_assert(cfg != NULL);
 
     cfg->upstream_cfgs = NULL;
-    cfg->vhosts = NULL;
+    cfg->vhost_cfgs = NULL;
 
     cfg->worker_num = 0;
 
@@ -511,7 +512,7 @@ server_cfg_free(void* arg)
     g_clear_pointer(&cfg->ssl_cfg, ssl_cfg_free);
     g_clear_pointer(&cfg->err_log_cfg, logger_cfg_free);
     g_clear_pointer(&cfg->req_log_cfg, logger_cfg_free);
-    g_slist_free_full(g_steal_pointer(&cfg->vhosts), vhost_cfg_free);
+    g_slist_free_full(g_steal_pointer(&cfg->vhost_cfgs), vhost_cfg_free);
     g_slist_free_full(g_steal_pointer(&cfg->upstream_cfgs), upstream_cfg_free);
     g_free(cfg);
 }
@@ -610,6 +611,7 @@ ssl_cfg_free(evhtp_ssl_cfg_t * c)
     g_clear_pointer(&c->cafile, g_free);
     g_clear_pointer(&c->capath, g_free);
     g_clear_pointer(&c->ciphers, g_free);
+    g_clear_pointer(&c->sni, g_free);
 
     g_free(c);
 }
@@ -1670,9 +1672,9 @@ server_cfg_parse(cfg_t* cfg)
         vhost_cfg_t* vcfg = vhost_cfg_parse(cfg_getnsec(cfg, "vhost", i));
         g_assert(vcfg != NULL);
 
-        scfg->vhosts = g_slist_prepend(scfg->vhosts, vcfg);
+        scfg->vhost_cfgs = g_slist_prepend(scfg->vhost_cfgs, vcfg);
     }
-    scfg->vhosts = g_slist_reverse(scfg->vhosts);
+    scfg->vhost_cfgs = g_slist_reverse(scfg->vhost_cfgs);
 
     if (scfg->num_threads <= 0) scfg->num_threads = g_get_num_processors();
 

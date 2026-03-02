@@ -5,19 +5,12 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_net_filter_mgr_impl_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_net_filter_mgr_impl_NOISY)
 #   define NOISY_MSG_ LOGD
 #else
 #   define NOISY_MSG_(x, ...)
-#endif
-
-#ifndef OVERRIDE
-#define OVERRIDE static
 #endif
 
 #include "rp-nfmi-active-read-filter.h"
@@ -50,6 +43,8 @@ struct _RpNetworkFilterManagerImpl {
     RpFilterManagerConnection* m_connection;
     RpSocket* m_socket;
 
+    RpHostDescriptionSharedPtr m_host_description;
+
     GSList* m_upstream_filters;
     GSList* m_downstream_filters;
 };
@@ -57,17 +52,17 @@ struct _RpNetworkFilterManagerImpl {
 G_DEFINE_FINAL_TYPE(RpNetworkFilterManagerImpl, rp_network_filter_manager_impl, G_TYPE_OBJECT)
 
 static void
-free_read_filter(RpNetworkReadFilter* self)
+free_read_filter(RpNetworkReadFilterSharedPtr self)
 {
-    NOISY_MSG_("(%p(%s))", self, G_OBJECT_TYPE_NAME(self));
-    g_object_unref(self);
+    NOISY_MSG_("(%p(%s), ref count %u)", self, G_OBJECT_TYPE_NAME(self), G_OBJECT(self)->ref_count);
+    g_clear_object(&self);
 }
 
 static void
-free_write_filter(RpNetworkWriteFilter* self)
+free_write_filter(RpNetworkWriteFilterSharedPtr self)
 {
-    NOISY_MSG_("(%p(%s))", self, G_OBJECT_TYPE_NAME(self));
-    g_object_unref(self);
+    NOISY_MSG_("(%p(%s), ref count %u)", self, G_OBJECT_TYPE_NAME(self), G_OBJECT(self)->ref_count);
+    g_clear_object(&self);
 }
 
 OVERRIDE void
@@ -76,6 +71,7 @@ dispose(GObject* obj)
     NOISY_MSG_("(%p)", obj);
 
     RpNetworkFilterManagerImpl* self = RP_NETWORK_FILTER_MANAGER_IMPL(obj);
+    g_clear_object(&self->m_host_description);
     g_slist_free_full(g_steal_pointer(&self->m_downstream_filters), (GDestroyNotify)/*g_object_unref*/free_write_filter);
     g_slist_free_full(g_steal_pointer(&self->m_upstream_filters), (GDestroyNotify)/*g_object_unref*/free_read_filter);
 
@@ -113,7 +109,7 @@ rp_network_filter_manager_impl_new(RpFilterManagerConnection* connection, RpSock
 }
 
 void
-rp_network_filter_manager_impl_add_write_filter(RpNetworkFilterManagerImpl* self, RpNetworkWriteFilter* filter)
+rp_network_filter_manager_impl_add_write_filter(RpNetworkFilterManagerImpl* self, RpNetworkWriteFilterSharedPtr filter)
 {
     LOGD("(%p, %p(%s))", self, filter, G_OBJECT_TYPE_NAME(filter));
     g_return_if_fail(RP_IS_NETWORK_FILTER_MANAGER_IMPL(self));
@@ -124,7 +120,7 @@ rp_network_filter_manager_impl_add_write_filter(RpNetworkFilterManagerImpl* self
 }
 
 void
-rp_network_filter_manager_impl_add_read_filter(RpNetworkFilterManagerImpl* self, RpNetworkReadFilter* filter)
+rp_network_filter_manager_impl_add_read_filter(RpNetworkFilterManagerImpl* self, RpNetworkReadFilterSharedPtr filter)
 {
     LOGD("(%p, %p(%s))", self, filter, G_OBJECT_TYPE_NAME(filter));
     g_return_if_fail(RP_IS_NETWORK_FILTER_MANAGER_IMPL(self));
@@ -213,7 +209,7 @@ rp_nfmi_on_continue_reading(RpNetworkFilterManagerImpl* self, RpNfmiActiveReadFi
 
         struct RpStreamBuffer read_buffer = rp_read_buffer_source_get_read_buffer(buffer_source);
         evbuf_t* buffer = read_buffer.m_buffer;
-NOISY_MSG_("buffer %p(%zu), end stream %u", buffer, buffer ? evbuffer_get_length(buffer) : 0, read_buffer.m_end_stream);
+NOISY_MSG_("buffer %p(%zu), end stream %u", buffer, evbuf_length(buffer), read_buffer.m_end_stream);
         if ((buffer && evbuffer_get_length(buffer) > 0) || read_buffer.m_end_stream)
         {
             RpNetworkFilterStatus_e status = rp_network_read_filter_on_data(wrapped_filter,
@@ -339,4 +335,18 @@ rp_nfmi_get_socket(RpNetworkFilterManagerImpl* self)
 {
     NOISY_MSG_("(%p)", self);
     return self->m_socket;
+}
+
+RpHostDescriptionConstSharedPtr
+rp_nfmi_get_host_description(RpNetworkFilterManagerImpl* self)
+{
+    NOISY_MSG_("(%p)", self);
+    return self->m_host_description;
+}
+
+void
+rp_nfmi_set_host_description(RpNetworkFilterManagerImpl* self, RpHostDescriptionConstSharedPtr host)
+{
+    NOISY_MSG_("(%p, %p)", self, host);
+    rp_host_description_set_object(&self->m_host_description, host);
 }

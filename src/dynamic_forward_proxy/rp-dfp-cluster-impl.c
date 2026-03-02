@@ -47,7 +47,7 @@ static inline ClusterInfo*
 cluster_info_new(const char* cluster_name, SHARED_PTR(RpDfpCluster) parent)
 {
     NOISY_MSG_("(%p(%s), %p)", cluster_name, cluster_name, parent);
-    ClusterInfo* self = g_new(ClusterInfo, 1);
+    ClusterInfo* self = g_new0(ClusterInfo, 1);
     *self = cluster_info_ctor(cluster_name, parent);
     return self;
 }
@@ -135,15 +135,14 @@ create_sub_cluster_config_i(RpDfpCluster* self, const char* cluster_name, const 
         g_hash_table_insert(me->m_cluster_map, g_strdup(cluster_name), cluster_info_new(cluster_name, self));
     }
 
-    RpClusterCfg config = *me->m_orig_cluster_config;
-    rp_cluster_cfg_set_name(&config, cluster_name);
-    rp_cluster_cfg_clear_cluster_type(&config);
-NOISY_MSG_("lb policy %d", me->m_sub_cluster_lb_policy);
-    rp_cluster_cfg_set_lb_policy(&config, me->m_sub_cluster_lb_policy);
-    rp_cluster_cfg_set_type(&config, RpDiscoveryType_STRICT_DNS);
+    RpClusterCfgPtr config = rp_cluster_cfg_dup(me->m_orig_cluster_config);
+    rp_cluster_cfg_set_name(config, cluster_name);
+    rp_cluster_cfg_clear_cluster_type(config);
+    rp_cluster_cfg_set_lb_policy(config, me->m_sub_cluster_lb_policy);
+    rp_cluster_cfg_set_type(config, RpDiscoveryType_STRICT_DNS);
 
     //TODO...Set endpoint.
-    RpClusterLoadAssignmentCfg* load_assignments = rp_cluster_cfg_mutable_load_assignment(&config);
+    RpClusterLoadAssignmentCfg* load_assignments = rp_cluster_cfg_mutable_load_assignment(config);
     rp_cluster_load_assignment_cfg_set_cluster_name(load_assignments, cluster_name);
     rp_cluster_load_assignment_cfg_clear_endpoints(load_assignments);
 
@@ -155,7 +154,7 @@ NOISY_MSG_("lb policy %d", me->m_sub_cluster_lb_policy);
     rp_socket_address_cfg_set_address(socket_address, host);
     rp_socket_address_cfg_set_port_value(socket_address, port);
 
-    return rp_dfp_create_sub_cluster_config_rval_ctor(&config, true);
+    return rp_dfp_create_sub_cluster_config_rval_ctor(config, true);
 }
 
 static bool
@@ -221,10 +220,8 @@ dispose(GObject* obj)
     if (rp_cluster_manager_is_shutdown(self->m_cm))
     {
         NOISY_MSG_("cluster manager is shut down");
-        g_clear_pointer(&self->m_cluster_map, g_hash_table_destroy);
-        return;
     }
-
+    else
     {
         G_RW_LOCK_WRITER_AUTO_LOCK(&self->m_cluster_map_lock, locker);
         GHashTableIter itr;
@@ -235,11 +232,14 @@ dispose(GObject* obj)
         {
             NOISY_MSG_("removing %p", value);
             g_hash_table_iter_remove(&itr);
-            rp_cluster_manager_remove_cluster(self->m_cm, (char*)key);
         }
     }
 
-    g_clear_pointer(&self->m_orig_cluster_config, g_free);
+    g_clear_pointer(&self->m_cluster_map, g_hash_table_destroy);
+    g_clear_pointer(&self->m_host_map, g_hash_table_unref);
+    g_clear_pointer(&self->m_orig_cluster_config, rp_cluster_cfg_free);
+    g_rw_lock_clear(&self->m_cluster_map_lock);
+    g_rw_lock_clear(&self->m_host_map_lock);
 
     G_OBJECT_CLASS(rp_dfp_cluster_impl_parent_class)->dispose(obj);
 }
@@ -303,7 +303,7 @@ rp_dfp_cluster_impl_new(const RpClusterCfg* cluster, const RpDfpClusterCfg* conf
                                             "cluster-context", context,
                                             "creation-status", creation_status,
                                             NULL);
-    self->m_orig_cluster_config = rp_cluster_cfg_new(cluster);
+    self->m_orig_cluster_config = rp_cluster_cfg_dup(cluster);
     self->m_cm = rp_cluster_factory_context_cluster_manager(context);
     self->m_sub_cluster_lb_policy = rp_dfp_sub_clusters_cfg_lb_policy(
                                         rp_dfp_cluster_cfg_sub_cluster_cfg(config));
@@ -344,7 +344,7 @@ NOISY_MSG_("load balancer %p", rp_thread_local_cluster_load_balancer(cluster));
             rp_thread_local_cluster_load_balancer(cluster), context);
 }
 
-RpHostConstSharedPtr
+RpHost*
 rp_dfp_cluster_impl_find_host_by_name(RpDfpClusterImpl* self, const char* host)
 {
     LOGD("(%p, %p(%s))", self, host, host);

@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_http_conn_pool_base_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_http_conn_pool_base_NOISY)
@@ -21,6 +18,9 @@
 #include "rp-http-pending-stream.h"
 #include "rp-router.h"
 #include "rp-http-conn-pool-base.h"
+
+#define PARENT_CONNECTION_POOL_INSTANCE_IFACE(s) \
+    ((RpConnectionPoolInstanceInterface*)g_type_interface_peek_parent(RP_CONNECTION_POOL_INSTANCE_GET_IFACE(s)))
 
 typedef struct _RpHttpConnPoolImplBasePrivate RpHttpConnPoolImplBasePrivate;
 struct _RpHttpConnPoolImplBasePrivate {
@@ -36,10 +36,12 @@ enum
 
 static GParamSpec* obj_properties[N_PROPERTIES] = { NULL, };
 
+static void connection_pool_instance_iface_init(RpConnectionPoolInstanceInterface* iface);
 static void http_connection_pool_instance_iface_init(RpHttpConnectionPoolInstanceInterface* iface);
 
 G_DEFINE_ABSTRACT_TYPE_WITH_CODE(RpHttpConnPoolImplBase, rp_http_conn_pool_impl_base, RP_TYPE_CONN_POOL_IMPL_BASE,
     G_ADD_PRIVATE(RpHttpConnPoolImplBase)
+    G_IMPLEMENT_INTERFACE(RP_TYPE_CONNECTION_POOL_INSTANCE, connection_pool_instance_iface_init)
     G_IMPLEMENT_INTERFACE(RP_TYPE_HTTP_CONNECTION_POOL_INSTANCE, http_connection_pool_instance_iface_init)
 )
 
@@ -67,11 +69,11 @@ drain_connections_i(RpConnectionPoolInstance* self, RpDrainBehavior_e drain_beha
     rp_conn_pool_impl_base_drain_connections_impl(RP_CONN_POOL_IMPL_BASE(self), drain_behavior);
 }
 
-static RpHostDescription*
+static RpHostDescriptionConstSharedPtr
 host_i(RpConnectionPoolInstance* self)
 {
     NOISY_MSG_("(%p)", self);
-    return RP_HOST_DESCRIPTION(rp_conn_pool_impl_base_host(RP_CONN_POOL_IMPL_BASE(self)));
+    return PARENT_CONNECTION_POOL_INSTANCE_IFACE(self)->host(self);
 }
 
 static bool
@@ -117,7 +119,6 @@ static void
 http_connection_pool_instance_iface_init(RpHttpConnectionPoolInstanceInterface* iface)
 {
     LOGD("(%p)", iface);
-    connection_pool_instance_iface_init(&iface->parent_iface);
     iface->new_stream = new_stream_i;
     iface->has_active_connections = has_active_connections_i;
 }
@@ -163,7 +164,7 @@ dispose(GObject* obj)
 }
 
 OVERRIDE void
-on_pool_failure(RpConnPoolImplBase* self, RpHostDescription* host_description,
+on_pool_failure(RpConnPoolImplBase* self, RpHostDescriptionConstSharedPtr host_description,
                 const char* failure_reason, RpPoolFailureReason_e reason, RpConnectionPoolAttachContextPtr context)
 {
     NOISY_MSG_("(%p, %p, %p(%s), %d, %p)",

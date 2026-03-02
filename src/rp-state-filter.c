@@ -61,7 +61,7 @@ static inline rule_cfg_t*
 get_rule_cfg(RpStateFilter* self)
 {
     NOISY_MSG_("(%p)", self);
-    return rp_route_impl_get_rule_cfg(RP_ROUTE_IMPL(ROUTE(self)));
+    return rp_route_impl_get_rule_cfg(RP_ROUTE_IMPL((RpRouteSharedPtr)ROUTE(self)));
 }
 
 static inline gint

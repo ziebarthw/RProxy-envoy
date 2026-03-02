@@ -18,9 +18,11 @@
 #include "http1/rp-http1-conn-pool.h"
 #include "server/rp-factory-context-impl.h"
 #include "rp-cluster-factory.h"
+#include "rp-host-map-snap.h"
+#include "rp-host-set-ptr-vector.h"
 #include "rp-load-balancer.h"
 #include "rp-thread-local-cluster.h"
-#include "rp-cluster-manager-impl.h"
+#include "upstream/rp-cluster-manager-impl.h"
 
 typedef UNIQUE_PTR(GHashTable) RpClusterMap;
 
@@ -44,21 +46,25 @@ struct _RpClusterManagerImpl {
 
     RpServerInstance* m_server;
     RpClusterManagerFactory* m_factory;
-    RpSlotPtr m_tls;
+    RpSlotPtr m_tls; /* borrowed */
     RpDispatcher* m_dispatcher;
     RpTimeSource* m_time_source;
 
     RpClusterMap m_warming_clusters;
     RpClusterMap m_active_clusters;
+    RpClusterInitializationMap m_cluster_initialization_map;
 
     RpClusterManagerInitHelper* m_init_helper;
 
     RpInitializeCbCtx m_initialize_cb_ctx;
 
+    GHashTable* m_all_clusters;
+
     gchar* m_local_cluster_name;
 
     bool m_initialized : 1;
     bool m_deferred_cluster_creation : 1;
+    bool m_shutdown : 1;
 };
 
 static void cluster_manager_iface_init(RpClusterManagerInterface* iface);
@@ -96,36 +102,63 @@ cluster_warming_to_active(RpClusterManagerImpl* self, const char* cluster_name)
 
     //TODO...updates_map_.erase(cluster_name);
 
-    g_hash_table_replace(self->m_active_clusters, g_strdup(cluster_name), warming);
+    g_hash_table_replace(self->m_active_clusters, g_strdup(cluster_name), g_object_ref(warming));
     g_hash_table_remove(self->m_warming_clusters, cluster_name);
 }
 
 typedef struct _RpUpdateCbCtx RpUpdateCbCtx;
 struct _RpUpdateCbCtx {
-    RpClusterInfoConstSharedPtr info;
+    RpClusterInfoSharedPtr info;
     RpThreadLocalClusterUpdateParams params;
     RpLoadBalancerFactorySharedPtr load_balancer_factory;
+    RpHostMapSnap* map;
+    RpClusterInitializationObjectSharedPtr cluster_initialization_object;
     bool add_or_update_cluster;
 };
 static inline RpUpdateCbCtx
-rp_update_cb_ctx_ctor(RpClusterInfoConstSharedPtr info, RpThreadLocalClusterUpdateParams params,
-                        RpLoadBalancerFactorySharedPtr load_balancer_factory, bool add_or_update_cluster)
+rp_update_cb_ctx_ctor_take(RpClusterInfoConstSharedPtr info, RpThreadLocalClusterUpdateParams* params,
+                            RpLoadBalancerFactorySharedPtr load_balancer_factory, RpHostMapSnap* map,
+                            RpClusterInitializationObjectConstSharedPtr cluster_initialization_object, bool add_or_update_cluster)
 {
     RpUpdateCbCtx self = {
-        .info = info,
-        .params = params,
-        .load_balancer_factory = load_balancer_factory,
+        .params = {0},
+        .info = NULL,
+        .load_balancer_factory = NULL,
+        .map = map, // STEAL ownership (no ref),
+        .cluster_initialization_object = NULL,
         .add_or_update_cluster = add_or_update_cluster
     };
+    RP_SHARE_OBJ(&self.info, info);
+    RP_SHARE_OBJ(&self.load_balancer_factory, load_balancer_factory);
+    RP_SHARE_OBJ(&self.cluster_initialization_object, cluster_initialization_object);
+    self.params.m_per_priority_update_params = g_steal_pointer(&params->m_per_priority_update_params);
     return self;
 }
 static inline RpUpdateCbCtx*
-rp_update_cb_ctx_new(RpClusterInfoConstSharedPtr info, RpThreadLocalClusterUpdateParams params,
-                        RpLoadBalancerFactorySharedPtr load_balancer_factory, bool add_or_update_cluster)
+rp_update_cb_ctx_new_take(RpClusterInfoConstSharedPtr info, RpThreadLocalClusterUpdateParams* params,
+                            RpLoadBalancerFactorySharedPtr load_balancer_factory, RpHostMapSnap* map /* Transfer full. */,
+                            RpClusterInitializationObjectConstSharedPtr cluster_initialization_object, bool add_or_update_cluster)
 {
-    RpUpdateCbCtx* self = g_new(RpUpdateCbCtx, 1);
-    *self = rp_update_cb_ctx_ctor(info, params, load_balancer_factory, add_or_update_cluster);
+    RpUpdateCbCtx* self = g_new0(RpUpdateCbCtx, 1);
+    *self = rp_update_cb_ctx_ctor_take(info, params, load_balancer_factory, map, cluster_initialization_object, add_or_update_cluster);
     return self;
+}
+static inline void
+rp_update_cb_ctx_dtor(RpUpdateCbCtx* self)
+{
+    g_return_if_fail(self != NULL);
+    g_clear_object(&self->info);
+    g_clear_object(&self->load_balancer_factory);
+    g_clear_pointer(&self->map, rp_host_map_snap_unref);
+    g_clear_object(&self->cluster_initialization_object);
+    rp_thread_local_cluster_update_params_dtor(&self->params);
+}
+static inline void
+rp_update_cb_ctx_free(RpUpdateCbCtx* self)
+{
+    g_return_if_fail(self != NULL);
+    rp_update_cb_ctx_dtor(self);
+    g_free(self);
 }
 
 static void
@@ -137,37 +170,67 @@ update_cb(RpThreadLocalObjectSharedPtr obj, gpointer arg)
     RpUpdateCbCtx* ctx = arg;
     RpClusterInfoConstSharedPtr info = ctx->info;
     RpLoadBalancerFactorySharedPtr load_balancer_factory = ctx->load_balancer_factory;
+    RpClusterInitializationObjectConstSharedPtr cluster_initialization_object = ctx->cluster_initialization_object;
+    RpHostMapSnap* map = ctx->map;
+    const char* cluster_name = rp_cluster_info_name(info);
     bool add_or_update_cluster = ctx->add_or_update_cluster;
-    RpClusterEntry* new_cluster = NULL;
-    if (add_or_update_cluster)
+    bool defer_unused_clusters = cluster_initialization_object &&
+                                !rp_thread_local_cluster_manager_impl_thread_local_clusters_contains(cluster_manager, cluster_name) /*&&
+                                TODO...!Envoy::Thread::MainThread::isMainThread()*/;
+    if (defer_unused_clusters)
     {
-        GHashTable* thread_local_clusters_ = rp_thread_local_cluster_manager_impl_thread_local_clusters_(cluster_manager);
-        const char* name = rp_cluster_info_name(info);
-        if (g_hash_table_contains(thread_local_clusters_, name))
-        {
-            NOISY_MSG_("updating TLS cluster \"%s\"", name);
-        }
-        else
-        {
-            NOISY_MSG_("adding TLS cluster \"%s\"", name);
-        }
-
-        new_cluster = rp_cluster_entry_new(cluster_manager, info, load_balancer_factory);
-        g_hash_table_replace(thread_local_clusters_, g_strdup(name), new_cluster);
-        //TODO...
+NOISY_MSG_("TODO...defer unused clusters");
     }
-    //TODO...
-
-    if (new_cluster)
+    else
     {
-        //TODO...ThreadLocalClusterCommand command = [&new_cluster]() ->...
+        RpThreadLocalClusterUpdateParams* params = &ctx->params;
+        RpClusterEntry* new_cluster = NULL;
         const char* name = rp_cluster_info_name(info);
-        GList* update_callbacks_ = rp_thread_local_cluster_manager_impl_update_callbacks_(cluster_manager);
-        for (GList* cb_it = update_callbacks_; cb_it; )
+        if (add_or_update_cluster)
         {
-            GList* curr_cb_it = cb_it;
-            cb_it = cb_it->next;
-            rp_cluster_update_callbacks_on_cluster_add_or_update(RP_CLUSTER_UPDATE_CALLBACKS(curr_cb_it->data), name, NULL/*TODO...command*/);
+            GHashTable* thread_local_clusters_ = rp_thread_local_cluster_manager_impl_thread_local_clusters_(cluster_manager);
+            if (g_hash_table_contains(thread_local_clusters_, name))
+            {
+                NOISY_MSG_("updating TLS cluster \"%s\"", name);
+            }
+            else
+            {
+                NOISY_MSG_("adding TLS cluster \"%s\"", name);
+            }
+
+            new_cluster = rp_cluster_entry_new(cluster_manager, info, load_balancer_factory);
+            // thread_local_clusters_ owns new_cluster.
+            g_hash_table_replace(thread_local_clusters_, g_strdup(name), new_cluster);
+            //TODO...
+        }
+        //TODO...
+
+        GArray* per_priority_update_params_ = params->m_per_priority_update_params;
+        for (gint i = 0; i < per_priority_update_params_->len; ++i)
+        {
+            RpTlcPerPriority* per_priority = &g_array_index(per_priority_update_params_, RpTlcPerPriority, i);
+            rp_thread_local_cluster_manager_impl_update_cluster_membership(cluster_manager,
+                                                                            name,
+                                                                            per_priority->m_priority,
+                                                                            per_priority->m_update_hosts_params,
+                                                                            per_priority->m_hosts_added,
+                                                                            per_priority->m_hosts_removed,
+                                                                            per_priority->m_weighted_priority_health,
+                                                                            per_priority->m_overprovisioning_factor,
+                                                                            map);
+        }
+
+        if (new_cluster)
+        {
+            //TODO...ThreadLocalClusterCommand command = [&new_cluster]() ->...
+            const char* name = rp_cluster_info_name(info);
+            GList* update_callbacks_ = rp_thread_local_cluster_manager_impl_update_callbacks_(cluster_manager);
+            for (GList* cb_it = update_callbacks_; cb_it; )
+            {
+                GList* curr_cb_it = cb_it;
+                cb_it = cb_it->next;
+                rp_cluster_update_callbacks_on_cluster_add_or_update(RP_CLUSTER_UPDATE_CALLBACKS(curr_cb_it->data), name, NULL/*TODO...command*/);
+            }
         }
     }
 }
@@ -177,17 +240,64 @@ completed_cb(gpointer arg)
 {
     NOISY_MSG_("(%p)", arg);
     RpUpdateCbCtx* ctx = arg;
-    RpThreadLocalClusterUpdateParams params = ctx->params;
-    g_clear_pointer(&params.m_hosts_added, g_ptr_array_unref);
-    g_clear_pointer(&params.m_hosts_removed, g_ptr_array_unref);
-    g_free(ctx);
+    rp_update_cb_ctx_free(ctx);
 }
 
-#if 0
+static bool
+deferral_is_supported_for_cluster(RpClusterManagerImpl* self, RpClusterInfoConstSharedPtr info)
+{
+    NOISY_MSG_("(%p, %p)", self, info);
+
+    if (!self->m_deferred_cluster_creation)
+    {
+        NOISY_MSG_("nope");
+        return false;
+    }
+
+    const RpCustomClusterTypeCfg* custom_cluster_type = rp_cluster_info_cluster_type(info);
+    if (custom_cluster_type)
+    {
+        static const char* supported_well_known_types[] = {
+            "rproxy.clusters.static",
+            "rproxy.clusters.aggregate",
+            "rproxy.clusters.eds",
+            "rproxy.clusters.redis"
+        };
+        static const gsize num_elems = sizeof(supported_well_known_types)/sizeof(supported_well_known_types[0]);
+        for (gsize i = 0; i < num_elems; ++i)
+        {
+NOISY_MSG_("custom cluster type \"%s\"", custom_cluster_type->name);
+            if (g_ascii_strcasecmp(supported_well_known_types[i], custom_cluster_type->name) == 0)
+            {
+                NOISY_MSG_("yep");
+                return true;
+            }
+        }
+    }
+    else
+    {
+        static RpDiscoveryType_e supported_cluster_types[] = {
+            RpDiscoveryType_EDS,
+            RpDiscoveryType_STATIC
+        };
+        static const gsize num_elems = sizeof(supported_cluster_types)/sizeof(supported_cluster_types[0]);
+        for (gsize i = 0; i < num_elems; ++i)
+        {
+            if (rp_cluster_info_type(info) == supported_cluster_types[i])
+            {
+                NOISY_MSG_("yep");
+                return true;
+            }
+        }
+    }
+    NOISY_MSG_("nope");
+    return false;
+}
+
 static RpClusterInitializationObjectConstSharedPtr
 add_or_update_cluster_initialization_object_if_supported(RpClusterManagerImpl* self, const RpThreadLocalClusterUpdateParams* params,
                                                             RpClusterInfoConstSharedPtr cluster_info, RpLoadBalancerFactorySharedPtr load_balancer_factory,
-                                                            RpHostMapConstSharedPtr map)
+                                                            RpHostMapSnap* map)
 {
     NOISY_MSG_("(%p, %p, %p, %p, %p)", self, params, cluster_info, load_balancer_factory, map);
 
@@ -197,13 +307,29 @@ add_or_update_cluster_initialization_object_if_supported(RpClusterManagerImpl* s
         return NULL;
     }
 
-//TODO...
-return NULL;
+    const char* cluster_name = rp_cluster_info_name(cluster_info);
+    RpClusterInitializationObjectConstSharedPtr entry = g_hash_table_lookup(self->m_cluster_initialization_map, cluster_name);
+    bool should_merge_with_prior_cluster = entry != NULL &&
+        rp_cluster_initialization_object_cluster_info_(entry) == cluster_info;
+
+    RpClusterInitializationObject* new_initialization_object;
+    if (should_merge_with_prior_cluster)
+    {
+        RpLoadBalancerFactorySharedPtr lb_factory = load_balancer_factory ?
+            load_balancer_factory : rp_cluster_initialization_object_cluster_load_balancer_factory_(entry);
+        new_initialization_object = rp_cluster_initialization_object_new(params, cluster_info, lb_factory, map);
+    }
+    else
+    {
+        new_initialization_object = rp_cluster_initialization_object_new(params, cluster_info, load_balancer_factory, map);
+    }
+    // cluster initialization container owns new initialization object.
+    g_hash_table_replace(self->m_cluster_initialization_map, g_strdup(cluster_name), new_initialization_object);
+    return new_initialization_object;
 }
-#endif//0
 
 static void
-post_thread_local_cluster_update(RpClusterManagerImpl* self, RpClusterManagerCluster* cm_cluster, RpThreadLocalClusterUpdateParams params)
+post_thread_local_cluster_update(RpClusterManagerImpl* self, RpClusterManagerCluster* cm_cluster, RpThreadLocalClusterUpdateParams* params)
 {
     NOISY_MSG_("(%p, %p(%p), ...)", self, cm_cluster, rp_cluster_manager_cluster_cluster(cm_cluster));
 
@@ -221,17 +347,38 @@ post_thread_local_cluster_update(RpClusterManagerImpl* self, RpClusterManagerClu
         load_balancer_factory = rp_cluster_manager_cluster_load_balancer_factory(cm_cluster);
     }
 
+    RpCluster* cluster = rp_cluster_manager_cluster_cluster(cm_cluster);
+    for (guint i = 0; i < params->m_per_priority_update_params->len; ++i)
+    {
+        RpTlcPerPriority* per_priority = &g_array_index(params->m_per_priority_update_params, RpTlcPerPriority, i);
+        RpPrioritySet* priority_set = rp_cluster_priority_set(cluster);
+        const RpHostSetPtrVector* host_sets = rp_priority_set_host_sets_per_priority(priority_set);
+        RpHostSetPtr host_set = rp_host_set_ptr_vector_get(host_sets, per_priority->m_priority);
+        per_priority->m_update_hosts_params = rp_host_set_impl_update_hosts_params_2(RP_HOST_SET_IMPL(host_set));
+        per_priority->m_weighted_priority_health = rp_host_set_get_weighted_priority_health(host_set);
+        per_priority->m_overprovisioning_factor = rp_host_set_get_overprovisioning_factor(host_set);
+    }
+
     //TODO...
 
-    IF_NOISY_(RpHostMapConstSharedPtr host_map = rp_priority_set_cross_priority_host_map(
-                                                    rp_cluster_priority_set(
-                                                        rp_cluster_manager_cluster_cluster(cm_cluster)));)
+    g_autoptr(RpHostMapSnap) host_map = rp_priority_set_cross_priority_host_map(
+                                            rp_cluster_priority_set(
+                                                rp_cluster_manager_cluster_cluster(cm_cluster)));
+    NOISY_MSG_("host map %p(%p/%u)", host_map, rp_host_map_snap_host_map(host_map), rp_host_map_size(rp_host_map_snap_host_map(host_map)));
 
     //TODO...pending_cluster_creations_.erase(...)
 
     RpClusterInfoConstSharedPtr info = rp_cluster_info(
                                         rp_cluster_manager_cluster_cluster(cm_cluster));
-    RpUpdateCbCtx* ctx = rp_update_cb_ctx_new(info, params, load_balancer_factory, add_or_update_cluster);
+    RpClusterInitializationObjectConstSharedPtr cluster_initialization_object =
+        add_or_update_cluster_initialization_object_if_supported(self, params, info, load_balancer_factory, host_map);
+
+    RpUpdateCbCtx* ctx =
+        rp_update_cb_ctx_new_take(info, params, load_balancer_factory, g_steal_pointer(&host_map), cluster_initialization_object, add_or_update_cluster);
+
+g_assert(params->m_per_priority_update_params == NULL);
+
+    /* params->m_per_priority_update_params is now NULL */
     rp_slot_run_on_all_threads_completed(self->m_tls, update_cb, completed_cb, ctx);
 }
 
@@ -250,9 +397,9 @@ on_cluster_init(RpClusterManager* self, RpClusterManagerCluster* cm_cluster)
     }
     cluster_data = g_hash_table_lookup(me->m_active_clusters, name);
 
-    if (*rp_cluster_data_thread_aware_lb_(cluster_data))
+    if (rp_cluster_data_thread_aware_lb(cluster_data))
     {
-        RpStatusCode_e status = rp_thread_aware_load_balancer_initialize(*rp_cluster_data_thread_aware_lb_(cluster_data));
+        RpStatusCode_e status = rp_thread_aware_load_balancer_initialize(rp_cluster_data_thread_aware_lb(cluster_data));
         if (status != RpStatusCode_Ok)
         {
             LOGE("failed");
@@ -261,28 +408,32 @@ on_cluster_init(RpClusterManager* self, RpClusterManagerCluster* cm_cluster)
     }
     //TODO...
 
-    RpThreadLocalClusterUpdateParams params = rp_thread_local_cluster_update_params_ctor(RpResourcePriority_Default, NULL, NULL);
-    post_thread_local_cluster_update(me, cm_cluster, params);
+    RpThreadLocalClusterUpdateParams params = rp_thread_local_cluster_update_params_ctor();
+    RpPrioritySet* priority_set = rp_cluster_priority_set(cluster);
+    const RpHostSetPtrVector* host_sets = rp_priority_set_host_sets_per_priority(priority_set);
+    for (guint i = 0; i < rp_host_set_ptr_vector_size(host_sets); ++i)
+    {
+        RpHostSetPtr host_set = rp_host_set_ptr_vector_get(host_sets, i);
+        const RpHostVector* hosts = rp_host_set_get_hosts(host_set);
+        if (rp_host_vector_is_empty(hosts))
+        {
+            NOISY_MSG_("empty");
+            continue;
+        }
+        RpTlcPerPriority per_priority = {
+            .m_hosts_added = hosts,  // borrowed
+            .m_hosts_removed = NULL,
+            .m_priority = rp_host_set_get_priority(host_set)
+        };
+        g_array_append_val(params.m_per_priority_update_params, per_priority);
+    }
+
+    post_thread_local_cluster_update(me, cm_cluster, &params);
+//    rp_thread_local_cluster_update_params_dtor(&params);
     return RpStatusCode_Ok;
 }
 
 #if 0
-static bool
-deferral_is_supported_for_cluster(RpClusterManagerImpl* self, RpClusterInfoConstSharedPtr info)
-{
-    NOISY_MSG_("(%p, %p)", self, info);
-
-    if (!self->m_deferred_cluster_creation)
-    {
-        NOISY_MSG_("nope");
-        return false;
-    }
-
-    //TODO..."envoy.cluster.static"...
-return false;
-}
-#endif//0
-
 static inline RpLbPolicy_e
 translate_lb_policy(rule_cfg_t* cfg)
 {
@@ -302,6 +453,7 @@ translate_lb_policy(rule_cfg_t* cfg)
             return RpLbPolicy_RANDOM;
     }
 }
+#endif
 
 static inline RpDiscoveryType_e
 translate_discovery_type(rule_cfg_t* cfg)
@@ -346,10 +498,11 @@ initialize_cb(RpDispatcher* dispatcher, gpointer arg)
 }
 
 static RpClusterDataPtr
-load_cluster(RpClusterManagerImpl* self, RpClusterCfg* cluster,
-                guint64 cluster_hash, bool added_via_api, RpClusterMap cluster_map, GError** err)
+load_cluster(RpClusterManagerImpl* self, const RpClusterCfg* cluster, guint64 cluster_hash,
+                bool added_via_api, RpClusterMap cluster_map, GError** err)
 {
-    NOISY_MSG_("(%p, %p, %zu, %u, %p, %p)", self, cluster, cluster_hash, added_via_api, cluster_map, err);
+    NOISY_MSG_("(%p, %p, %" G_GUINT64_FORMAT ", %u, %p, %p)",
+        self, cluster, cluster_hash, added_via_api, cluster_map, err);
 
     PairClusterSharedPtrThreadAwareLoadBalancerPtr
         new_cluster_pair = rp_cluster_manager_factory_cluster_from_proto(self->m_factory,
@@ -396,28 +549,33 @@ load_cluster(RpClusterManagerImpl* self, RpClusterCfg* cluster,
         return NULL;
     }
 
-    RpClusterDataPtr new_cluster_data = rp_cluster_data_new(cluster, cluster_hash, added_via_api, g_steal_pointer(&new_cluster), self->m_time_source);
+    RpClusterDataPtr new_cluster_data = rp_cluster_data_new(cluster, cluster_hash, added_via_api, new_cluster, self->m_time_source);
     RpClusterDataPtr result = g_hash_table_lookup(cluster_map, name);
+    // cluster_map owns new_cluster_data.
     if (g_hash_table_replace(cluster_map, g_strdup(name), new_cluster_data))
     {
         // Key did NOT already exist.
         result = NULL;
     }
 
-    RpThreadAwareLoadBalancerPtr* thread_aware_lb_ = rp_cluster_data_thread_aware_lb_(new_cluster_data);
     if (cluster_provided_lb)
     {
-        *thread_aware_lb_ = g_steal_pointer(&lb);
+        rp_cluster_data_thread_aware_lb_take(new_cluster_data, &lb);
+        g_assert(lb == NULL);
     }
     else
     {
-        *thread_aware_lb_ = rp_typed_load_balancer_factory_create(typed_lb_factory,
-                                                                    rp_cluster_info_load_balancer_config(cluster_info),
-                                                                    cluster_info,
-                                                                    rp_cluster_priority_set(new_cluster),
-                                                                    self->m_time_source);
+        lb = rp_typed_load_balancer_factory_create(typed_lb_factory,
+                                                    rp_cluster_info_load_balancer_config(cluster_info),
+                                                    cluster_info,
+                                                    rp_cluster_priority_set(new_cluster),
+                                                    self->m_time_source);
+        rp_cluster_data_thread_aware_lb_take(new_cluster_data, &lb);
+        g_assert(lb == NULL);
     }
 
+    // The all_clusters container owns new_cluster.
+    g_hash_table_add(self->m_all_clusters, g_steal_pointer(&new_cluster));
     //TODO..updateClusterCounts();
     return result;
 }
@@ -484,6 +642,7 @@ rp_process_rule_cb_ctx_ctor(RpClusterManagerImpl* cluster_manager, GError** err)
 static inline void
 init_socket_address_cfg(RpSocketAddressCfg* self, upstream_t* upstream)
 {
+    NOISY_MSG_("(%p, %p)", self, upstream);
     // upstream->config->host might be null in the case of strict dns and
     // dynamic forward proxy clusters.
     const char* src = upstream->config->host ?
@@ -499,12 +658,14 @@ init_socket_address_cfg(RpSocketAddressCfg* self, upstream_t* upstream)
 static inline void
 init_address_cfg(RpAddressCfg* self, upstream_t* upstream)
 {
+    NOISY_MSG_("(%p, %p)", self, upstream);
     init_socket_address_cfg(&self->address.socket_address, upstream);
 }
 
 static inline void
 init_endpoint_cfg(RpEndpointCfg* self, upstream_t* upstream)
 {
+    NOISY_MSG_("(%p, %p)", self, upstream);
     init_address_cfg(&self->address, upstream);
     rp_endpoint_cfg_clear_additional_addresses(self);
     g_strlcpy(self->hostname, upstream->config->name, sizeof(self->hostname));
@@ -513,6 +674,7 @@ init_endpoint_cfg(RpEndpointCfg* self, upstream_t* upstream)
 static inline void
 init_lb_endpoint_cfg(RpLbEndpointCfg* self, upstream_t* upstream)
 {
+    NOISY_MSG_("(%p, %p)", self, upstream);
     init_endpoint_cfg(rp_lb_endpoint_cfg_mutable_endpoint(self), upstream);
     self->load_balancing_weight = 1;
     self->metadata = upstream;
@@ -521,6 +683,7 @@ init_lb_endpoint_cfg(RpLbEndpointCfg* self, upstream_t* upstream)
 static inline void
 init_locality_lb_endpoints_cfg(RpLocalityLbEndpointsCfg* self, rule_t* rule)
 {
+    NOISY_MSG_("(%p, %p) %u upstreams", self, rule, g_slist_length(rule->upstreams));
     for (GSList* itr = rule->upstreams; itr; itr = itr->next)
     {
         upstream_t* upstream = itr->data;
@@ -539,6 +702,7 @@ init_locality_lb_endpoints_cfg(RpLocalityLbEndpointsCfg* self, rule_t* rule)
 static inline void
 init_preconnect_policy_cfg(RpPreconnectPolicyCfg* self)
 {
+    NOISY_MSG_("(%p)", self);
     self->per_upstream_preconnect_ratio = 1.0;
     self->predictive_preconnect_ratio = 1.0;
 }
@@ -546,6 +710,7 @@ init_preconnect_policy_cfg(RpPreconnectPolicyCfg* self)
 static inline void
 init_lb_policy_cfg(RpLbPolicyCfg* self)
 {
+    NOISY_MSG_("(%p)", self);
     self->overprovisioning_factor = 1;
     self->endpoint_stale_after = 60/*REVISIT*/;
     self->weighted_priority_health = 1;
@@ -646,10 +811,15 @@ process_rule_cb(gpointer data, gpointer arg)
     GError** err = ctx->err;
     rule_t* rule = data;
 
-    RpClusterCfg cluster = *rp_cluster_cfg_empty();
-    init_cluster_cfg(&cluster, rule);
+    RpClusterCfgPtr cluster = rp_cluster_cfg_new();
+    init_cluster_cfg(cluster, rule);
 
-    RpClusterDataPtr new_cluster = load_cluster(me, &cluster, config_hash(&cluster), /*added_via_api=*/false, me->m_active_clusters, err);
+    RpClusterDataPtr new_cluster = load_cluster(me,
+                                                cluster,
+                                                config_hash(cluster),
+                                                /*added_via_api=*/false,
+                                                me->m_active_clusters,
+                                                err);
     if (err && *err)
     {
         LOGE("error %d(%s)", (*err)->code, (*err)->message);
@@ -659,6 +829,8 @@ process_rule_cb(gpointer data, gpointer arg)
         NOISY_MSG_("replaced cluster data %p", new_cluster);
         g_clear_object(&new_cluster);
     }
+
+    rp_cluster_cfg_free(cluster);
 }
 
 static bool
@@ -754,7 +926,7 @@ rp_cluster_initialize_cb(gpointer arg)
 }
 
 static bool
-add_or_update_cluster_i(RpClusterManager* self, RpClusterCfg* cluster, const char* version_info)
+add_or_update_cluster_i(RpClusterManager* self, const RpClusterCfg* cluster, const char* version_info)
 {
     NOISY_MSG_("(%p, %p, %p(%s))", self, cluster, version_info, version_info);
 
@@ -827,6 +999,24 @@ add_thread_local_cluster_update_callbacks_i(RpClusterManager* self, RpClusterUpd
             RP_CLUSTER_LIFECYCLE_CALLBACK_HANDLER(cluster_manager), cb);
 }
 
+static bool
+is_shutdown_i(RpClusterManager* self)
+{
+    NOISY_MSG_("(%p)", self);
+    return RP_CLUSTER_MANAGER_IMPL(self)->m_shutdown;
+}
+
+static void
+shutdown_i(RpClusterManager* self)
+{
+    NOISY_MSG_("(%p)", self);
+    RpClusterManagerImpl* me = RP_CLUSTER_MANAGER_IMPL(self);
+    me->m_shutdown = true;
+    g_clear_pointer(&me->m_active_clusters, g_hash_table_unref);
+    g_clear_pointer(&me->m_warming_clusters, g_hash_table_unref);
+    g_clear_pointer(&me->m_all_clusters, g_hash_table_unref);
+}
+
 static void
 cluster_manager_iface_init(RpClusterManagerInterface* iface)
 {
@@ -838,6 +1028,8 @@ cluster_manager_iface_init(RpClusterManagerInterface* iface)
     iface->initialized = initialized_i;
     iface->add_or_update_cluster = add_or_update_cluster_i;
     iface->add_thread_local_cluster_update_callbacks = add_thread_local_cluster_update_callbacks_i;
+    iface->is_shutdown = is_shutdown_i;
+    iface->shutdown = shutdown_i;
 }
 
 OVERRIDE void
@@ -848,8 +1040,10 @@ dispose(GObject* obj)
     RpClusterManagerImpl* self = RP_CLUSTER_MANAGER_IMPL(obj);
     g_clear_pointer(&self->m_active_clusters, g_hash_table_unref);
     g_clear_pointer(&self->m_warming_clusters, g_hash_table_unref);
-    g_clear_object(&self->m_tls);
+    g_clear_pointer(&self->m_cluster_initialization_map, g_hash_table_unref);
+    g_clear_pointer(&self->m_all_clusters, g_hash_table_unref);
     g_clear_object(&self->m_init_helper);
+    self->m_tls = NULL;
 
     G_OBJECT_CLASS(rp_cluster_manager_impl_parent_class)->dispose(obj);
 }
@@ -868,10 +1062,12 @@ rp_cluster_manager_impl_init(RpClusterManagerImpl* self)
 {
     NOISY_MSG_("(%p)", self);
 
-    self->m_active_clusters = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
-    self->m_warming_clusters = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+    self->m_active_clusters = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_object_unref);
+    self->m_warming_clusters = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_object_unref);
+    self->m_cluster_initialization_map = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_object_unref);
     self->m_init_helper = rp_cluster_manager_init_helper_new(RP_CLUSTER_MANAGER(self),
                                                                 on_cluster_init);
+    self->m_all_clusters = g_hash_table_new_full(g_direct_hash, g_direct_equal, g_object_unref, NULL);
     self->m_deferred_cluster_creation = false;//TODO...bootstrap.enable_deferred_cluster_creation();
 }
 

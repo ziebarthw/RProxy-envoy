@@ -9,25 +9,29 @@
 
 #include <stdbool.h>
 #include <glib-object.h>
-#include "rp-route-config-provider.h"
+#include "rproxy.h"
+#include "rp-rds-route-config-provider.h"
+#include "rp-router.h"
 
 G_BEGIN_DECLS
-
-typedef struct _RpRouteConfig RpRouteConfig;
 
 /**
  * A provider for constant route configurations.
  */
 #define RP_TYPE_ROUTE_CONFIG_PROVIDER rp_route_config_provider_get_type()
-G_DECLARE_INTERFACE(RpRouteConfigProvider, rp_route_config_provider, RP, ROUTE_CONFIG_PROVIDER, RpRdsRouteConfigProvider)
+G_DECLARE_INTERFACE(RpRouteConfigProvider, rp_route_config_provider, RP, ROUTE_CONFIG_PROVIDER, GObject)
 
 struct _RpRouteConfigProviderInterface {
-    RpRdsRouteConfigProviderInterface parent_iface;
+    GTypeInterface parent_iface;
+    // RpRdsRouteConfigProviderInterface
 
-    RpRouteConfig* (*config_cast)(RpRouteConfigProvider*);
+    RpRouterConfigConstSharedPtr (*config_cast)(RpRouteConfigProvider*);
 };
 
-static inline RpRouteConfig*
+typedef UNIQUE_PTR(RpRouteConfigProvider) RpRouteConfigProviderPtr;
+typedef SHARED_PTR(RpRouteConfigProvider) RpRouteConfigProviderSharedPtr;
+
+static inline RpRouterConfigConstSharedPtr
 rp_route_config_provider_config_cast(RpRouteConfigProvider* self)
 {
     return RP_IS_ROUTE_CONFIG_PROVIDER(self) ?

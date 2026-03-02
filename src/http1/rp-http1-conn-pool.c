@@ -22,7 +22,7 @@
 struct _RpHttp1CpActiveClient {
     RpHttpConnPoolBaseActiveClient parent_instance;
 
-    UNIQUE_PTR(RpActiveClientStreamWrapper) m_stream_wrapper;
+    RpActiveClientStreamWrapper* m_stream_wrapper;
     RpHttpConnPoolImplBase* m_parent;
 };
 
@@ -62,7 +62,7 @@ release_resources(RpConnectionPoolActiveClient* self)
     RpHttp1CpActiveClient* me = RP_HTTP1_CP_ACTIVE_CLIENT(self);
     if (me->m_stream_wrapper)
     {
-        rp_dispatcher_deferred_delete(
+        rp_dispatcher_deferred_delete_take(
             rp_conn_pool_impl_base_dispatcher(RP_CONN_POOL_IMPL_BASE(me->m_parent)), G_OBJECT(g_steal_pointer(&me->m_stream_wrapper)));
     }
     RP_CONNECTION_POOL_ACTIVE_CLIENT_CLASS(rp_http1_cp_active_client_parent_class)->release_resources(self);

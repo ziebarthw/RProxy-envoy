@@ -31,17 +31,17 @@ struct _RpThreadLocalClusterInterface {
     GTypeInterface parent_iface;
 
     RpPrioritySet* (*priority_set)(RpThreadLocalCluster*);
-    RpClusterInfoConstSharedPtr (*info)(RpThreadLocalCluster*);
+    RpClusterInfoSharedPtr (*info)(RpThreadLocalCluster*);
     RpLoadBalancer* (*load_balancer)(RpThreadLocalCluster*);
     RpHostSelectionResponse (*choose_host)(RpThreadLocalCluster*,
                                             RpLoadBalancerContext*);
     RpHttpPoolData* (*http_conn_pool)(RpThreadLocalCluster*,
-                                        RpHostConstSharedPtr,
+                                        RpHost*,
                                         RpResourcePriority_e,
                                         evhtp_proto,
                                         RpLoadBalancerContext*);
     RpTcpPoolData* (*tcp_conn_pool)(RpThreadLocalCluster*,
-                                    RpHostConstSharedPtr,
+                                    RpHost*,
                                     RpResourcePriority_e,
                                     RpLoadBalancerContext*);
     RpCreateConnectionData (*tcp_conn)(RpThreadLocalCluster*,
@@ -54,7 +54,7 @@ rp_thread_local_cluster_priority_set(RpThreadLocalCluster* self)
     return RP_IS_THREAD_LOCAL_CLUSTER(self) ?
         RP_THREAD_LOCAL_CLUSTER_GET_IFACE(self)->priority_set(self) : NULL;
 }
-static inline RpClusterInfoConstSharedPtr
+static inline RpClusterInfoSharedPtr
 rp_thread_local_cluster_info(RpThreadLocalCluster* self)
 {
     return RP_IS_THREAD_LOCAL_CLUSTER(self) ?
@@ -74,7 +74,7 @@ rp_thread_local_cluster_choose_host(RpThreadLocalCluster* self, RpLoadBalancerCo
         rp_host_selection_response_ctor(NULL, NULL, NULL);
 }
 static inline RpHttpPoolData*
-rp_thread_local_cluster_http_conn_pool(RpThreadLocalCluster* self, RpHostConstSharedPtr host, RpResourcePriority_e priority,
+rp_thread_local_cluster_http_conn_pool(RpThreadLocalCluster* self, RpHost* host, RpResourcePriority_e priority,
                                         evhtp_proto downstream_protocol, RpLoadBalancerContext* context)
 {
     return RP_IS_THREAD_LOCAL_CLUSTER(self) ?
@@ -82,7 +82,7 @@ rp_thread_local_cluster_http_conn_pool(RpThreadLocalCluster* self, RpHostConstSh
         NULL;
 }
 static inline RpTcpPoolData*
-rp_thread_local_cluster_tcp_conn_pool(RpThreadLocalCluster* self, RpHostConstSharedPtr host, RpResourcePriority_e priority, RpLoadBalancerContext* context)
+rp_thread_local_cluster_tcp_conn_pool(RpThreadLocalCluster* self, RpHost* host, RpResourcePriority_e priority, RpLoadBalancerContext* context)
 {
     return RP_IS_THREAD_LOCAL_CLUSTER(self) ?
         RP_THREAD_LOCAL_CLUSTER_GET_IFACE(self)->tcp_conn_pool(self, host, priority, context) :

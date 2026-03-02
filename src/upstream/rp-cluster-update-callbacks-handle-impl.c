@@ -15,12 +15,14 @@
 
 #include "upstream/rp-cluster-manager-impl.h"
 
-struct _RpClusterUpdateCallbacksHandlerImpl {
+struct _RpClusterUpdateCallbacksHandleImpl {
     GObject parent_instance;
 
+    GList** m_container;
+    GList* m_it;
 };
 
-G_DEFINE_TYPE_WITH_CODE(RpClusterUpdateCallbacksHandlerImpl, rp_cluster_update_callbacks_handler_impl, G_TYPE_OBJECT,
+G_DEFINE_TYPE_WITH_CODE(RpClusterUpdateCallbacksHandleImpl, rp_cluster_update_callbacks_handle_impl, G_TYPE_OBJECT,
     G_IMPLEMENT_INTERFACE(RP_TYPE_CLUSTER_UPDATE_CALLBACKS_HANDLE, NULL)
 )
 
@@ -28,11 +30,15 @@ OVERRIDE void
 dispose(GObject* obj)
 {
     NOISY_MSG_("(%p)", obj);
-    G_OBJECT_CLASS(rp_cluster_update_callbacks_handler_impl_parent_class)->dispose(obj);
+
+    RpClusterUpdateCallbacksHandleImpl* self = RP_CLUSTER_UPDATE_CALLBACKS_HANDLE_IMPL(obj);
+    *self->m_container = g_list_delete_link(*self->m_container, self->m_it);
+
+    G_OBJECT_CLASS(rp_cluster_update_callbacks_handle_impl_parent_class)->dispose(obj);
 }
 
 static void
-rp_cluster_update_callbacks_handler_impl_class_init(RpClusterUpdateCallbacksHandlerImplClass* klass)
+rp_cluster_update_callbacks_handle_impl_class_init(RpClusterUpdateCallbacksHandleImplClass* klass)
 {
     LOGD("(%p)", klass);
     GObjectClass* object_class = G_OBJECT_CLASS(klass);
@@ -40,16 +46,18 @@ rp_cluster_update_callbacks_handler_impl_class_init(RpClusterUpdateCallbacksHand
 }
 
 static void
-rp_cluster_update_callbacks_handler_impl_init(RpClusterUpdateCallbacksHandlerImpl* self G_GNUC_UNUSED)
+rp_cluster_update_callbacks_handle_impl_init(RpClusterUpdateCallbacksHandleImpl* self G_GNUC_UNUSED)
 {
     NOISY_MSG_("(%p)", self);
 }
 
-RpClusterUpdateCallbacksHandlerImpl*
-rp_cluster_update_callbacks_handler_impl_new(RpClusterUpdateCallbacks* cb, GList** parent)
+RpClusterUpdateCallbacksHandleImpl*
+rp_cluster_update_callbacks_handle_impl_new(RpClusterUpdateCallbacks* cb, GList** parent)
 {
     LOGD("(%p, %p)", cb, parent);
-    RpClusterUpdateCallbacksHandlerImpl* self = g_object_new(RP_TYPE_CLUSTER_UPDATE_CALLBACKS_HANDLER_IMPL, NULL);
-    *parent = g_list_append(*parent, cb);
+    RpClusterUpdateCallbacksHandleImpl* self = g_object_new(RP_TYPE_CLUSTER_UPDATE_CALLBACKS_HANDLE_IMPL, NULL);
+    *parent = g_list_prepend(*parent, cb);
+    self->m_container = parent;
+    self->m_it = *parent;
     return self;
 }

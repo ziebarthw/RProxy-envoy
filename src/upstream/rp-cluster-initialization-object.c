@@ -13,14 +13,15 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
+#include "rp-host-map-snap.h"
 #include "upstream/rp-cluster-manager-impl.h"
 
 struct _RpClusterInitializationObject {
     GObject parent_instance;
 
-    RpClusterInfoConstSharedPtr m_cluster_info;
+    RpClusterInfoSharedPtr m_cluster_info;
     RpLoadBalancerFactorySharedPtr m_load_balancer_factory;
-    RpHostMapConstSharedPtr m_cross_priority_host_map;
+    RpHostMapSnap* m_cross_priority_host_map;
     //TODO...
 };
 
@@ -30,6 +31,11 @@ OVERRIDE void
 dispose(GObject* obj)
 {
     NOISY_MSG_("(%p)", obj);
+
+    RpClusterInitializationObject* self = RP_CLUSTER_INITIALIZATION_OBJECT(obj);
+    g_clear_object(&self->m_cluster_info);
+    g_clear_pointer(&self->m_cross_priority_host_map, rp_host_map_snap_unref);
+
     G_OBJECT_CLASS(rp_cluster_initialization_object_parent_class)->dispose(obj);
 }
 
@@ -50,13 +56,35 @@ rp_cluster_initialization_object_init(RpClusterInitializationObject* self G_GNUC
 
 RpClusterInitializationObject*
 rp_cluster_initialization_object_new(const RpThreadLocalClusterUpdateParams* params, RpClusterInfoConstSharedPtr cluster_info,
-                                        RpLoadBalancerFactorySharedPtr load_balancer_factory, RpHostMapConstSharedPtr map/*, TODO...*/)
+                                        RpLoadBalancerFactorySharedPtr load_balancer_factory, RpHostMapSnap* map/*, TODO...*/)
 {
     LOGD("(%p, %p, %p, %p)", params, cluster_info, load_balancer_factory, map);
     RpClusterInitializationObject* self = g_object_new(RP_TYPE_CLUSTER_INITIALIZATION_OBJECT, NULL);
-    self->m_cluster_info = cluster_info;
+    rp_cluster_info_set_object(&self->m_cluster_info, cluster_info);
     self->m_load_balancer_factory = load_balancer_factory;
-    self->m_cross_priority_host_map = map;
+    self->m_cross_priority_host_map = rp_host_map_snap_ref(map);
     //TODO...Copy the update since the map is empty....
     return self;
+}
+
+static inline bool
+rp_cluster_initialization_object_is_a(RpClusterInitializationObjectConstSharedPtr self)
+{
+    return RP_IS_CLUSTER_INITIALIZATION_OBJECT((GObject*)self);
+}
+
+RpClusterInfoConstSharedPtr
+rp_cluster_initialization_object_cluster_info_(RpClusterInitializationObjectConstSharedPtr self)
+{
+    LOGD("(%p)", self);
+    g_return_val_if_fail(rp_cluster_initialization_object_is_a(self), NULL);
+    return self->m_cluster_info;
+}
+
+RpLoadBalancerFactorySharedPtr
+rp_cluster_initialization_object_cluster_load_balancer_factory_(RpClusterInitializationObjectConstSharedPtr self)
+{
+    LOGD("(%p)", self);
+    g_return_val_if_fail(rp_cluster_initialization_object_is_a(self), NULL);
+    return self->m_load_balancer_factory;
 }

@@ -14,6 +14,7 @@
 #endif
 
 #include "rproxy.h"
+#include "rp-host-set-ptr-vector.h"
 #include "upstream/rp-upstream-impl.h"
 #include "upstream/rp-priority-conn-pool-map.h"
 #include "upstream/rp-cluster-manager-impl.h"
@@ -23,7 +24,7 @@ struct _RpClusterEntry {
 
     RpThreadLocalClusterManagerImpl* m_parent;
     RpPrioritySetImpl* m_priority_set;
-    RpClusterInfoConstSharedPtr m_cluster_info;
+    RpClusterInfoSharedPtr m_cluster_info;
     RpLoadBalancerFactorySharedPtr m_lb_factory;
     RpLoadBalancerPtr m_lb;
 };
@@ -33,12 +34,6 @@ static void thread_local_cluster_iface_init(RpThreadLocalClusterInterface* iface
 G_DEFINE_FINAL_TYPE_WITH_CODE(RpClusterEntry, rp_cluster_entry, G_TYPE_OBJECT,
     G_IMPLEMENT_INTERFACE(RP_TYPE_THREAD_LOCAL_CLUSTER, thread_local_cluster_iface_init)
 )
-
-static void
-drain_conn_pools(RpClusterEntry* self)
-{
-    NOISY_MSG_("(%p)", self);
-}
 
 static bool
 allow_lb_choose_host(RpLoadBalancerContext* context)
@@ -71,7 +66,6 @@ choose_host_i(RpThreadLocalCluster* self, RpLoadBalancerContext* context)
     if (allow_lb_choose_host(context))
     {
         RpClusterEntry* me = RP_CLUSTER_ENTRY(self);
-NOISY_MSG_("calling rp_load_balancer_choose_host(%p, %p)", me->m_lb, context);
         RpHostSelectionResponse host_selection = rp_load_balancer_choose_host(me->m_lb, context);
         if (host_selection.m_host || host_selection.m_cancelable)
         {
@@ -88,7 +82,7 @@ NOISY_MSG_("calling rp_load_balancer_choose_host(%p, %p)", me->m_lb, context);
     return rp_host_selection_response_ctor(NULL, NULL, NULL);
 }
 
-static RpClusterInfoConstSharedPtr
+static RpClusterInfoSharedPtr
 info_i(RpThreadLocalCluster* self)
 {
     NOISY_MSG_("(%p)", self);
@@ -99,29 +93,14 @@ static RpLoadBalancer*
 load_balancer_i(RpThreadLocalCluster* self)
 {
     NOISY_MSG_("(%p)", self);
-NOISY_MSG_("lb %p", RP_CLUSTER_ENTRY(self)->m_lb);
     return RP_CLUSTER_ENTRY(self)->m_lb;
 }
 
-// Custom hash function for byte arrays
-static inline int
-byte_array_hash(gconstpointer v, gsize size)
-{
-    const uint8_t* data = (const uint8_t*)v;
-    // You'd need to know the length - this is a simple example
-    // In practice, you might want to pass a struct containing data and length
-    int hash = 0;
-    for (gsize i = 0; i < size; i++)
-    {
-        hash = (hash << 5) - hash + data[i];
-    }
-    return hash;
-}
 
 typedef struct _RpConnectionPoolFactoryCtx RpConnectionPoolFactoryCtx;
 struct _RpConnectionPoolFactoryCtx {
     RpClusterEntry* m_cluster_entry;
-    SHARED_PTR(RpHost) m_host;
+    RpHost* m_host;
     RpResourcePriority_e m_priority;
     evhtp_proto m_downstream_protocol;
     RpLoadBalancerContext* m_context;
@@ -143,7 +122,7 @@ conn_pool_factory_cb(gpointer user_data)
 }
 
 static RpHttpConnectionPoolInstancePtr
-http_conn_pool_impl(RpClusterEntry* self, SHARED_PTR(RpHost) host, RpResourcePriority_e priority, evhtp_proto downstream_protocol, RpLoadBalancerContext* context)
+http_conn_pool_impl(RpClusterEntry* self, RpHost* host, RpResourcePriority_e priority, evhtp_proto downstream_protocol, RpLoadBalancerContext* context)
 {
     NOISY_MSG_("(%p, %p, %d, %d, %p)", self, host, priority, downstream_protocol, context);
 
@@ -154,14 +133,11 @@ http_conn_pool_impl(RpClusterEntry* self, SHARED_PTR(RpHost) host, RpResourcePri
     }
 
     evhtp_proto* upstream_protocols = rp_cluster_info_upstream_http_protocol(
-        rp_host_description_cluster(RP_HOST_DESCRIPTION(host)), downstream_protocol);
+        rp_host_description_cluster((RpHostDescriptionConstSharedPtr)host), downstream_protocol);
     //TODO...
 
-    // For now, just use the downstream protocol...
-    guint8 hash_key[4];
-    gsize hash_size = 0;
-    hash_key[hash_size++] = upstream_protocols[0];
-    int key = byte_array_hash(hash_key, hash_size);
+    // For now, just use the upstream protocol...
+    g_autoptr(GBytes) key = rp_conn_pool_key_new(upstream_protocols[0], NULL, 0, "", NULL);
 
     g_free(upstream_protocols);
 
@@ -174,37 +150,34 @@ http_conn_pool_impl(RpClusterEntry* self, SHARED_PTR(RpHost) host, RpResourcePri
     RpConnPoolsContainer* container = rp_thread_local_cluster_manager_impl_get_http_conn_pools_container(self->m_parent, host, true);
     return rp_priority_conn_pool_map_get_pool(container->m_pools,
                                                 priority,
-                                                &key,
+                                                key,
                                                 conn_pool_factory_cb,
                                                 &ctx);
 }
 
 static RpTcpConnPoolInstance*
-tcp_conn_pool_impl(RpClusterEntry* self, RpHostConstSharedPtr host, RpResourcePriority_e priority, RpLoadBalancerContext* context)
+tcp_conn_pool_impl(RpClusterEntry* self, RpHost* host, RpResourcePriority_e priority, RpLoadBalancerContext* context)
 {
     NOISY_MSG_("(%p, %p, %d, %p)", self, host, priority, context);
+
     RpClusterEntry* me = RP_CLUSTER_ENTRY(self);
-    guint8 hash_key[4];
-    gsize hash_size = 0;
-
-    hash_key[hash_size++] = priority;
-    int key = byte_array_hash(hash_key, hash_size);
-
     GHashTable* map = rp_thread_local_cluster_manager_impl_host_tcp_conn_pool_map_(me->m_parent);
     RpTcpConnPoolsContainer* container = g_hash_table_lookup(map, host);
     if (!container)
     {
         NOISY_MSG_("creating container");
         container = rp_tcp_conn_pools_container_new(host);
+        g_hash_table_insert(map, (gpointer)host, container);
     }
-    RpTcpConnPoolInstancePtr pool = g_hash_table_lookup(container->m_pools, &key);
+    g_autoptr(GBytes) key = rp_conn_pool_key_new(priority, NULL, 0, "", NULL);
+    RpTcpConnPoolInstancePtr pool = g_hash_table_lookup(container->m_pools, key);
     if (!pool)
     {
         RpDispatcher* dispatcher = rp_thread_local_cluster_manager_impl_dispatcher_(me->m_parent);
         RpClusterManagerImpl* parent_ = rp_thread_local_cluster_manager_impl_parent_(me->m_parent);
         RpClusterManagerFactory* factory = rp_cluster_manager_impl_factory_(parent_);
         pool = rp_cluster_manager_factory_allocate_tcp_conn_pool(factory, dispatcher, host, priority);
-        g_hash_table_insert(container->m_pools, &key, pool);
+        g_hash_table_insert(container->m_pools, key, pool);
     }
     return pool;
 }
@@ -271,7 +244,7 @@ http_pre_connect_cb(RpHttpConnectionPoolInstancePtr pool, gpointer user_data)
 }
 
 static RpHttpPoolData*
-http_conn_pool_i(RpThreadLocalCluster* self, SHARED_PTR(RpHost) host, RpResourcePriority_e priority, evhtp_proto downstream_protocol, RpLoadBalancerContext* context)
+http_conn_pool_i(RpThreadLocalCluster* self, RpHost* host, RpResourcePriority_e priority, evhtp_proto downstream_protocol, RpLoadBalancerContext* context)
 {
     NOISY_MSG_("(%p, %p, %d, %d, %p)", self, host, priority, downstream_protocol, context);
     RpClusterEntry* me = RP_CLUSTER_ENTRY(self);
@@ -342,7 +315,7 @@ tcp_pre_connect_cb(RpTcpConnPoolInstancePtr pool, gpointer user_data)
 }
 
 static RpTcpPoolData*
-tcp_conn_pool_i(RpThreadLocalCluster* self, RpHostConstSharedPtr host, RpResourcePriority_e priority, RpLoadBalancerContext* context)
+tcp_conn_pool_i(RpThreadLocalCluster* self, RpHost* host, RpResourcePriority_e priority, RpLoadBalancerContext* context)
 {
     NOISY_MSG_("(%p, %p, %d, %p)", self, host, priority, context);
     if (!host)
@@ -387,8 +360,10 @@ dispose(GObject* obj)
     NOISY_MSG_("(%p)", obj);
 
     RpClusterEntry* self = RP_CLUSTER_ENTRY(obj);
-    drain_conn_pools(self);
+    rp_cluster_entry_drain_conn_pools(self);
     g_clear_object(&self->m_lb);
+    g_clear_object(&self->m_priority_set);
+    g_clear_object(&self->m_cluster_info);
 
     G_OBJECT_CLASS(rp_cluster_entry_parent_class)->dispose(obj);
 }
@@ -422,7 +397,6 @@ constructed(RpClusterEntry* self)
         .local_priority_set = rp_thread_local_cluster_manager_impl_local_priority_set_(self->m_parent)
     };
     self->m_lb = rp_load_balancer_factory_create(self->m_lb_factory, &params);
-    NOISY_MSG_("lb %p(%s)", self->m_lb, G_OBJECT_TYPE_NAME(self->m_lb));
     return self;
 }
 
@@ -433,25 +407,29 @@ rp_cluster_entry_new(RpThreadLocalClusterManagerImpl* parent, RpClusterInfoConst
         parent, G_OBJECT_TYPE_NAME(parent), cluster, G_OBJECT_TYPE_NAME(cluster), lb_factory, lb_factory ? G_OBJECT_TYPE_NAME(lb_factory) : "");
 
     g_return_val_if_fail(RP_IS_THREAD_LOCAL_CLUSTER_MANAGER_IMPL(parent), NULL);
-    g_return_val_if_fail(RP_IS_CLUSTER_INFO(cluster), NULL);
+    g_return_val_if_fail(RP_IS_CLUSTER_INFO((RpClusterInfo*)cluster), NULL);
     g_return_val_if_fail(RP_IS_LOAD_BALANCER_FACTORY(lb_factory), NULL);
 
-    RpClusterEntry* self = g_object_new(RP_TYPE_CLUSTER_ENTRY, NULL);
+    g_autoptr(RpClusterEntry) self = g_object_new(RP_TYPE_CLUSTER_ENTRY, NULL);
     self->m_parent = parent;
-    self->m_cluster_info = cluster;
     self->m_lb_factory = lb_factory;
-    return constructed(self);
+    if (!constructed(self))
+    {
+        LOGE("failed");
+        return NULL;
+    }
+    rp_cluster_info_set_object(&self->m_cluster_info, cluster);
+    return g_steal_pointer(&self);
 }
 
 void
-rp_cluster_entry_drain_conn_pools_hosts_removed(RpClusterEntry* self, RpHostVector* hosts_removed)
+rp_cluster_entry_drain_conn_pools_hosts_removed(RpClusterEntry* self, const RpHostVector* hosts_removed)
 {
     LOGD("(%p, %p)", self, hosts_removed);
     g_return_if_fail(RP_IS_CLUSTER_ENTRY(self));
-    g_return_if_fail(hosts_removed != NULL);
-    for (guint index = 0; index < hosts_removed->len; ++index)
+    for (guint i = 0; i < rp_host_vector_len(hosts_removed); ++i)
     {
-        RpHostSharedPtr host = g_ptr_array_index(hosts_removed, index);
+        RpHost* host = rp_host_vector_get(hosts_removed, i);
         rp_thread_local_cluster_manager_impl_drain_or_close_conn_pools(self->m_parent, host, RpDrainBehavior_DrainAndDelete);
     }
 }
@@ -461,11 +439,33 @@ rp_cluster_entry_drain_conn_pools(RpClusterEntry* self)
 {
     LOGD("(%p)", self);
     g_return_if_fail(RP_IS_CLUSTER_ENTRY(self));
-    RpHostSetPtrVector host_sets_per_priority = rp_priority_set_host_sets_per_priority(RP_PRIORITY_SET(self->m_priority_set));
-    for (guint i = 0; i < host_sets_per_priority->len; ++i)
+    const RpHostSetPtrVector* host_sets_per_priority = rp_priority_set_host_sets_per_priority(RP_PRIORITY_SET(self->m_priority_set));
+    for (guint i = 0; i < rp_host_set_ptr_vector_size(host_sets_per_priority); ++i)
     {
-        RpHostSetPtr host_set = g_ptr_array_index(host_sets_per_priority, i);
-        RpHostVector* hosts = rp_host_set_hosts(host_set);
+        RpHostSetPtr host_set = rp_host_set_ptr_vector_get(host_sets_per_priority, i);
+        RpHostVector* hosts = rp_host_set_ref_hosts(host_set); // Ref.
         rp_cluster_entry_drain_conn_pools_hosts_removed(self, hosts);
+        rp_host_vector_unref(hosts);
     }
+}
+
+void
+rp_cluster_entry_update_hosts(RpClusterEntry* self, const char* name, guint32 priority, RpPrioritySetUpdateHostsParams* update_hosts_params,
+                                const RpHostVector* hosts_added, const RpHostVector* hosts_removed,
+                                bool* weighted_health_priority_health, guint32* overprovisioning_factor,
+                                RpHostMapSnap* cross_priority_host_map)
+{
+    LOGD("(%p, %p(%s), %u, %p, %p, %p, %p, %p, %p)",
+        self, name, name, priority, update_hosts_params,
+        hosts_added, hosts_removed, weighted_health_priority_health, overprovisioning_factor, cross_priority_host_map);
+    LOGD("membership update for TLS cluster \"%s\", added %u, removed %u", name, rp_host_vector_len(hosts_added), rp_host_vector_len(hosts_removed));
+    rp_priority_set_update_hosts(RP_PRIORITY_SET(self->m_priority_set),
+                                    priority,
+                                    update_hosts_params,
+                                    hosts_added,
+                                    hosts_removed,
+                                    weighted_health_priority_health,
+                                    overprovisioning_factor,
+                                    cross_priority_host_map);
+    //TODO...if (lb_factory_ != nullptr && lb_factory_->recreateOnHostChange())...
 }

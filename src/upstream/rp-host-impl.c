@@ -18,6 +18,8 @@
 #include "network/rp-default-client-conn-factory.h"
 #include "upstream/rp-upstream-impl.h"
 
+#define HOST_IMPL(s) RP_HOST_IMPL((GObject*)s)
+
 struct _RpHostImpl {
     RpHostDescriptionImpl parent_instance;
 
@@ -46,17 +48,25 @@ G_DEFINE_FINAL_TYPE_WITH_CODE(RpHostImpl, rp_host_impl, RP_TYPE_HOST_DESCRIPTION
     G_IMPLEMENT_INTERFACE(RP_TYPE_HOST, host_iface_init)
 )
 
+static inline bool
+health_flags_get(RpHostImpl* self, guint32 flags)
+{
+    return self->m_health_flags & flags;
+}
+
 static RpCreateConnectionData
-create_connection(RpHostImpl* self, RpDispatcher* dispatcher, RpClusterInfoConstSharedPtr cluster,
+create_connection(RpHostDescriptionConstSharedPtr self, RpDispatcher* dispatcher, RpClusterInfoConstSharedPtr cluster,
                     RpNetworkAddressInstanceConstSharedPtr address, RpUpstreamTransportSocketFactory* socket_factory,
-                    RpHostDescription* host)
+                    RpHostDescriptionConstSharedPtr host)
 {
     NOISY_MSG_("(%p, %p, %p, %p, %p)", self, dispatcher, cluster, address, host);
 
 //TODO...    RpUpstreamLocalAddressSelector* source_address_selector = rp_cluster_info_get_upstream_local_address_selector(cluster);
 //TODO...    RpUpstreamLocalAddress upstream_local_address = rp_upstream_local_address_selector_get_upstream_local_address(source_address_selector, address);
     RpUpstreamLocalAddress upstream_local_address = rp_upstream_local_address_ctor(NULL);
-    RpNetworkTransportSocket* transport_socket = rp_upstream_transport_socket_factory_create_transport_socket(socket_factory, host);
+    RpNetworkTransportSocket* transport_socket = rp_upstream_transport_socket_factory_create_transport_socket(socket_factory,
+                                                                                                                dispatcher,
+                                                                                                                host);
     RpNetworkClientConnectionPtr connection = rp_dispatcher_create_client_connection(dispatcher,
                                                                                         address,
                                                                                         upstream_local_address.m_address,
@@ -65,15 +75,43 @@ create_connection(RpHostImpl* self, RpDispatcher* dispatcher, RpClusterInfoConst
 }
 
 static RpCreateConnectionData
-create_connection_i(RpHost* self, RpDispatcher* dispatcher)
+create_connection_i(const RpHost* self, RpDispatcher* dispatcher)
 {
     NOISY_MSG_("(%p, %p)", self, dispatcher);
 
-    RpHostDescription* host_description = RP_HOST_DESCRIPTION(self);
+    RpHostDescriptionConstSharedPtr host_description = (RpHostDescriptionConstSharedPtr)self;
     RpUpstreamTransportSocketFactory* socket_factory = rp_host_description_transport_socket_factory(host_description);
     RpClusterInfoConstSharedPtr cluster = rp_host_description_cluster(host_description);
     RpNetworkAddressInstanceConstSharedPtr address = rp_host_description_address(host_description);
-    return create_connection(RP_HOST_IMPL(self), dispatcher, cluster, address, socket_factory, host_description);
+    return create_connection(host_description, dispatcher, cluster, address, socket_factory, host_description);
+}
+
+static RpHostHealth_e
+coarse_health_i(const RpHost* self)
+{
+    NOISY_MSG_("(%p)", self);
+    RpHostImpl* me = HOST_IMPL(self);
+    if (health_flags_get(me, FAILED_ACTIVE_HC|FAILED_OUTLIER_CHECK|FAILED_EDS_HEALTH|EDS_STATUS_DRAINING))
+    {
+        NOISY_MSG_("unhealthy");
+        return RpHostHealth_UNHEALTHY;
+    }
+
+    if (health_flags_get(me, DEGRADED_ACTIVE_HC|DEGRADED_EDS_HEALTH))
+    {
+        NOISY_MSG_("degraded");
+        return RpHostHealth_DEGRADED;
+    }
+
+    g_assert(me->m_health_flags == 0 || rp_host_health_flag_get(self, PENDING_DYNAMIC_REMOVAL));
+    return RpHostHealth_HEALTHY;
+}
+
+static bool
+health_flag_get_i(const RpHost* self, RpHostHealthFlag_e flag)
+{
+    NOISY_MSG_("(%p, %d)", self, flag);
+    return HOST_IMPL(self)->m_health_flags & flag;
 }
 
 static void
@@ -81,6 +119,8 @@ host_iface_init(RpHostInterface* iface)
 {
     LOGD("(%p)", iface);
     iface->create_connection = create_connection_i;
+    iface->coarse_health = coarse_health_i;
+    iface->health_flag_get = health_flag_get_i;
 }
 
 OVERRIDE void
@@ -192,7 +232,7 @@ HostImpl(absl::Status& creation_status, ClusterInfoConstSharedPtr cluster,
                         address_list) {}
 #endif//0
 
-static UNIQUE_PTR(RpHostImpl)
+static RpHostImpl*
 rp_host_impl_new(RpStatusCode_e* creation_status, RpClusterInfoConstSharedPtr cluster, const char* hostname,
                     RpNetworkAddressInstanceConstSharedPtr address, RpMetadataConstSharedPtr endpoint_metadata,
                     guint32 initial_weight, guint32 priority, RpTimeSource* time_source)
@@ -201,7 +241,7 @@ rp_host_impl_new(RpStatusCode_e* creation_status, RpClusterInfoConstSharedPtr cl
         creation_status, cluster, hostname, hostname, address, endpoint_metadata, initial_weight, priority, time_source);
 
     g_return_val_if_fail(creation_status != NULL, NULL);
-    g_return_val_if_fail(RP_IS_CLUSTER_INFO(cluster), NULL);
+    g_return_val_if_fail(RP_IS_CLUSTER_INFO((RpClusterInfo*)cluster), NULL);
     g_return_val_if_fail(hostname != NULL, NULL);
     g_return_val_if_fail(address != NULL, NULL);
     g_return_val_if_fail(RP_IS_TIME_SOURCE(time_source), NULL);
@@ -237,7 +277,7 @@ absl::StatusOr<std::unique_ptr<HostImpl>> HostImpl::create(
   return ret;
 }
 #endif//0
-UNIQUE_PTR(RpHostImpl)
+RpHostImpl*
 rp_host_impl_create(RpClusterInfoConstSharedPtr cluster, const char* hostname,
                     RpNetworkAddressInstanceConstSharedPtr address, RpMetadataConstSharedPtr endpoint_metadata,
                     guint32 initial_weight, guint32 priority, RpTimeSource* time_source)
@@ -245,7 +285,7 @@ rp_host_impl_create(RpClusterInfoConstSharedPtr cluster, const char* hostname,
     LOGD("(%p, %p(%s), %p, %p, %u, %u, %p)",
         cluster, hostname, hostname, address, endpoint_metadata, initial_weight, priority, time_source);
     RpStatusCode_e creation_status = RpStatusCode_Ok;
-    UNIQUE_PTR(RpHostImpl) ret = rp_host_impl_new(&creation_status,
+    g_autoptr(RpHostImpl) ret = rp_host_impl_new(&creation_status,
                                                     cluster,
                                                     hostname,
                                                     address,
@@ -256,7 +296,7 @@ rp_host_impl_create(RpClusterInfoConstSharedPtr cluster, const char* hostname,
     if (creation_status != RpStatusCode_Ok)
     {
         LOGE("failed");
-        g_clear_object(&ret);
+        return NULL;
     }
-    return ret;
+    return g_steal_pointer(&ret);
 }

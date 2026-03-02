@@ -23,10 +23,10 @@ __thread RpThreadLocalData thread_local_data_;
 struct _RpThreadLocalInstanceImpl {
     GObject parent_instance;
 
-    UNIQUE_PTR(GPtrArray) m_slots;
-    UNIQUE_PTR(GArray) m_free_slot_indexes;
-    UNIQUE_PTR(GList) m_registerd_threads;
-    SHARED_PTR(RpDispatcher) m_main_thread_dispatcher;
+    GPtrArray* m_slots;
+    GArray* m_free_slot_indexes;
+    GList* m_registered_threads;
+    RpDispatcher* m_main_thread_dispatcher;
     GMutex m_register_lock;
     _Atomic bool m_shutdown;
 };
@@ -53,7 +53,7 @@ remove_cb(gpointer arg)
     guint32 slot = *((guint32*)arg);
     if (slot < thread_local_data_.m_data->len)
     {
-        g_clear_object(&thread_local_data_.m_data->pdata[slot]);
+        g_clear_pointer(&thread_local_data_.m_data->pdata[slot], g_object_unref);
     }
     g_free((gpointer)arg);
 }
@@ -108,11 +108,14 @@ allocate_slot_i(RpSlotAllocator* self)
         g_ptr_array_add(me->m_slots, slot);
         return slot;
     }
-    guint32* idx = &g_array_index(me->m_free_slot_indexes, guint32, 0);
-    me->m_free_slot_indexes = g_array_remove_index_fast(me->m_free_slot_indexes, 0);
-    g_assert(*idx < me->m_slots->len);
-    RpSlotPtr slot = RP_SLOT(rp_slot_impl_new(me, *idx));
-    me->m_slots->pdata[*idx] = slot;
+    guint last = me->m_free_slot_indexes->len - 1;
+    guint32 idx = g_array_index(me->m_free_slot_indexes, guint32, last);
+    g_array_remove_index_fast(me->m_free_slot_indexes, last);
+
+    g_assert(idx < me->m_slots->len);
+    RpSlotPtr slot = RP_SLOT(rp_slot_impl_new(me, idx));
+    g_assert(me->m_slots->pdata[idx] == NULL);
+    me->m_slots->pdata[idx] = slot;
     return slot;
 }
 
@@ -128,7 +131,7 @@ register_cb(gpointer arg)
 {
     NOISY_MSG_("(%p)", arg);
     thread_local_data_.m_dispatcher = RP_DISPATCHER((gpointer)arg);
-    thread_local_data_.m_data = g_ptr_array_new_full(16, NULL);
+    thread_local_data_.m_data = g_ptr_array_new_full(16, g_object_unref);
 }
 
 static void
@@ -144,7 +147,7 @@ register_thread_i(RpThreadLocalInstance* self, RpDispatcher* dispatcher, bool ma
     }
     else
     {
-        me->m_registerd_threads = g_list_append(me->m_registerd_threads, dispatcher);
+        me->m_registered_threads = g_list_append(me->m_registered_threads, dispatcher);
 #       ifdef WITH_START_WORKERS_IN_MAIN
             rp_dispatcher_base_post(RP_DISPATCHER_BASE(dispatcher), register_cb, dispatcher);
 #       else
@@ -167,12 +170,13 @@ shutdown_thread_i(RpThreadLocalInstance* self G_GNUC_UNUSED)
     NOISY_MSG_("(%p)", self);
     g_assert(RP_THREAD_LOCAL_INSTANCE_IMPL(self)->m_shutdown);
     NOISY_MSG_("%u elements", thread_local_data_.m_data->len);
-    for (gint i=thread_local_data_.m_data->len - 1; i >= 0; --i)
+    while (thread_local_data_.m_data->len > 0)
     {
-        NOISY_MSG_("%i) obj %p, %u", i, thread_local_data_.m_data->pdata[i], RP_IS_THREAD_LOCAL_OBJECT(thread_local_data_.m_data->pdata[i]));
-        g_clear_object(&thread_local_data_.m_data->pdata[i]);
+        guint idx = thread_local_data_.m_data->len - 1;
+        NOISY_MSG_("%u) obj %p(%u)", idx, thread_local_data_.m_data->pdata[idx], G_OBJECT(thread_local_data_.m_data->pdata[idx])->ref_count);
+        g_ptr_array_remove_index(thread_local_data_.m_data, idx);
     }
-    g_ptr_array_free(g_steal_pointer(&thread_local_data_.m_data), true);
+    g_ptr_array_unref(g_steal_pointer(&thread_local_data_.m_data));
 }
 
 static RpDispatcher*
@@ -201,8 +205,10 @@ dispose(GObject* obj)
 
     RpThreadLocalInstanceImpl* self = RP_THREAD_LOCAL_INSTANCE_IMPL(obj);
     g_assert(self->m_shutdown);
-    g_array_free(g_steal_pointer(&self->m_free_slot_indexes), true);
-    g_ptr_array_free(g_steal_pointer(&self->m_slots), true);
+    g_clear_pointer(&self->m_slots, g_ptr_array_unref);
+    g_clear_pointer(&self->m_free_slot_indexes, g_array_unref);
+    g_list_free(g_steal_pointer(&self->m_registered_threads));
+    g_mutex_clear(&self->m_register_lock);
 
     G_OBJECT_CLASS(rp_thread_local_instance_impl_parent_class)->dispose(obj);
 }
@@ -217,11 +223,22 @@ rp_thread_local_instance_impl_class_init(RpThreadLocalInstanceImplClass* klass)
 }
 
 static void
+element_free_func(gpointer arg)
+{
+    NOISY_MSG_("(%p)", arg);
+    if (arg)
+    {
+        NOISY_MSG_("unref'ing object %p", arg);
+        g_object_unref(arg);
+    }
+}
+
+static void
 rp_thread_local_instance_impl_init(RpThreadLocalInstanceImpl* self)
 {
     NOISY_MSG_("(%p)", self);
     self->m_free_slot_indexes = g_array_new(false, true, sizeof(guint32));
-    self->m_slots = g_ptr_array_new_full(16, g_object_unref);
+    self->m_slots = g_ptr_array_new_full(16, element_free_func);
     g_mutex_init(&self->m_register_lock);
 }
 
@@ -240,7 +257,7 @@ rp_thread_local_instance_impl_run_on_all_threads(RpThreadLocalInstanceImpl* self
     g_return_if_fail(RP_IS_THREAD_LOCAL_INSTANCE_IMPL(self));
     g_return_if_fail(cb != NULL);
 
-    for (GList* itr = self->m_registerd_threads; itr; itr = itr->next)
+    for (GList* itr = self->m_registered_threads; itr; itr = itr->next)
     {
         RpDispatcherBase* dispatcher = RP_DISPATCHER_BASE(itr->data);
         rp_dispatcher_base_post(dispatcher, cb, arg);
@@ -267,7 +284,7 @@ rp_thread_local_instance_impl_run_on_all_threads_completed(RpThreadLocalInstance
     RpCbGuardCbCtx* ctx = rp_cb_guard_cb_ctx_new(destroy_cb, cb_arg, all_threads_complete_cb, all_threads_complete_arg);
     RpCbGuard* cb_guard = rp_cb_guard_new(self, cb, cb_arg, internal_all_threads_complete_cb, ctx);
 
-    for (GList* itr = self->m_registerd_threads; itr; itr = itr->next)
+    for (GList* itr = self->m_registered_threads; itr; itr = itr->next)
     {
         RpDispatcherBase* dispatcher = RP_DISPATCHER_BASE(itr->data);
         rp_dispatcher_base_post(dispatcher, rp_cb_guard_cb, cb_guard);
@@ -282,11 +299,11 @@ rp_thread_local_instance_impl_remove_slot(RpThreadLocalInstanceImpl* self, guint
     if (self->m_shutdown)
     {
         NOISY_MSG_("shut down");
+        if (self->m_slots) self->m_slots->pdata[index] = NULL;
         return;
     }
 
-    g_clear_object(&self->m_slots->pdata[index]);
-//    self->m_slots->pdata[index] = NULL;
+    g_clear_pointer(&self->m_slots->pdata[index], g_object_unref);
     self->m_free_slot_indexes = g_array_append_val(self->m_free_slot_indexes, index);
     rp_thread_local_instance_impl_run_on_all_threads(self, remove_cb, g_memdup2(&index, sizeof(index)));
 }
@@ -296,7 +313,7 @@ rp_thread_local_instance_impl_registered_threads_(RpThreadLocalInstanceImpl* sel
 {
     LOGD("(%p)", self);
     g_return_val_if_fail(RP_IS_THREAD_LOCAL_INSTANCE_IMPL(self), NULL);
-    return self->m_registerd_threads;
+    return self->m_registered_threads;
 }
 
 RpDispatcher*

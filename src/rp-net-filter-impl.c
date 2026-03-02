@@ -5,19 +5,12 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_net_filter_impl_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_net_filter_impl_NOISY)
 #   define NOISY_MSG_ LOGD
 #else
 #   define NOISY_MSG_(x, ...)
-#endif
-
-#ifndef OVERRIDE
-#define OVERRIDE static
 #endif
 
 #include "rp-net-filter-impl.h"
@@ -37,7 +30,7 @@ initialize_read_filter_callbacks_i(RpNetworkReadFilter* self G_GNUC_UNUSED, RpNe
 static RpNetworkFilterStatus_e
 on_new_connection_i(RpNetworkReadFilter* self)
 {
-    NOISY_MSG_("(%p)", self);
+    NOISY_MSG_("(%p(%u))", self, G_OBJECT(self)->ref_count);
     return RpNetworkFilterStatus_Continue;
 }
 

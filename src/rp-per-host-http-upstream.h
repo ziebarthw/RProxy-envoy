@@ -21,6 +21,8 @@ G_BEGIN_DECLS
 #define RP_TYPE_PER_HOST_HTTP_UPSTREAM rp_per_host_http_upstream_get_type()
 G_DECLARE_FINAL_TYPE(RpPerHostHttpUpstream, rp_per_host_http_upstream, RP, PER_HOST_HTTP_UPSTREAM, RpHttpUpstream)
 
-RpPerHostHttpUpstream* rp_per_host_http_upstream_new(RpUpstreamToDownstream* upstream_request, RpRequestEncoder* encoder, RpHostDescription* host);
+RpPerHostHttpUpstream* rp_per_host_http_upstream_new(RpUpstreamToDownstream* upstream_request,
+                                                        RpRequestEncoder* encoder,
+                                                        RpHostDescriptionConstSharedPtr host);
 
 G_END_DECLS

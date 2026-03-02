@@ -26,7 +26,6 @@ typedef enum {
 G_DECLARE_FINAL_TYPE(RpIoBevSocketHandleImpl, rp_io_bev_socket_handle_impl, RP, IO_BEV_SOCKET_HANDLE_IMPL, GObject)
 
 RpIoBevSocketHandleImpl* rp_io_bev_socket_handle_impl_new(RpHandleType_e type,
-                                                            evbev_t* bev,
-                                                            evdns_base_t* dns_base);
+                                                            evbev_t* bev);
 
 G_END_DECLS

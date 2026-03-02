@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_default_upstream_http_filter_chain_factory_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_default_upstream_http_filter_chain_factory_NOISY)
@@ -99,13 +96,6 @@ filter_chain_factory_iface_init(RpFilterChainFactoryInterface* iface)
 {
     LOGD("(%p)", iface);
     iface->create_filter_chain = create_filter_chain_i;
-}
-
-static inline void
-filter_factory_free(RpFilterFactoryCb* cb)
-{
-    NOISY_MSG_("(%p(%p))", cb, cb->m_free_func);
-    cb->m_free_func(cb);
 }
 
 OVERRIDE void

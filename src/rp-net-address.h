@@ -18,7 +18,6 @@ G_BEGIN_DECLS
 
 typedef struct _RpNetworkAddressSocketInterface RpNetworkAddressSocketInterface;
 typedef struct _RpNetworkAddressInstance RpNetworkAddressInstance;
-typedef SHARED_PTR(RpNetworkAddressInstance) RpNetworkAddressInstanceConstSharedPtr;
 
 
 /**
@@ -59,8 +58,8 @@ struct _RpNetworkAddressIpv6Interface {
     IPv6UInt128 (*address)(RpNetworkAddressIpv6*);
     guint32 (*scope_id)(RpNetworkAddressIpv6*);
     bool (*v6only)(RpNetworkAddressIpv6*);
-    RpNetworkAddressInstanceConstSharedPtr (*v4_compatible_address)(RpNetworkAddressIpv6*);
-    RpNetworkAddressInstanceConstSharedPtr (*address_without_scope_id)(RpNetworkAddressIpv6*);
+    RpNetworkAddressInstance* (*v4_compatible_address)(RpNetworkAddressIpv6*);
+    RpNetworkAddressInstance* (*address_without_scope_id)(RpNetworkAddressIpv6*);
 };
 
 typedef enum {
@@ -84,13 +83,13 @@ rp_network_address_ipv6_v6only(RpNetworkAddressIpv6* self)
 {
     return RP_IS_NETWORK_ADDRESS_IPV6(self) ? RP_NETWORK_ADDRESS_IPV6_GET_IFACE(self)->v6only(self) : false;
 }
-static inline RpNetworkAddressInstanceConstSharedPtr
+static inline RpNetworkAddressInstance*
 rp_network_address_ipv6_v4_compatible_address(RpNetworkAddressIpv6* self)
 {
     return RP_IS_NETWORK_ADDRESS_IPV6(self) ?
         RP_NETWORK_ADDRESS_IPV6_GET_IFACE(self)->v4_compatible_address(self) : NULL;
 }
-static inline RpNetworkAddressInstanceConstSharedPtr
+static inline RpNetworkAddressInstance*
 rp_network_address_ipv6_address_without_scope_id(RpNetworkAddressIpv6* self)
 {
     return RP_IS_NETWORK_ADDRESS_IPV6(self) ?
@@ -229,89 +228,118 @@ G_DECLARE_INTERFACE(RpNetworkAddressInstance, rp_network_address_instance, RP, N
 struct _RpNetworkAddressInstanceInterface {
     GTypeInterface parent_iface;
 
-    const char* (*as_string)(RpNetworkAddressInstance*);
-    string_view (*as_string_view)(RpNetworkAddressInstance*);
-    const char* (*logical_name)(RpNetworkAddressInstance*);
-    RpNetworkAddressIp* (*ip)(RpNetworkAddressInstance*);
-    RpNetworkAddressPipe* (*pipe)(RpNetworkAddressInstance*);
-    RpNetworkAddressRProxyInternalAddress* (*rproxy_internal_address)(RpNetworkAddressInstance*);
-    const struct sockaddr* (*sock_addr)(RpNetworkAddressInstance*);
-    socklen_t (*sock_addr_len)(RpNetworkAddressInstance*);
-    RpNetworkAddressType_e (*type)(RpNetworkAddressInstance*);
-    string_view (*address_type)(RpNetworkAddressInstance*);
-    RpNetworkAddressSocketInterface* (*socket_interface)(RpNetworkAddressInstance*);
+    const char* (*as_string)(const RpNetworkAddressInstance*);
+    string_view (*as_string_view)(const RpNetworkAddressInstance*);
+    const char* (*logical_name)(const RpNetworkAddressInstance*);
+    RpNetworkAddressIp* (*ip)(const RpNetworkAddressInstance*);
+    RpNetworkAddressPipe* (*pipe)(const RpNetworkAddressInstance*);
+    RpNetworkAddressRProxyInternalAddress* (*rproxy_internal_address)(const RpNetworkAddressInstance*);
+    const struct sockaddr* (*sock_addr)(const RpNetworkAddressInstance*);
+    socklen_t (*sock_addr_len)(const RpNetworkAddressInstance*);
+    RpNetworkAddressType_e (*type)(const RpNetworkAddressInstance*);
+    string_view (*address_type)(const RpNetworkAddressInstance*);
+    RpNetworkAddressSocketInterface* (*socket_interface)(const RpNetworkAddressInstance*);
 };
 
-static inline const char*
-rp_network_address_instance_as_string(RpNetworkAddressInstance* self)
+typedef const SHARED_PTR(RpNetworkAddressInstance) RpNetworkAddressInstanceConstSharedPtr;
+typedef SHARED_PTR(RpNetworkAddressInstance) RpNetworkAddressInstanceSharedPtr;
+
+static inline gboolean
+rp_network_address_instance_is_network_address_instance(RpNetworkAddressInstanceConstSharedPtr self)
 {
-    return RP_IS_NETWORK_ADDRESS_INSTANCE(self) ?
-        RP_NETWORK_ADDRESS_INSTANCE_GET_IFACE(self)->as_string(self) : NULL;
+    g_return_val_if_fail(self != NULL, false);
+    return RP_IS_NETWORK_ADDRESS_INSTANCE((RpNetworkAddressInstance*)self);
+}
+static inline void
+rp_network_address_instance_set_object(RpNetworkAddressInstanceSharedPtr* dst, RpNetworkAddressInstanceConstSharedPtr src)
+{
+    g_return_if_fail(dst != NULL);
+    g_set_object((GObject**)dst, (GObject*)src);
+}
+static inline RpNetworkAddressInstanceInterface*
+rp_network_address_instance_iface(RpNetworkAddressInstanceConstSharedPtr self)
+{
+    g_return_val_if_fail(rp_network_address_instance_is_network_address_instance(self), NULL);
+    return RP_NETWORK_ADDRESS_INSTANCE_GET_IFACE((GObject*)self);
+}
+static inline const char*
+rp_network_address_instance_as_string(RpNetworkAddressInstanceConstSharedPtr self)
+{
+    g_return_val_if_fail(rp_network_address_instance_is_network_address_instance(self), NULL);
+    RpNetworkAddressInstanceInterface* iface = rp_network_address_instance_iface(self);
+    return iface->as_string ? iface->as_string(self) : NULL;
 }
 static inline string_view
-rp_network_address_instance_as_string_view(RpNetworkAddressInstance* self)
+rp_network_address_instance_as_string_view(RpNetworkAddressInstanceConstSharedPtr self)
 {
-    return RP_IS_NETWORK_ADDRESS_INSTANCE(self) ?
-        RP_NETWORK_ADDRESS_INSTANCE_GET_IFACE(self)->as_string_view(self) :
-        string_view_ctor("", 0);
+    g_return_val_if_fail(rp_network_address_instance_is_network_address_instance(self), string_view_ctor("", 0));
+    RpNetworkAddressInstanceInterface* iface = rp_network_address_instance_iface(self);
+    return iface->as_string_view ?
+        iface->as_string_view(self) : string_view_ctor("", 0);
 }
 static inline const char*
-rp_network_address_instance_logical_name(RpNetworkAddressInstance* self)
+rp_network_address_instance_logical_name(RpNetworkAddressInstanceConstSharedPtr self)
 {
-    return RP_IS_NETWORK_ADDRESS_INSTANCE(self) ?
-        RP_NETWORK_ADDRESS_INSTANCE_GET_IFACE(self)->logical_name(self) : NULL;
+    g_return_val_if_fail(rp_network_address_instance_is_network_address_instance(self), NULL);
+    RpNetworkAddressInstanceInterface* iface = rp_network_address_instance_iface(self);
+    return iface->logical_name ? iface->logical_name(self) : NULL;
 }
 static inline RpNetworkAddressIp*
-rp_network_address_instance_ip(RpNetworkAddressInstance* self)
+rp_network_address_instance_ip(RpNetworkAddressInstanceConstSharedPtr self)
 {
-    return RP_IS_NETWORK_ADDRESS_INSTANCE(self) ?
-        RP_NETWORK_ADDRESS_INSTANCE_GET_IFACE(self)->ip(self) : NULL;
+    g_return_val_if_fail(rp_network_address_instance_is_network_address_instance(self), NULL);
+    RpNetworkAddressInstanceInterface* iface = rp_network_address_instance_iface(self);
+    return iface->ip ? iface->ip(self) : NULL;
 }
 static inline RpNetworkAddressPipe*
-rp_network_address_instance_pipe(RpNetworkAddressInstance* self)
+rp_network_address_instance_pipe(RpNetworkAddressInstanceConstSharedPtr self)
 {
-    return RP_IS_NETWORK_ADDRESS_INSTANCE(self) ?
-        RP_NETWORK_ADDRESS_INSTANCE_GET_IFACE(self)->pipe(self) : NULL;
+    g_return_val_if_fail(rp_network_address_instance_is_network_address_instance(self), NULL);
+    RpNetworkAddressInstanceInterface* iface = rp_network_address_instance_iface(self);
+    return iface->pipe ? iface->pipe(self) : NULL;
 }
 static inline RpNetworkAddressRProxyInternalAddress*
-rp_network_address_instance_rproxy_internal_address(RpNetworkAddressInstance* self)
+rp_network_address_instance_rproxy_internal_address(RpNetworkAddressInstanceConstSharedPtr self)
 {
-    return RP_IS_NETWORK_ADDRESS_INSTANCE(self) ?
-        RP_NETWORK_ADDRESS_INSTANCE_GET_IFACE(self)->rproxy_internal_address(self) :
-        NULL;
+    g_return_val_if_fail(rp_network_address_instance_is_network_address_instance(self), NULL);
+    RpNetworkAddressInstanceInterface* iface = rp_network_address_instance_iface(self);
+    return iface->rproxy_internal_address ?
+        iface->rproxy_internal_address(self) : NULL;
 }
 static inline const struct sockaddr*
-rp_network_address_instance_sock_addr(RpNetworkAddressInstance* self)
+rp_network_address_instance_sock_addr(RpNetworkAddressInstanceConstSharedPtr self)
 {
-    return RP_IS_NETWORK_ADDRESS_INSTANCE(self) ?
-        RP_NETWORK_ADDRESS_INSTANCE_GET_IFACE(self)->sock_addr(self) : NULL;
+    g_return_val_if_fail(rp_network_address_instance_is_network_address_instance(self), NULL);
+    RpNetworkAddressInstanceInterface* iface = rp_network_address_instance_iface(self);
+    return iface->sock_addr ? iface->sock_addr(self) : NULL;
 }
 static inline socklen_t
-rp_network_address_instance_sock_addr_len(RpNetworkAddressInstance* self)
+rp_network_address_instance_sock_addr_len(RpNetworkAddressInstanceConstSharedPtr self)
 {
-    return RP_IS_NETWORK_ADDRESS_INSTANCE(self) ?
-        RP_NETWORK_ADDRESS_INSTANCE_GET_IFACE(self)->sock_addr_len(self) : 0;
+    g_return_val_if_fail(rp_network_address_instance_is_network_address_instance(self), 0);
+    RpNetworkAddressInstanceInterface* iface = rp_network_address_instance_iface(self);
+    return iface->sock_addr_len ? iface->sock_addr_len(self) : 0;
 }
 static inline RpNetworkAddressType_e
-rp_network_address_instance_type(RpNetworkAddressInstance* self)
+rp_network_address_instance_type(RpNetworkAddressInstanceConstSharedPtr self)
 {
-    return RP_IS_NETWORK_ADDRESS_INSTANCE(self) ?
-        RP_NETWORK_ADDRESS_INSTANCE_GET_IFACE(self)->type(self) :
-        RpNetworkAddressType_IP;
+    g_return_val_if_fail(rp_network_address_instance_is_network_address_instance(self), RpNetworkAddressType_IP);
+    RpNetworkAddressInstanceInterface* iface = rp_network_address_instance_iface(self);
+    return iface->type ? iface->type(self) : RpNetworkAddressType_IP;
 }
 static inline string_view
-rp_network_address_instance_address_type(RpNetworkAddressInstance* self)
+rp_network_address_instance_address_type(RpNetworkAddressInstanceConstSharedPtr self)
 {
-    return RP_IS_NETWORK_ADDRESS_INSTANCE(self) ?
-        RP_NETWORK_ADDRESS_INSTANCE_GET_IFACE(self)->address_type(self) :
-        string_view_ctor("", 0);
+    g_return_val_if_fail(rp_network_address_instance_is_network_address_instance(self), string_view_ctor("", 0));
+    RpNetworkAddressInstanceInterface* iface = rp_network_address_instance_iface(self);
+    return iface->address_type ? iface->address_type(self) : string_view_ctor("", 0);
 }
 static inline RpNetworkAddressSocketInterface*
-rp_network_address_instance_socket_interface(RpNetworkAddressInstance* self)
+rp_network_address_instance_socket_interface(RpNetworkAddressInstanceConstSharedPtr self)
 {
-    return RP_IS_NETWORK_ADDRESS_INSTANCE(self) ?
-        RP_NETWORK_ADDRESS_INSTANCE_GET_IFACE(self)->socket_interface(self) :
-        NULL;
+    g_return_val_if_fail(rp_network_address_instance_is_network_address_instance(self), NULL);
+    RpNetworkAddressInstanceInterface* iface = rp_network_address_instance_iface(self);
+    return iface->socket_interface ? iface->socket_interface(self) : NULL;
 }
 
 

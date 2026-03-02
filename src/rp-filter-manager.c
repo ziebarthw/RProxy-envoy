@@ -362,7 +362,7 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
             PRIV(obj)->m_filter_manager_callbacks = g_value_get_object(value);
             break;
         case PROP_CONNECTION:
-            PRIV(obj)->m_connection = g_value_get_object(value);
+            PRIV(obj)->m_connection = g_object_ref(g_value_get_object(value));
             break;
         case PROP_DISPATCHER:
             PRIV(obj)->m_dispatcher = g_value_get_pointer(value);
@@ -380,10 +380,22 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
 }
 
 OVERRIDE void
-dispose(GObject* object)
+dispose(GObject* obj)
 {
-    NOISY_MSG_("(%p)", object);
-    G_OBJECT_CLASS(rp_filter_manager_parent_class)->dispose(object);
+    NOISY_MSG_("(%p)", obj);
+
+    RpFilterManagerPrivate* me = PRIV(obj);
+
+    g_clear_pointer(&me->m_buffered_request_data, evbuffer_free);
+    g_clear_pointer(&me->m_buffered_response_data, evbuffer_free);
+    g_clear_object(&me->m_connection);
+
+    g_list_free_full(g_steal_pointer(&me->m_decoder_filters), g_object_unref);
+    g_list_free_full(g_steal_pointer(&me->m_encoder_filters), g_object_unref);
+
+    g_list_free(g_steal_pointer(&me->m_filters));
+
+    G_OBJECT_CLASS(rp_filter_manager_parent_class)->dispose(obj);
 }
 
 static void

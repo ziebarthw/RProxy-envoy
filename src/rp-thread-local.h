@@ -43,7 +43,7 @@ struct _RpSlotInterface {
     void (*run_on_all_threads)(RpSlot*, RpUpdateCb, gpointer);
     void (*run_on_all_threads_completed)(RpSlot*,
                                         RpUpdateCb,
-                                        const void(*complete_cb)(gpointer),
+                                        void(*complete_cb)(gpointer),
                                         gpointer);
     bool (*is_shutdown)(RpSlot*);
 };
@@ -74,7 +74,7 @@ rp_slot_run_on_all_threads(RpSlot* self, RpUpdateCb cb, gpointer arg)
         RP_SLOT_GET_IFACE(self)->run_on_all_threads(self, cb, arg);
 }
 static inline void
-rp_slot_run_on_all_threads_completed(RpSlot* self, RpUpdateCb cb, const void(*complete_cb)(gpointer), gpointer arg)
+rp_slot_run_on_all_threads_completed(RpSlot* self, RpUpdateCb cb, void(*complete_cb)(gpointer), gpointer arg)
 {
     if (RP_IS_SLOT(self)) \
         RP_SLOT_GET_IFACE(self)->run_on_all_threads_completed(self, cb, complete_cb, arg);

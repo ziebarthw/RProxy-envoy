@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_tcp_upstream_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_tcp_upstream_NOISY)
@@ -231,7 +228,7 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
     switch (prop_id)
     {
         case PROP_UPSTREAM_REQUEST:
-            PRIV(obj)->m_upstream_request = g_value_get_object(value);
+            PRIV(obj)->m_upstream_request = g_object_ref(g_value_get_object(value));
             break;
         case PROP_UPSTREAM:
             PRIV(obj)->m_upstream_conn_data = g_value_get_object(value);
@@ -260,6 +257,7 @@ dispose(GObject* obj)
     NOISY_MSG_("(%p)", obj);
 
     RpTcpUpstreamPrivate* me = PRIV(obj);
+    g_clear_object(&me->m_upstream_request);
     g_clear_object(&me->m_upstream_conn_data);
     g_clear_pointer(&me->m_owned_data, evbuffer_free);
 

@@ -19,7 +19,7 @@ typedef struct _RpNetworkFilterManagerImpl RpNetworkFilterManagerImpl;
 G_DECLARE_FINAL_TYPE(RpNfmiActiveReadFilter, rp_nfmi_active_read_filter, RP, NFMI_ACTIVE_READ_FILTER, GObject)
 
 RpNfmiActiveReadFilter* rp_nfmi_active_read_filter_new(RpNetworkFilterManagerImpl* parent,
-                                                        RpNetworkReadFilter* filter);
+                                                        RpNetworkReadFilterSharedPtr filter);
 bool rp_nfmi_active_read_filter_initialized(RpNfmiActiveReadFilter* self);
 void rp_nfmi_active_read_filter_set_initialized(RpNfmiActiveReadFilter* self, bool v);
 GSList* rp_nfmi_active_read_filter_get_entry(RpNfmiActiveReadFilter* self);

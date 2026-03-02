@@ -19,12 +19,12 @@
 #include "upstream/rp-upstream-impl.h"
 
 #define PARENT_HOST_DESCRIPTION_IFACE(s) \
-    ((RpHostDescriptionInterface*)g_type_interface_peek_parent(RP_HOST_DESCRIPTION_GET_IFACE(s)))
+    ((RpHostDescriptionInterface*)g_type_interface_peek_parent(RP_HOST_DESCRIPTION_GET_IFACE((GObject*)s)))
 
 typedef struct _RpHostDescriptionImplPrivate RpHostDescriptionImplPrivate;
 struct _RpHostDescriptionImplPrivate {
 
-    RpNetworkAddressInstanceConstSharedPtr m_address;
+    RpNetworkAddressInstanceSharedPtr m_address;
 
     //TODO...struct sockaddr* m_health_check_address;
 };
@@ -46,45 +46,45 @@ G_DEFINE_ABSTRACT_TYPE_WITH_CODE(RpHostDescriptionImpl, rp_host_description_impl
 )
 
 #define PRIV(obj) \
-    ((RpHostDescriptionImplPrivate*) rp_host_description_impl_get_instance_private(RP_HOST_DESCRIPTION_IMPL(obj)))
+    ((RpHostDescriptionImplPrivate*) rp_host_description_impl_get_instance_private(RP_HOST_DESCRIPTION_IMPL((GObject*)obj)))
 
 static RpNetworkAddressInstanceConstSharedPtr
-address_i(RpHostDescription* self)
+address_i(RpHostDescriptionConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_address;
 }
 
 static bool
-can_create_connection_i(RpHostDescription* self, RpResourcePriority_e priority)
+can_create_connection_i(RpHostDescriptionConstSharedPtr self, RpResourcePriority_e priority)
 {
     NOISY_MSG_("(%p, %d)", self, priority);
     return PARENT_HOST_DESCRIPTION_IFACE(self)->can_create_connection(self, priority);
 }
 
 static RpClusterInfoConstSharedPtr
-cluster_i(RpHostDescription* self)
+cluster_i(RpHostDescriptionConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
     return PARENT_HOST_DESCRIPTION_IFACE(self)->cluster(self);
 }
 
 static const char*
-hostname_i(RpHostDescription* self)
+hostname_i(RpHostDescriptionConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
     return PARENT_HOST_DESCRIPTION_IFACE(self)->hostname(self);
 }
 
 static RpMetadataConstSharedPtr
-metadata_i(RpHostDescription* self)
+metadata_i(RpHostDescriptionConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
     return PARENT_HOST_DESCRIPTION_IFACE(self)->metadata(self);
 }
 
 static guint32
-priority_i(RpHostDescription* self)
+priority_i(RpHostDescriptionConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
     return PARENT_HOST_DESCRIPTION_IFACE(self)->priority(self);
@@ -105,7 +105,7 @@ set_priority_i(RpHostDescription* self, guint32 priority)
 }
 
 static RpUpstreamTransportSocketFactory*
-transport_socket_factory_i(RpHostDescription* self)
+transport_socket_factory_i(RpHostDescriptionConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
     return PARENT_HOST_DESCRIPTION_IFACE(self)->transport_socket_factory(self);
@@ -148,36 +148,13 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
     switch (prop_id)
     {
         case PROP_ADDRESS:
-            PRIV(obj)->m_address = g_object_ref(g_value_get_object(value));
+            rp_network_address_instance_set_object(&PRIV(obj)->m_address, g_value_get_object(value));
             break;
         default:
             G_OBJECT_WARN_INVALID_PROPERTY_ID(obj, prop_id, pspec);
             break;
     }
 }
-
-#if 0
-OVERRIDE void
-constructed(GObject* obj)
-{
-    NOISY_MSG_("(%p)", obj);
-
-    G_OBJECT_CLASS(rp_host_description_impl_parent_class)->constructed(obj);
-
-    RpHostDescriptionImpl* self = RP_HOST_DESCRIPTION_IMPL(obj);
-    RpHostDescriptionImplPrivate* me = PRIV(self);
-    struct sockaddr* dest_address = rp_host_description_impl_base_dest_address_(RP_HOST_DESCRIPTION_IMPL_BASE(obj));
-    if (dest_address->sa_family == AF_INET)
-    {
-        *((struct sockaddr_in*)&me->m_sockaddr_storage) = *((struct sockaddr_in*)dest_address);
-    }
-    else
-    {
-        *((struct sockaddr_in6*)&me->m_sockaddr_storage) = *((struct sockaddr_in6*)dest_address);
-    }
-    me->m_address = (struct sockaddr*)&me->m_sockaddr_storage;
-}
-#endif//0
 
 OVERRIDE void
 dispose(GObject* obj)

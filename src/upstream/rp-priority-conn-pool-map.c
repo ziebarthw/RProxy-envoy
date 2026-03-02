@@ -21,7 +21,7 @@ typedef struct _RpPriorityConnPoolMapPrivate RpPriorityConnPoolMapPrivate;
 struct _RpPriorityConnPoolMapPrivate {
 //  using ConnPoolMapType = ConnPoolMap<std::vector<uint8_t>, HttpConnectionPool::Instance>;
 //  std::array<std::unique_ptr<ConnPoolMapType>, NumResourcePriorities> conn_pool_maps_;
-    UNIQUE_PTR(GPtrArray) m_conn_pool_maps;
+    RpConnPoolMap* m_conn_pool_maps[RpNumResourcePriorities];
 };
 
 G_DEFINE_ABSTRACT_TYPE_WITH_PRIVATE(RpPriorityConnPoolMap, rp_priority_conn_pool_map, G_TYPE_OBJECT)
@@ -35,7 +35,10 @@ dispose(GObject* obj)
     NOISY_MSG_("(%p)", obj);
 
     RpPriorityConnPoolMapPrivate* me = PRIV(obj);
-    g_ptr_array_free(g_steal_pointer(&me->m_conn_pool_maps), true);
+    for (guint i = 0; i < RpNumResourcePriorities; ++i)
+    {
+        g_clear_pointer(&me->m_conn_pool_maps[i], g_object_unref);
+    }
 
     G_OBJECT_CLASS(rp_priority_conn_pool_map_parent_class)->dispose(obj);
 }
@@ -50,14 +53,12 @@ rp_priority_conn_pool_map_class_init(RpPriorityConnPoolMapClass* klass)
 }
 
 static void
-rp_priority_conn_pool_map_init(RpPriorityConnPoolMap* self)
+rp_priority_conn_pool_map_init(RpPriorityConnPoolMap* self G_GNUC_UNUSED)
 {
     NOISY_MSG_("(%p)", self);
-    RpPriorityConnPoolMapPrivate* me = PRIV(self);
-    me->m_conn_pool_maps = g_ptr_array_new_full(RpNumResourcePriorities, (GDestroyNotify)g_hash_table_unref);
 }
 
-GPtrArray*
+RpConnPoolMap**
 rp_priority_conn_pool_map_conn_pool_maps_(RpPriorityConnPoolMap* self)
 {
     LOGD("(%p)", self);

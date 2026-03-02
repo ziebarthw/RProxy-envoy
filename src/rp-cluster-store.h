@@ -21,9 +21,9 @@ G_DECLARE_INTERFACE(RpDfpLb, rp_dfp_lb, RP, DFP_LB, GObject)
 struct _RpDfpLbInterface {
     GTypeInterface parent_iface;
 
-    RpHostConstSharedPtr (*find_host_by_name)(RpDfpLb*, const char*);
+    RpHost* (*find_host_by_name)(RpDfpLb*, const char*);
 };
-static inline RpHostConstSharedPtr
+static inline RpHost*
 rp_dfp_lb_find_host_by_name(RpDfpLb* self, const char* host)
 {
     return RP_IS_DFP_LB(self) ?
@@ -37,19 +37,16 @@ G_DECLARE_INTERFACE(RpDfpCluster, rp_dfp_cluster, RP, DFP_CLUSTER, GObject)
 
 typedef struct _RpDfpCreateSubClusterConfigRval RpDfpCreateSubClusterConfigRval;
 struct _RpDfpCreateSubClusterConfigRval {
-    RpClusterCfg config_;
-    RpClusterCfg* config;
+    RpClusterCfgPtr config;
     bool success;
 };
 static inline RpDfpCreateSubClusterConfigRval
-rp_dfp_create_sub_cluster_config_rval_ctor(const RpClusterCfg* config, bool success)
+rp_dfp_create_sub_cluster_config_rval_ctor(RpClusterCfgPtr config, bool success)
 {
-    RpClusterCfg empty = {0};
     RpDfpCreateSubClusterConfigRval self = {
-        .config_ = config ? *config : empty,
+        .config = config,
         .success = success
     };
-    self.config = config ? &self.config_ : NULL;
     return self;
 }
 
@@ -75,7 +72,7 @@ rp_dfp_cluster_create_sub_cluster_config(RpDfpCluster* self, const char* cluster
 {
     return RP_IS_DFP_CLUSTER(self) ?
         RP_DFP_CLUSTER_GET_IFACE(self)->create_sub_cluster_config(self, cluster_name, host_name, port) :
-        rp_dfp_create_sub_cluster_config_rval_ctor(rp_cluster_cfg_empty(), false);
+        rp_dfp_create_sub_cluster_config_rval_ctor(NULL, false);
 }
 static inline bool
 rp_dfp_cluster_touch(RpDfpCluster* self, const char* cluster_name)

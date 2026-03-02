@@ -58,12 +58,15 @@ G_DECLARE_INTERFACE(RpUpstreamTransportSocketConfigFactory, rp_upstream_transpor
 struct _RpUpstreamTransportSocketConfigFactoryInterface {
     GTypeInterface parent_iface;
 
-    RpUpstreamTransportSocketFactoryPtr (*create_transport_socket_factory)(RpUpstreamTransportSocketConfigFactory*, gpointer, RpTransportSocketFactoryContext*);
+    RpUpstreamTransportSocketFactoryPtr
+        (*create_transport_socket_factory)(RpUpstreamTransportSocketConfigFactory*,
+                                            gpointer,
+                                            RpTransportSocketFactoryContext*);
 };
 
 static inline RpUpstreamTransportSocketFactoryPtr
-rp_upstream_transport_socket_config_factory_create_transport_socket_factory(RpUpstreamTransportSocketConfigFactory* self,
-                                                                gpointer config, RpTransportSocketFactoryContext* context)
+rp_upstream_transport_socket_config_factory_create_transport_socket_factory(RpUpstreamTransportSocketConfigFactory* self, gpointer config,
+                                                                            RpTransportSocketFactoryContext* context)
 {
     return RP_IS_UPSTREAM_TRANSPORT_SOCKET_CONFIG_FACTORY(self) ?
         RP_UPSTREAM_TRANSPORT_SOCKET_CONFIG_FACTORY_GET_IFACE(self)->create_transport_socket_factory(self, config, context) :
@@ -81,12 +84,16 @@ G_DECLARE_INTERFACE(RpDownstreamTransportSocketConfigFactory, rp_downstream_tran
 struct _RpDownstreamTransportSocketConfigFactoryInterface {
     GTypeInterface parent_iface;
 
-    RpDownstreamTransportSocketFactoryPtr (*create_transport_socket_factory)(RpDownstreamTransportSocketConfigFactory*, gpointer, RpTransportSocketFactoryContext*/*,TODO...const std::vector<std::string>&*/);
+    RpDownstreamTransportSocketFactoryPtr
+        (*create_transport_socket_factory)(RpDownstreamTransportSocketConfigFactory*,
+                                            gpointer,
+                                            RpTransportSocketFactoryContext*
+                                            /*,TODO...const std::vector<std::string>&*/);
 };
 
 static inline RpDownstreamTransportSocketFactoryPtr
-rp_downstream_transport_socket_config_factory_create_transport_socket_factory(RpDownstreamTransportSocketConfigFactory* self,
-                                                                                gpointer config, RpTransportSocketFactoryContext* context/*,TODO...const std::vector<std::string>& server_names*/)
+rp_downstream_transport_socket_config_factory_create_transport_socket_factory(RpDownstreamTransportSocketConfigFactory* self, gpointer config,
+                                                                                RpTransportSocketFactoryContext* context/*,TODO...const std::vector<std::string>& server_names*/)
 {
     return RP_IS_DOWNSTREAM_TRANSPORT_SOCKET_CONFIG_FACTORY(self) ?
         RP_DOWNSTREAM_TRANSPORT_SOCKET_CONFIG_FACTORY_GET_IFACE(self)->create_transport_socket_factory(self, config, context) :

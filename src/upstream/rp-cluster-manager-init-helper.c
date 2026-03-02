@@ -73,7 +73,7 @@ rp_cluster_manager_init_helper_init(RpClusterManagerInitHelper* self)
     NOISY_MSG_("(%p)", self);
     self->m_state = State_Loading;
     self->m_started_secondary_initialize = false;
-    self->m_primary_init_clusters = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+    self->m_primary_init_clusters = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_object_unref);
     self->m_secondary_init_clusters = NULL;//TODO...g_hash_table_new_full(...);
     self->m_cds = NULL;
 }
@@ -222,7 +222,6 @@ initialize_cb(gpointer arg)
     RpClusterManagerInitHelper* self = ctx->cm_init_helper;
     RpClusterManagerCluster* cm_cluster = ctx->cm_cluster;
     g_free(arg);
-NOISY_MSG_("cm_cluster %p(%p)", cm_cluster, rp_cluster_manager_cluster_cluster(cm_cluster));
     RpStatusCode_e status = on_cluster_init(self, cm_cluster);
     if (status != RpStatusCode_Ok)
     {
@@ -244,13 +243,11 @@ rp_cluster_manager_init_helper_add_cluster(RpClusterManagerInitHelper* self, RpC
     g_assert(self->m_state != State_AllClustersInitialized);
     RpCluster* cluster = rp_cluster_manager_cluster_cluster(cm_cluster);
     const char* name = rp_cluster_info_name(rp_cluster_info(cluster));
-NOISY_MSG_("cluster %p(%s)", cluster, name);
 
     //TODO...cluster.info()->configUpdateStats().warming_state_.set(1);
     if (rp_cluster_initialize_phase(cluster) == RpInitializePhase_Primary)
     {
-NOISY_MSG_("replacing %p(%s)", cluster, name);
-        g_hash_table_replace(self->m_primary_init_clusters, g_strdup(name), cm_cluster);
+        g_hash_table_replace(self->m_primary_init_clusters, g_strdup(name), g_object_ref(cm_cluster));
         rp_cluster_initialize(cluster, initialize_cb, rp_initialize_cb_ctx_new(self, cm_cluster));
     }
 

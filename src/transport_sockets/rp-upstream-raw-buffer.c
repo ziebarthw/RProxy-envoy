@@ -31,9 +31,9 @@ static RpUpstreamTransportSocketFactoryPtr
 create_transport_socket_factory_i(RpUpstreamTransportSocketConfigFactory* self, gpointer config, RpTransportSocketFactoryContext* context)
 {
     NOISY_MSG_("(%p, %p, %p)", self, config, context);
-    upstream_t* upstream = config;
+    upstream_cfg_t* upstream_cfg = config;
     return RP_UPSTREAM_TRANSPORT_SOCKET_FACTORY(
-            rp_raw_buffer_socket_factory_create_upstream_factory(upstream));
+            rp_raw_buffer_socket_factory_create_upstream_factory(upstream_cfg));
 }
 
 static void

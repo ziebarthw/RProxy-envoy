@@ -216,6 +216,7 @@ on_body(RpHttp1ConnectionImpl* self, evbuf_t* data)
 {
     NOISY_MSG_("(%p, %p(%zu))", self, data, evbuf_length(data));
     RpHttp1ClientConnectionImpl* me = RP_HTTP1_CLIENT_CONNECTION_IMPL(self);
+g_assert(!rp_http1_connection_impl_get_deferred_end_stream_headers(self));
     if (me->m_pending_response)
     {
         rp_stream_decoder_decode_data(RP_STREAM_DECODER(me->m_pending_response->m_decoder), data, false);

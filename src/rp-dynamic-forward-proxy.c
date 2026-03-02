@@ -71,6 +71,9 @@ struct _RpDynamicForwardProxy {
     RpProxyFilterConfigSharedPtr m_config;
     RpClusterInfoConstSharedPtr m_cluster_info;
     RpLoadClusterEntryHandlePtr m_cluster_load_handle;
+
+    char* m_host;
+    int* m_port;
 };
 
 static void stream_decoder_filter_iface_init(RpStreamDecoderFilterInterface* iface);
@@ -87,27 +90,29 @@ load_dynamic_cluster(RpDynamicForwardProxy* self, RpDfpCluster* cluster, evhtp_h
     NOISY_MSG_("(%p, %p, %p, %u)", self, cluster, request_headers, default_port);
 
     RpAuthorityAttributes host_attributes = http_utility_parse_authority(evhtp_header_find(request_headers, RpHeaderValues.HostLegacy));
-    char* host = g_strndup(host_attributes.m_host.m_data, host_attributes.m_host.m_length);
+
     guint16 port = host_attributes.m_port ? host_attributes.m_port : default_port;
+
+    self->m_host = g_strndup(host_attributes.m_host.m_data, host_attributes.m_host.m_length);
+    self->m_port = g_memdup2(&port, sizeof(port));
 
     //TODO...applyFilterStateOverrides(...)
 
     rp_filter_state_set_data(FILTER_STATE(self),
                                 dynamic_host_key,
-                                host,
+                                self->m_host,
                                 RpFilterStateStateType_ReadOnly,
                                 RpFilterStateLifeSpan_Request);
     rp_filter_state_set_data(FILTER_STATE(self),
                                 dynamic_port_key,
-                                g_memdup2(&port, sizeof(port)),
+                                self->m_port,
                                 RpFilterStateStateType_ReadOnly,
                                 RpFilterStateLifeSpan_Request);
 
     g_autoptr(GString) cluster_name = g_string_new("DFPCluster:");
-    g_string_append_printf(cluster_name, "%s:%u", host, port);
+    g_string_append_printf(cluster_name, "%s:%u", self->m_host, port);
     RpClusterManager* cluster_manager = rp_proxy_filter_config_cluster_manager(self->m_config);
     RpThreadLocalCluster* local_cluster = rp_cluster_manager_get_thread_local_cluster(cluster_manager, cluster_name->str);
-NOISY_MSG_("local cluster %p", local_cluster);
     if (local_cluster && rp_dfp_cluster_touch(cluster, cluster_name->str))
     {
         LOGD("using the thread local cluster after touch success");
@@ -115,11 +120,11 @@ NOISY_MSG_("local cluster %p", local_cluster);
     }
 
     self->m_cluster_load_handle = rp_proxy_filter_config_add_dynamic_cluster(self->m_config,
-                                                                    cluster,
-                                                                    cluster_name->str,
-                                                                    host,
-                                                                    port,
-                                                                    RP_LOAD_CLUSTER_ENTRY_CALLBACKS(self));
+                                                                        cluster,
+                                                                        cluster_name->str,
+                                                                        self->m_host,
+                                                                        port,
+                                                                        RP_LOAD_CLUSTER_ENTRY_CALLBACKS(self));
     if (!self->m_cluster_load_handle)
     {
         LOGE("sub clusters overflow");
@@ -255,6 +260,8 @@ dispose(GObject* obj)
 
     RpDynamicForwardProxy* self = RP_DYNAMIC_FORWARD_PROXY(obj);
     g_clear_object(&self->m_config);
+    g_clear_pointer(&self->m_host, g_free);
+    g_clear_pointer(&self->m_port, g_free);
 
     G_OBJECT_CLASS(rp_dynamic_forward_proxy_parent_class)->dispose(obj);
 }

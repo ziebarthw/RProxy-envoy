@@ -13,14 +13,15 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
+#include "rp-upstream.h"
 #include "thread_local/rp-thread-local-impl.h"
 #include "network/rp-raw-buffer-socket.h"
 
 struct _RpRawBufferSocketFactory {
     GObject parent_instance;
 
-    SHARED_PTR(upstream_t) m_upstream;
-    SHARED_PTR(server_cfg_t) m_server_cfg;
+    const upstream_cfg_t* m_upstream_cfg;
+    const server_cfg_t* m_server_cfg;
 };
 
 static void transport_socket_factory_base_iface_init(RpTransportSocketFactoryBaseInterface* iface);
@@ -38,8 +39,17 @@ implements_secure_transport_i(RpTransportSocketFactoryBase* self)
 {
     NOISY_MSG_("(%p)", self);
     RpRawBufferSocketFactory* me = RP_RAW_BUFFER_SOCKET_FACTORY(self);
-    return me->m_server_cfg ?
-        me->m_server_cfg->ssl_cfg != NULL : me->m_upstream->ssl_ctx != NULL;
+    if (me->m_server_cfg)
+    {
+        NOISY_MSG_("server cfg");
+        return me->m_server_cfg != NULL;
+    }
+    if (me->m_upstream_cfg)
+    {
+        NOISY_MSG_("upstream cfg");
+        return me->m_upstream_cfg->ssl_cfg != NULL;
+    }
+    return false;
 }
 
 static void
@@ -50,24 +60,21 @@ transport_socket_factory_base_iface_init(RpTransportSocketFactoryBaseInterface* 
 }
 
 static RpNetworkTransportSocketPtr
-create_transport_socket_i(RpUpstreamTransportSocketFactory* self, RpHostDescription* host)
+create_transport_socket_i(RpUpstreamTransportSocketFactory* self, RpDispatcher* dispatcher, RpHostDescriptionConstSharedPtr host)
 {
-    NOISY_MSG_("(%p, %p)", self, host);
+    NOISY_MSG_("(%p, %p, %p)", self, dispatcher, host);
 
     RpRawBufferSocketFactory* me = RP_RAW_BUFFER_SOCKET_FACTORY(self);
-    RpDispatcher* dispatcher = rp_thread_local_instance_impl_get_dispatcher();
+    const upstream_cfg_t* upstream_cfg = me->m_upstream_cfg;
     evbase_t* evbase = rp_dispatcher_base(dispatcher);
-    evdns_base_t* dns_base = rp_dispatcher_dns_base(dispatcher);
-    upstream_t* upstream = me->m_upstream;
-
-NOISY_MSG_("upstream %p(%s)", upstream, upstream->config->name);
+    upstream_t* upstream = rp_host_description_metadata(host);
 
     SSL* ssl = NULL;
     evbev_t* bev;
-    if (upstream->ssl_ctx)
+    if (upstream_cfg->ssl_cfg)
     {
         ssl = SSL_new(upstream->ssl_ctx);
-        char* sni = upstream->config->ssl_cfg->sni;
+        char* sni = upstream_cfg->ssl_cfg->sni;
         if (sni && sni[0])
         {
             LOGD("setting sni \"%s\"", sni);
@@ -82,7 +89,7 @@ NOISY_MSG_("upstream %p(%s)", upstream, upstream->config->name);
     }
 
     return RP_NETWORK_TRANSPORT_SOCKET(
-            rp_raw_buffer_socket_new(RpHandleType_Connecting, bev, ssl, dns_base));
+            rp_raw_buffer_socket_new(RpHandleType_Connecting, bev, ssl));
 }
 
 static void
@@ -98,7 +105,7 @@ create_downstream_transport_socket_i(RpDownstreamTransportSocketFactory* self, e
     NOISY_MSG_("(%p, %p)", self, conn);
     evbev_t* bev = evhtp_connection_take_ownership(conn);
     return RP_NETWORK_TRANSPORT_SOCKET(
-            rp_raw_buffer_socket_new(RpHandleType_Accepting, bev, conn->ssl, NULL));
+            rp_raw_buffer_socket_new(RpHandleType_Accepting, bev, conn->ssl));
 }
 
 static void
@@ -131,16 +138,16 @@ rp_raw_buffer_socket_factory_init(RpRawBufferSocketFactory* self G_GNUC_UNUSED)
 }
 
 RpRawBufferSocketFactory*
-rp_raw_buffer_socket_factory_create_upstream_factory(upstream_t* upstream)
+rp_raw_buffer_socket_factory_create_upstream_factory(const upstream_cfg_t* upstream_cfg)
 {
-    LOGD("(%p)", upstream);
+    LOGD("(%p)", upstream_cfg);
     RpRawBufferSocketFactory* self = g_object_new(RP_TYPE_RAW_BUFFER_SOCKET_FACTORY, NULL);
-    self->m_upstream = upstream;
+    self->m_upstream_cfg = upstream_cfg;
     return self;
 }
 
 RpRawBufferSocketFactory*
-rp_raw_buffer_socket_factory_create_downstream_factory(server_cfg_t* server_cfg)
+rp_raw_buffer_socket_factory_create_downstream_factory(const server_cfg_t* server_cfg)
 {
     LOGD("(%p)", server_cfg);
     RpRawBufferSocketFactory* self = g_object_new(RP_TYPE_RAW_BUFFER_SOCKET_FACTORY, NULL);

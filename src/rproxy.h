@@ -147,6 +147,8 @@ typedef struct _RpHttpConnectionManagerConfig RpHttpConnectionManagerConfig;
 typedef struct _RpDispatcher RpDispatcher;
 typedef UNIQUE_PTR(RpDispatcher) RpDispatcherPtr;
 typedef struct _RpThreadLocalInstance RpThreadLocalInstance;
+typedef struct _RpDownstreamTransportSocketFactory RpDownstreamTransportSocketFactory;
+typedef UNIQUE_PTR(RpDownstreamTransportSocketFactory) RpDownstreamTransportSocketFactoryPtr;
 
 typedef struct rproxy         rproxy_t;
 typedef struct rproxy_rusage  rproxy_rusage_t;
@@ -306,7 +308,7 @@ struct server_cfg {
     int      listen_backlog;            /**< listen backlog */
     size_t   high_watermark;            /**< upstream high-watermark */
 
-    uint16_t worker_num;                /**< simple zero-based index worker number */
+    gint worker_num;                    /**< simple zero-based index worker number */
 
     struct timeval read_timeout;        /**< time to wait for reading before client is dropped */
     struct timeval write_timeout;       /**< time to wait for writing before client is dropped */
@@ -315,7 +317,7 @@ struct server_cfg {
     rproxy_cfg_t    * rproxy_cfg;       /**< parent rproxy configuration */
     evhtp_ssl_cfg_t * ssl_cfg;          /**< if enabled, the ssl configuration */
     GSList          * upstream_cfgs;    /**< list of upstream_cfg_t's */
-    GSList          * vhosts;           /**< list of vhost_cfg_t's */
+    GSList          * vhost_cfgs;       /**< list of vhost_cfg_t's */
     logger_cfg_t    * req_log_cfg;
     logger_cfg_t    * err_log_cfg;
 
@@ -335,7 +337,7 @@ struct server_cfg {
 static inline uint16_t
 server_cfg_get_worker_num(server_cfg_t* self)
 {
-    uint16_t worker_num = self->worker_num++;
+    uint16_t worker_num = g_atomic_int_add(&self->worker_num, 1);
     return worker_num % self->num_threads;
 }
 
@@ -502,15 +504,17 @@ struct rproxy {
 #endif//WITH_LOGGER
     GSList            * rules;
     GSList            * upstreams;                /**< list of all upstream_t's */
+    GSList            * vhosts;                   /**< list of all vhost_t's */
     int                 n_pending;                /**< number of pending requests */
     int                 n_processing;             /**< number of in-flight requests */
-    uint16_t worker_num;
+    gint worker_num;
 #ifdef WITH_LOGGER
     logger_t          * req_log;
     logger_t          * err_log;
 #endif//WITH_LOGGER
 
     RpHttpConnectionManagerConfig* m_filter_config;
+    RpDownstreamTransportSocketFactoryPtr m_transport_socket_factory;
     RpDispatcherPtr m_dispatcher;
     GList* m_active_connections;
 
@@ -727,5 +731,27 @@ struct duration {
     gint64 seconds;
     gint32 nanos;
 };
+
+
+static inline void
+rp_gobject_set_take(GObject** dst, GObject** srcptr)
+{
+    g_return_if_fail(dst != NULL);
+    g_return_if_fail(srcptr != NULL);
+    if (*dst) g_object_unref(*dst);
+    *dst = g_steal_pointer(srcptr); // Takes ownership, src becomes NULL.
+}
+#define RP_TAKE_OBJ(dst, srcptr) \
+    rp_gobject_set_take((GObject**)dst, (GObject**)srcptr)
+
+static inline void
+rp_gobject_set_share(GObject** dst, GObject* src_obj)
+{
+    g_return_if_fail(dst != NULL);
+    g_set_object(dst, src_obj);
+}
+#define RP_SHARE_OBJ(dst, src) \
+    rp_gobject_set_share((GObject**)dst, (GObject*)src)
+
 
 G_END_DECLS

@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_active_stream_encoder_filter_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_active_stream_encoder_filter_NOISY)
@@ -38,6 +35,10 @@ OVERRIDE void
 dispose(GObject* obj)
 {
     NOISY_MSG_("(%p)", obj);
+
+    RpActiveStreamEncoderFilter* self = RP_ACTIVE_STREAM_ENCODER_FILTER(obj);
+    g_clear_object(&self->m_handle);
+
     G_OBJECT_CLASS(rp_active_stream_encoder_filter_parent_class)->dispose(obj);
 }
 

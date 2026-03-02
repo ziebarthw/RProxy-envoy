@@ -7,9 +7,6 @@
 
 #include <stdio.h>
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_upstream_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_upstream_NOISY)
@@ -18,6 +15,7 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
+#include "rp-host-map-snap.h"
 #include "rp-upstream.h"
 
 G_DEFINE_INTERFACE(RpHost, rp_host, G_TYPE_OBJECT)

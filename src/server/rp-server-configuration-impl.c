@@ -45,6 +45,10 @@ OVERRIDE void
 dispose(GObject* obj)
 {
     NOISY_MSG_("(%p)", obj);
+
+    RpServerConfigurationMainImpl* self = RP_SERVER_CONFIGURATION_MAIN_IMPL(obj);
+    g_clear_object(&self->m_cluster_manager);
+
     G_OBJECT_CLASS(rp_server_configuration_main_impl_parent_class)->dispose(obj);
 }
 

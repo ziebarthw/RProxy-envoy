@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_codec_client_prod_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_codec_client_prod_NOISY)
@@ -89,15 +86,15 @@ constructed(RpCodecClientProd* self, RpNetworkClientConnection* connection, bool
 
 RpCodecClientProd*
 rp_codec_client_prod_new(RpCodecType_e type, RpNetworkClientConnection* connection,
-                            RpHostDescription* host, RpDispatcher* dispatcher, bool should_connect_on_creation)
+                            RpHostDescriptionConstSharedPtr host, RpDispatcher* dispatcher, bool should_connect_on_creation)
 {
     LOGD("(%d, %p, %p, %p, %u)", type, connection, host, dispatcher, should_connect_on_creation);
     g_return_val_if_fail(RP_IS_NETWORK_CLIENT_CONNECTION(connection), NULL);
     RpCodecClientProd* self = g_object_new(RP_TYPE_CODEC_CLIENT_PROD,
-                        "type", type,
-                        "connection", connection,
-                        "host", host,
-                        "dispatcher", dispatcher,
-                        NULL);
+                                            "type", type,
+                                            "connection", connection,
+                                            "host", host,
+                                            "dispatcher", dispatcher,
+                                            NULL);
     return constructed(self, connection, should_connect_on_creation);
 }

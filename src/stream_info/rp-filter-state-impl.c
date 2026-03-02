@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_filter_state_impl_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_filter_state_impl_NOISY)
@@ -134,7 +131,7 @@ get_data_i(RpFilterState* self, const char* data_name)
     NOISY_MSG_("(%p, %p(%s))", self, data_name, data_name);
     RpFilterStateImpl* me = RP_FILTER_STATE_IMPL(self);
     gpointer it = me->m_data_storage ?
-                    g_hash_table_lookup(me->m_data_storage, data_name) : NULL;
+                            g_hash_table_lookup(me->m_data_storage, data_name) : NULL;
     if (!it)
     {
         if (me->m_parent)

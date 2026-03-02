@@ -18,7 +18,7 @@
 struct _RpDelegateLoadBalancerFactory {
     GObject parent_instance;
 
-    RpClusterSharedPtr m_parent;
+    GWeakRef m_parent_ref;
     RpLbCreateFn m_create_fn;
     bool m_recreate_on_host_change;
 };
@@ -34,7 +34,15 @@ create_i(RpLoadBalancerFactory* self, RpLoadBalancerParams* params)
 {
     NOISY_MSG_("(%p(%s), %p)", self, G_OBJECT_TYPE_NAME(self), params);
     RpDelegateLoadBalancerFactory* me = RP_DELEGATE_LOAD_BALANCER_FACTORY(self);
-    return me->m_create_fn(me->m_parent, params);
+    RpClusterSharedPtr parent = RP_CLUSTER(g_weak_ref_get(&me->m_parent_ref)); // Strong ref or null.
+    if (!parent)
+    {
+        LOGE("parent is null");
+        return NULL;
+    }
+    RpLoadBalancerPtr lb = me->m_create_fn(parent, params);
+    g_object_unref(parent); // Drop the temporary strong ref.
+    return lb;
 }
 
 static bool
@@ -58,7 +66,7 @@ dispose(GObject* obj)
     NOISY_MSG_("(%p)", obj);
 
     RpDelegateLoadBalancerFactory* self = RP_DELEGATE_LOAD_BALANCER_FACTORY(obj);
-    g_clear_object(&self->m_parent);
+    g_weak_ref_clear(&self->m_parent_ref);
 
     G_OBJECT_CLASS(rp_delegate_load_balancer_factory_parent_class)->dispose(obj);
 }
@@ -86,8 +94,9 @@ rp_delegate_load_balancer_factory_new(RpClusterSharedPtr parent, RpLbCreateFn cr
     g_return_val_if_fail(create_fn != NULL, NULL);
 
     RpDelegateLoadBalancerFactory* self = g_object_new(RP_TYPE_DELEGATE_LOAD_BALANCER_FACTORY, NULL);
-    self->m_parent = g_object_ref(parent);
+    g_weak_ref_init(&self->m_parent_ref, G_OBJECT(parent));
     self->m_create_fn = create_fn;
     self->m_recreate_on_host_change = recreate_on_host_change;
+NOISY_MSG_("allocated load balancer factory %p", self);
     return RP_LOAD_BALANCER_FACTORY(self);
 }

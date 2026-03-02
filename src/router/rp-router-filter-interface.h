@@ -32,7 +32,7 @@ struct _RpRouterFilterInterfaceInterface {
     void (*on_upstream_data)(RpRouterFilterInterface*, evbuf_t*, RpUpstreamRequest*, bool);
     void (*on_upstream_trailers)(RpRouterFilterInterface*, evhtp_headers_t*, RpUpstreamRequest*);
     void (*on_upstream_reset)(RpRouterFilterInterface*, RpStreamResetReason_e, const char*, RpUpstreamRequest*);
-    void (*on_upstream_host_selected)(RpRouterFilterInterface*, RpHostDescription*, bool);
+    void (*on_upstream_host_selected)(RpRouterFilterInterface*, RpHostDescriptionConstSharedPtr, bool);
     void (*on_per_try_timeout)(RpRouterFilterInterface*, RpUpstreamRequest*);
     void (*on_per_try_idle_timeout)(RpRouterFilterInterface*, RpUpstreamRequest*);
     void (*on_stream_max_duration_reached)(RpRouterFilterInterface*, RpUpstreamRequest*);
@@ -91,7 +91,7 @@ rp_router_filter_interface_on_upstream_reset(RpRouterFilterInterface* self, RpSt
     }
 }
 static inline void
-rp_router_filter_interface_on_upstream_host_selected(RpRouterFilterInterface* self, RpHostDescription* host, bool pool_success)
+rp_router_filter_interface_on_upstream_host_selected(RpRouterFilterInterface* self, RpHostDescriptionConstSharedPtr host, bool pool_success)
 {
     if (RP_IS_ROUTER_FILTER_INTERFACE(self))
     {

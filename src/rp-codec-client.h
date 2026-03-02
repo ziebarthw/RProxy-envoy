@@ -11,6 +11,7 @@
 #include <glib-object.h>
 #include "rp-codec.h"
 #include "rp-net-connection.h"
+#include "rp-net-filter-impl.h"
 #include "rp-stream-reset-handler.h"
 
 G_BEGIN_DECLS
@@ -56,6 +57,7 @@ rp_codec_client_callbacks_on_stream_reset(RpCodecClientCallbacks* self, RpStream
     }
 }
 
+
 /**
  * This is an HTTP client that multiple stream management and underlying connection management
  * across multiple HTTP codec types.
@@ -99,5 +101,16 @@ void rp_codec_client_set_requested_server_name(RpCodecClient* self,
 RpCodecType_e rp_codec_client_type_(RpCodecClient* self);
 void rp_codec_client_set_codec_(RpCodecClient* self,
                                 RpHttpClientConnection* codec);
+
+
+/**
+ * Wrapper read filter to drive incoming connection data into the codec. We could potentially
+ * support other filters in the future.
+ */
+#define RP_TYPE_CODEC_READ_FILTER rp_codec_read_filter_get_type()
+G_DECLARE_FINAL_TYPE(RpCodecReadFilter, rp_codec_read_filter, RP, CODEC_READ_FILTER, RpNetworkReadFilterBaseImpl)
+
+RpCodecReadFilter* rp_codec_read_filter_new(RpCodecClient* parent);
+
 
 G_END_DECLS

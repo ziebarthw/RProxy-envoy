@@ -13,6 +13,7 @@
 #include "rp-conn-pool.h"
 #include "rp-codec.h"
 #include "rp-http-conn-pool.h"
+#include "rp-rds-config.h"
 #include "rp-socket.h"
 #include "rp-stream-info.h"
 #include "rp-host-description.h"
@@ -23,8 +24,9 @@ G_BEGIN_DECLS
 typedef struct _RpHost RpHost;
 typedef struct _RpLoadBalancerContext RpLoadBalancerContext;
 typedef struct _RpThreadLocalCluster RpThreadLocalCluster;
-typedef struct _RpRouteConfig RpRouteConfig;
+typedef struct _RpRouterConfig RpRouterConfig;
 typedef struct _RpRoute RpRoute;
+typedef struct _RpRouterCommonConfig RpRouterCommonConfig;
 
 /**
  * RouteCallback, returns one of these enums to the route matcher to indicate
@@ -54,59 +56,7 @@ typedef enum {
 } RpUpstreamProtocol_e;
 
 
-typedef RpRouteMatchStatus_e (*RpRouteCallback)(RpRouteConfig*, RpRoute*, RpRouteEvalStatus_e);
-
-
-/**
- * Shared part of the route configuration. This class contains interfaces that needn't depend on
- * router matcher. Then every virtualhost could keep a reference to the CommonConfig. When the
- * entire route config is destroyed, the part of CommonConfig will still live until all
- * virtual hosts are destroyed.
- */
-#define RP_TYPE_ROUTE_COMMON_CONFIG rp_route_common_config_get_type()
-G_DECLARE_INTERFACE(RpRouteCommonConfig, rp_route_common_config, RP, ROUTE_COMMON_CONFIG, GObject)
-
-struct _RpRouteCommonConfigInterface {
-    GTypeInterface parent_iface;
-
-    const char* (*name)(RpRouteCommonConfig*);
-    guint32 (*max_direct_response_body_size_bytes)(RpRouteCommonConfig*);
-};
-
-static inline const char*
-rp_route_common_config_name(RpRouteCommonConfig* self)
-{
-    return RP_IS_ROUTE_COMMON_CONFIG(self) ?
-        RP_ROUTE_COMMON_CONFIG_GET_IFACE(self)->name(self) : NULL;
-}
-static inline guint32
-rp_route_common_config_max_direct_response_body_size_bytes(RpRouteCommonConfig* self)
-{
-    return RP_IS_ROUTE_COMMON_CONFIG(self) ?
-        RP_ROUTE_COMMON_CONFIG_GET_IFACE(self)->max_direct_response_body_size_bytes(self) :
-        0;
-}
-
-
-/**
- * The router configuration.
- */
-#define RP_TYPE_ROUTE_CONFIG rp_route_config_get_type()
-G_DECLARE_INTERFACE(RpRouteConfig, rp_route_config, RP, ROUTE_CONFIG, RpRouteCommonConfig)
-
-struct _RpRouteConfigInterface {
-    RpRouteCommonConfigInterface parent_iface;
-
-    RpRoute* (*route)(RpRouteConfig*, RpRouteCallback, evhtp_headers_t*, RpStreamInfo*, guint64);
-};
-
-static inline RpRoute*
-rp_route_config_route(RpRouteConfig* self, RpRouteCallback cb, evhtp_headers_t* request_headers, RpStreamInfo* stream_info, guint64 random_value)
-{
-    return RP_IS_ROUTE_CONFIG(self) ?
-        RP_ROUTE_CONFIG_GET_IFACE(self)->route(self, cb, request_headers, stream_info, random_value) :
-        NULL;
-}
+typedef RpRouteMatchStatus_e (*RpRouteCallback)(RpRouterConfig*, RpRoute*, RpRouteEvalStatus_e);
 
 
 /**
@@ -157,7 +107,7 @@ struct _RpVirtualHostInterface {
     GTypeInterface parent_iface;
 
     const char* (*name)(RpVirtualHost*);
-    RpRouteCommonConfig* (*route_config)(RpVirtualHost*);
+    RpRouterCommonConfig* (*route_config)(RpVirtualHost*);
 };
 
 static inline const char*
@@ -166,7 +116,7 @@ rp_virtual_host_name(RpVirtualHost* self)
     return RP_IS_VIRTUAL_HOST(self) ?
         RP_VIRTUAL_HOST_GET_IFACE(self)->name(self) : NULL;
 }
-static inline RpRouteCommonConfig*
+static inline RpRouterCommonConfig*
 rp_virtual_host_route_config(RpVirtualHost* self)
 {
     return RP_IS_VIRTUAL_HOST(self) ?
@@ -247,33 +197,199 @@ G_DECLARE_INTERFACE(RpRoute, rp_route, RP, ROUTE, GObject)
 struct _RpRouteInterface {
     GTypeInterface parent_iface;
 
-    RpDirectResponseEntry* (*direct_response_entry)(RpRoute*);
-    RpRouteEntry* (*route_entry)(RpRoute*);
+    RpDirectResponseEntry* (*direct_response_entry)(const RpRoute*);
+    RpRouteEntry* (*route_entry)(const RpRoute*);
     //TODO...
-    const char* (*route_name)(RpRoute*);
+    const char* (*route_name)(const RpRoute*);
     //TODO...
 };
 
-typedef SHARED_PTR(RpRoute) RpRouteConstSharedPtr;
+typedef const SHARED_PTR(RpRoute) RpRouteConstSharedPtr;
+typedef SHARED_PTR(RpRoute) RpRouteSharedPtr;
+typedef UNIQUE_PTR(RpRoute) RpRoutePtr;
 
-static inline RpDirectResponseEntry*
-rp_route_direct_response_entry(RpRoute* self)
+static inline RpRouteSharedPtr
+rp_route_ref(RpRouteConstSharedPtr self)
 {
-    return RP_IS_ROUTE(self) ?
-        RP_ROUTE_GET_IFACE(self)->direct_response_entry(self) : NULL;
+    return self ? (RpRouteSharedPtr)g_object_ref((gpointer)self) : NULL;
+}
+static inline void
+rp_route_unref(RpRouteSharedPtr self)
+{
+    if (self) g_object_unref(self);
+}
+static inline void
+rp_route_reset(RpRouteSharedPtr* pself)
+{
+    if (!pself) return;
+    g_clear_object((GObject**)pself);
+}
+static inline void
+rp_route_set_object(RpRouteSharedPtr* dst, RpRouteConstSharedPtr src)
+{
+    g_set_object((GObject**)dst, (GObject*)src);
+}
+static inline gboolean
+rp_route_is_route(RpRouteConstSharedPtr self)
+{
+    return self && RP_IS_ROUTE((RpRoute*)self);
+}
+static inline RpRouteInterface*
+rp_route_iface(RpRouteConstSharedPtr self)
+{
+    return RP_ROUTE_GET_IFACE((RpRoute*)self);
+}
+static inline RpDirectResponseEntry*
+rp_route_direct_response_entry(RpRouteConstSharedPtr self)
+{
+    g_return_val_if_fail(self != NULL, NULL);
+    g_return_val_if_fail(RP_IS_ROUTE((RpRoute*)self), NULL);
+
+    RpRouteInterface* iface = rp_route_iface(self);
+    g_return_val_if_fail(iface->direct_response_entry != NULL, NULL);
+
+    return iface->direct_response_entry(self);
 }
 static inline RpRouteEntry*
-rp_route_route_entry(RpRoute* self)
+rp_route_route_entry(RpRouteConstSharedPtr self)
 {
-    return RP_IS_ROUTE(self) ?
-        RP_ROUTE_GET_IFACE(self)->route_entry(self) : NULL;
+    g_return_val_if_fail(self != NULL, NULL);
+    g_return_val_if_fail(RP_IS_ROUTE((RpRoute*)self), NULL);
+
+    RpRouteInterface* iface = rp_route_iface(self);
+    g_return_val_if_fail(iface->route_entry != NULL, NULL);
+
+    return iface->route_entry(self);
 }
 static inline const char*
-rp_route_route_name(RpRoute* self)
+rp_route_route_name(RpRouteConstSharedPtr self)
 {
-    return RP_IS_ROUTE(self) ?
-        RP_ROUTE_GET_IFACE(self)->route_name(self) : NULL;
+    g_return_val_if_fail(self != NULL, NULL);
+    g_return_val_if_fail(RP_IS_ROUTE((RpRoute*)self), NULL);
+
+    RpRouteInterface* iface = rp_route_iface(self);
+    g_return_val_if_fail(iface->route_name != NULL, NULL);
+
+    return iface->route_name(self);
 }
+
+
+/**
+ * Shared part of the route configuration. This class contains interfaces that needn't depend on
+ * router matcher. Then every virtualhost could keep a reference to the CommonConfig. When the
+ * entire route config is destroyed, the part of CommonConfig will still live until all
+ * virtual hosts are destroyed.
+ */
+#define RP_TYPE_ROUTER_COMMON_CONFIG rp_router_common_config_get_type()
+G_DECLARE_INTERFACE(RpRouterCommonConfig, rp_router_common_config, RP, ROUTER_COMMON_CONFIG, GObject)
+
+struct _RpRouterCommonConfigInterface {
+    GTypeInterface parent_iface;
+
+    const GPtrArray* (*internal_only_headers)(const RpRouterCommonConfig*);
+    const char* (*name)(const RpRouterCommonConfig*);
+    bool (*uses_vhds)(const RpRouterCommonConfig*);
+    bool (*most_specific_header_mutation_wins)(const RpRouterCommonConfig*);
+    guint32 (*max_direct_response_body_size_bytes)(const RpRouterCommonConfig*);
+    RpMetadataConstSharedPtr (*metadata)(const RpRouterCommonConfig*);
+    //TODO...const Envoy::Config::TypedMetadata& typedMatadata() const PURE;
+};
+
+static inline gboolean
+rp_router_common_config_is_a(const RpRouterCommonConfig* self)
+{
+    g_return_val_if_fail(self != NULL, false);
+    return RP_IS_ROUTER_COMMON_CONFIG((GObject*)self);
+}
+static inline RpRouterCommonConfigInterface*
+rp_router_common_config_iface(const RpRouterCommonConfig* self)
+{
+    return RP_ROUTER_COMMON_CONFIG_GET_IFACE((GObject*)self);
+}
+static inline const GPtrArray*
+rp_router_common_config_internal_only_headers(const RpRouterCommonConfig* self)
+{
+    g_return_val_if_fail(rp_router_common_config_is_a(self), NULL);
+    return rp_router_common_config_iface(self)->internal_only_headers(self);
+}
+static inline const char*
+rp_router_common_config_name(const RpRouterCommonConfig* self)
+{
+    g_return_val_if_fail(rp_router_common_config_is_a(self), NULL);
+    return rp_router_common_config_iface(self)->name(self);
+}
+static inline bool
+rp_router_common_config_uses_vhds(const RpRouterCommonConfig* self)
+{
+    g_return_val_if_fail(rp_router_common_config_is_a(self), false);
+    return rp_router_common_config_iface(self)->uses_vhds(self);
+}
+static inline bool
+rp_router_common_config_most_specific_header_mutation_wins(const RpRouterCommonConfig* self)
+{
+    g_return_val_if_fail(rp_router_common_config_is_a(self), false);
+    return rp_router_common_config_iface(self)->most_specific_header_mutation_wins(self);
+}
+static inline guint32
+rp_router_common_config_max_direct_response_body_size_bytes(const RpRouterCommonConfig* self)
+{
+    g_return_val_if_fail(rp_router_common_config_is_a(self), 1024*8);
+    return rp_router_common_config_iface(self)->max_direct_response_body_size_bytes(self);
+}
+static inline RpMetadataConstSharedPtr
+rp_router_common_config_metadata(const RpRouterCommonConfig* self)
+{
+    g_return_val_if_fail(rp_router_common_config_is_a(self), NULL);
+    return rp_router_common_config_iface(self)->metadata(self);
+}
+
+
+/**
+ * The router configuration.
+ */
+#define RP_TYPE_ROUTER_CONFIG rp_router_config_get_type()
+G_DECLARE_INTERFACE(RpRouterConfig, rp_router_config, RP, ROUTER_CONFIG, GObject)
+
+struct _RpRouterConfigInterface {
+    GTypeInterface parent_iface;
+    // RdsConfigInterface
+    // RpRouterCommonConfigInterface
+
+    RpRouteConstSharedPtr (*route)(const RpRouterConfig*,
+                                    RpRouteCallback,
+                                    evhtp_headers_t*,
+                                    const RpStreamInfo*,
+                                    guint64);
+};
+
+typedef const SHARED_PTR(RpRouterConfig) RpRouterConfigConstSharedPtr;
+typedef SHARED_PTR(RpRouterConfig) RpRouterConfigSharedPtr;
+
+static inline void
+rp_router_config_set_object(RpRouterConfigSharedPtr* dst, RpRouterConfigConstSharedPtr src)
+{
+    g_return_if_fail(dst != NULL);
+    g_set_object((GObject**)dst, (GObject*)src);
+}
+static inline gboolean
+rp_router_config_is_a(RpRouterConfigConstSharedPtr self)
+{
+    g_return_val_if_fail(self != NULL, false);
+    return RP_IS_ROUTER_CONFIG((RpRouterConfig*)self);
+}
+static inline RpRouterConfigInterface*
+rp_router_config_iface(RpRouterConfigConstSharedPtr self)
+{
+    return RP_ROUTER_CONFIG_GET_IFACE((RpRouterConfig*)self);
+}
+static inline RpRouteConstSharedPtr
+rp_router_config_route(RpRouterConfigConstSharedPtr self, RpRouteCallback cb, evhtp_headers_t* request_headers,
+                        const RpStreamInfo* stream_info, guint64 random_value)
+{
+    g_return_val_if_fail(rp_router_config_is_a(self), NULL);
+    return rp_router_config_iface(self)->route(self, cb, request_headers, stream_info, random_value);
+}
+
 
 /**
  * An API for sending information to either a TCP, UDP, or HTTP upstream.
@@ -322,12 +438,14 @@ rp_generic_upstream_enable_tcp_tunneling(RpGenericUpstream* self)
     if (RP_IS_GENERIC_UPSTREAM(self)) \
         RP_GENERIC_UPSTREAM_GET_IFACE(self)->enable_tcp_tunneling(self);
 }
-static inline void rp_generic_upstream_read_disable(RpGenericUpstream* self, bool disable)
+static inline void
+rp_generic_upstream_read_disable(RpGenericUpstream* self, bool disable)
 {
     if (RP_IS_GENERIC_UPSTREAM(self)) \
         RP_GENERIC_UPSTREAM_GET_IFACE(self)->read_disable(self, disable);
 }
-static inline void rp_generic_upstream_reset_stream(RpGenericUpstream* self)
+static inline void
+rp_generic_upstream_reset_stream(RpGenericUpstream* self)
 {
     if (RP_IS_GENERIC_UPSTREAM(self)) \
         RP_GENERIC_UPSTREAM_GET_IFACE(self)->reset_stream(self);
@@ -344,12 +462,12 @@ G_DECLARE_INTERFACE(RpUpstreamToDownstream, rp_upstream_to_downstream, RP, UPSTR
 struct _RpUpstreamToDownstreamInterface {
     GTypeInterface/*Http::ResponseDecoder, Http::StreamCallbacks*/ parent_iface;
 
-    RpRoute* (*route)(RpUpstreamToDownstream*);
+    RpRouteSharedPtr (*route)(RpUpstreamToDownstream*);
     RpNetworkConnection* (*connection)(RpUpstreamToDownstream*);
     RpHttpConnPoolInstStreamOptions (*upstream_stream_options)(RpUpstreamToDownstream*);
 };
 
-static inline RpRoute*
+static inline RpRouteSharedPtr
 rp_upstream_to_downstream_route(RpUpstreamToDownstream* self)
 {
     return RP_IS_UPSTREAM_TO_DOWNSTREAM(self) ?
@@ -386,11 +504,11 @@ struct _RpGenericConnectionPoolCallbacksInterface {
     void (*on_pool_failure)(RpGenericConnectionPoolCallbacks*,
                             RpPoolFailureReason_e,
                             const char*,
-                            RpHostDescription*);
+                            RpHostDescriptionConstSharedPtr);
     void (*on_pool_ready)(RpGenericConnectionPoolCallbacks*,
                             RpGenericUpstream*,
-                            RpHostDescription*,
-                            RpConnectionInfoProvider*,
+                            RpHostDescriptionConstSharedPtr,
+                            RpConnectionInfoProviderSharedPtr,
                             RpStreamInfo*,
                             evhtp_proto);
     RpUpstreamToDownstream* (*upstream_to_downstream)(RpGenericConnectionPoolCallbacks*);
@@ -398,7 +516,7 @@ struct _RpGenericConnectionPoolCallbacksInterface {
 
 static inline void
 rp_generic_connection_pool_callbacks_on_pool_failure(RpGenericConnectionPoolCallbacks* self, RpPoolFailureReason_e reason,
-                                                        const char* transport_failure_reason, RpHostDescription* host)
+                                                        const char* transport_failure_reason, RpHostDescriptionConstSharedPtr host)
 {
     if (RP_IS_GENERIC_CONNECTION_POOL_CALLBACKS(self))
     {
@@ -407,7 +525,7 @@ rp_generic_connection_pool_callbacks_on_pool_failure(RpGenericConnectionPoolCall
 }
 static inline void
 rp_generic_connection_pool_callbacks_on_pool_ready(RpGenericConnectionPoolCallbacks* self, RpGenericUpstream* upstream,
-                                                    RpHostDescription* host, RpConnectionInfoProvider* provider,
+                                                    RpHostDescriptionConstSharedPtr host, RpConnectionInfoProviderSharedPtr provider,
                                                     RpStreamInfo* info, evhtp_proto protocol)
 {
     if (RP_IS_GENERIC_CONNECTION_POOL_CALLBACKS(self))
@@ -438,7 +556,7 @@ struct _RpGenericConnPoolInterface {
 
     void (*new_stream)(RpGenericConnPool*, RpGenericConnectionPoolCallbacks*);
     bool (*cancel_any_pending_stream)(RpGenericConnPool*);
-    RpHostDescription* (*host)(RpGenericConnPool*);
+    RpHostDescriptionConstSharedPtr (*host)(RpGenericConnPool*);
     bool (*valid)(RpGenericConnPool*);
 };
 
@@ -456,7 +574,7 @@ rp_generic_conn_pool_cancel_any_pending_stream(RpGenericConnPool* self)
     return RP_IS_GENERIC_CONN_POOL(self) ?
         RP_GENERIC_CONN_POOL_GET_IFACE(self)->cancel_any_pending_stream(self) : false;
 }
-static inline RpHostDescription*
+static inline RpHostDescriptionConstSharedPtr
 rp_generic_conn_pool_host(RpGenericConnPool* self)
 {
     return RP_IS_GENERIC_CONN_POOL(self) ?
@@ -480,7 +598,7 @@ struct _RpGenericConnPoolFactoryInterface {
     GTypeInterface parent_iface;
 
     RpGenericConnPool* (*create_generic_conn_pool)(RpGenericConnPoolFactory*,
-                                                    RpHostConstSharedPtr,
+                                                    RpHostDescriptionConstSharedPtr,
                                                     RpThreadLocalCluster*,
                                                     RpUpstreamProtocol_e,
                                                     RpResourcePriority_e,
@@ -493,7 +611,7 @@ typedef UNIQUE_PTR(RpGenericConnPoolFactory) RpGenericConnPoolFactoryPtr;
 
 static inline RpGenericConnPool*
 rp_generic_conn_pool_factory_create_generic_conn_pool(RpGenericConnPoolFactory* self,
-                                                        RpHostConstSharedPtr host,
+                                                        RpHostDescriptionConstSharedPtr host,
                                                         RpThreadLocalCluster* thread_local_cluster,
                                                         RpUpstreamProtocol_e upstream_protocol,
                                                         RpResourcePriority_e priority,

@@ -15,23 +15,30 @@
 #define CACHE_LINE_SIZE 64
 #endif
 
-#define stats_inc(x) atomic_fetch_add_explicit(&(x), 1ULL, memory_order_relaxed)
-#define stats_dec(x) atomic_fetch_sub_explicit(&(x), 1ULL, memory_order_relaxed)
-#define stats_read(x) atomic_load(&(x))
+#define stats_inc(x) atomic_fetch_add_explicit(&(x.v), 1ULL, memory_order_relaxed)
+#define stats_dec(x) atomic_fetch_sub_explicit(&(x.v), 1ULL, memory_order_relaxed)
+#define stats_read(x) atomic_load(&(x.v))
 
 G_BEGIN_DECLS
 
+typedef struct _RpCachelineAtomicUint64 RpCachelineAtomicUint64;
+struct _RpCachelineAtomicUint64 {
+    _Atomic guint64 v;
+    /* pad out to a cache line boundary to reduce false sharing */
+    guint8 pad[CACHE_LINE_SIZE - sizeof(_Atomic guint64)];
+};
+
 typedef struct traffic_stats traffic_stats_t;
 struct traffic_stats {
-    _Atomic guint64 downstream_cx_total __attribute__((aligned(CACHE_LINE_SIZE)));
-    _Atomic guint64 downstream_cx_active __attribute__((aligned(CACHE_LINE_SIZE)));
-    _Atomic guint64 downstream_cx_destroy __attribute__((aligned(CACHE_LINE_SIZE)));
-    _Atomic guint64 downstream_rq_total __attribute__((aligned(CACHE_LINE_SIZE)));
-    _Atomic guint64 downstream_rq_active __attribute__((aligned(CACHE_LINE_SIZE)));
-    _Atomic guint64 upstream_cx_total __attribute__((aligned(CACHE_LINE_SIZE)));
-    _Atomic guint64 upstream_cx_active __attribute__((aligned(CACHE_LINE_SIZE)));
-    _Atomic guint64 upstream_rq_total __attribute__((aligned(CACHE_LINE_SIZE)));
-    _Atomic guint64 upstream_rq_active __attribute__((aligned(CACHE_LINE_SIZE)));
+    RpCachelineAtomicUint64 downstream_cx_total;
+    RpCachelineAtomicUint64 downstream_cx_active;
+    RpCachelineAtomicUint64 downstream_cx_destroy;
+    RpCachelineAtomicUint64 downstream_rq_total;
+    RpCachelineAtomicUint64 downstream_rq_active;
+    RpCachelineAtomicUint64 upstream_cx_total;
+    RpCachelineAtomicUint64 upstream_cx_active;
+    RpCachelineAtomicUint64 upstream_rq_total;
+    RpCachelineAtomicUint64 upstream_rq_active;
 };
 
 extern traffic_stats_t g_traffic_stats;

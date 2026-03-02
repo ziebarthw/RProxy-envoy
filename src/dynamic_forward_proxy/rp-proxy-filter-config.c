@@ -28,13 +28,6 @@ struct _RpProxyFilterConfig {
 
 G_DEFINE_TYPE(RpProxyFilterConfig, rp_proxy_filter_config, G_TYPE_OBJECT)
 
-static inline gchar*
-create_cluster_name(const char* host, int port)
-{
-    NOISY_MSG_("(%p(%s), %d)", host, host, port);
-    return g_strdup_printf("DFPCluster:%s:%u", host, port);
-}
-
 static inline RpClusterManager*
 cluster_manager_from_factory_context(RpFactoryContext* context)
 {
@@ -60,12 +53,6 @@ OVERRIDE void
 dispose(GObject* obj)
 {
     NOISY_MSG_("(%p)", obj);
-
-    RpProxyFilterConfig* self = RP_PROXY_FILTER_CONFIG(obj);
-    g_clear_object(&self->m_cluster_store);
-    g_clear_object(&self->m_cluster_manager);
-    g_clear_object(&self->m_main_thread_dispatcher);
-
     G_OBJECT_CLASS(rp_proxy_filter_config_parent_class)->dispose(obj);
 }
 
@@ -101,9 +88,9 @@ rp_proxy_filter_config_new(RpDfpClusterStoreFactory* cluster_store_factory, RpFa
     g_return_val_if_fail(RP_IS_FACTORY_CONTEXT(context), NULL);
 
     RpProxyFilterConfig* self = g_object_new(RP_TYPE_PROXY_FILTER_CONFIG, NULL);
-    self->m_cluster_store = g_object_ref(rp_dfp_cluster_store_factory_get(cluster_store_factory));
-    self->m_cluster_manager = g_object_ref(cluster_manager_from_factory_context(context));
-    self->m_main_thread_dispatcher = g_object_ref(main_thread_dispatcher_from_factory_context(context));
+    self->m_cluster_store = rp_dfp_cluster_store_factory_get(cluster_store_factory);
+    self->m_cluster_manager = cluster_manager_from_factory_context(context);
+    self->m_main_thread_dispatcher = main_thread_dispatcher_from_factory_context(context);
     self->m_tls_slot = rp_slot_allocator_allocate_slot(slot_allocator_from_factory_context(context));
     rp_slot_set(self->m_tls_slot, slot_initialize_cb, self);
     //TODO...save_upstream_address_(proto_config.save_upstream_address())
@@ -137,15 +124,15 @@ rp_proxy_filter_config_save_upstream_address(RpProxyFilterConfig* self)
 typedef struct _RpAddOrUpdateClusterCbCtx RpAddOrUpdateClusterCbCtx;
 struct _RpAddOrUpdateClusterCbCtx {
     RpProxyFilterConfig* filter_config;
-    RpClusterCfg config;
+    RpClusterCfgPtr config;
     const char* version_info;
 };
 static inline RpAddOrUpdateClusterCbCtx
-rp_add_or_update_cluster_cb_ctx_ctor(RpProxyFilterConfig* filter_config, const RpClusterCfg* config, const char* version_info)
+rp_add_or_update_cluster_cb_ctx_ctor(RpProxyFilterConfig* filter_config, RpClusterCfgPtr config, const char* version_info)
 {
     RpAddOrUpdateClusterCbCtx self = {
         .filter_config = g_object_ref(filter_config),
-        .config = *config,
+        .config = g_steal_pointer(&config),
         .version_info = version_info
     };
     return self;
@@ -155,12 +142,14 @@ rp_add_or_update_cluster_cb_ctx_dtor(RpAddOrUpdateClusterCbCtx* self)
 {
     NOISY_MSG_("(%p)", self);
     g_clear_object(&self->filter_config);
+NOISY_MSG_("%p, config %p", self, self->config);
+    g_clear_pointer(&self->config, rp_cluster_cfg_free);
 }
 static inline RpAddOrUpdateClusterCbCtx*
-rp_add_or_update_cluster_cb_ctx_new(RpProxyFilterConfig* filter_config, const RpClusterCfg* config, const char* version_info)
+rp_add_or_update_cluster_cb_ctx_new(RpProxyFilterConfig* filter_config, RpClusterCfgPtr config, const char* version_info)
 {
     NOISY_MSG_("(%p, %p, %p(%s))", filter_config, config, version_info, version_info);
-    RpAddOrUpdateClusterCbCtx* self = g_new(RpAddOrUpdateClusterCbCtx, 1);
+    RpAddOrUpdateClusterCbCtx* self = g_new0(RpAddOrUpdateClusterCbCtx, 1);
     *self = rp_add_or_update_cluster_cb_ctx_ctor(filter_config, config, version_info);
     return self;
 }
@@ -176,7 +165,7 @@ static inline RpAddOrUpdateClusterCbCtx
 rp_add_or_update_cluster_cb_ctx_captures(RpAddOrUpdateClusterCbCtx* self)
 {
     NOISY_MSG_("(%p)", self);
-    RpAddOrUpdateClusterCbCtx captured = rp_add_or_update_cluster_cb_ctx_ctor(self->filter_config, &self->config, self->version_info);
+    RpAddOrUpdateClusterCbCtx captured = rp_add_or_update_cluster_cb_ctx_ctor(self->filter_config, g_steal_pointer(&self->config), self->version_info);
     rp_add_or_update_cluster_cb_ctx_free(self);
     return captured;
 }
@@ -188,12 +177,13 @@ add_or_update_cluster_cb(gpointer arg)
     RpAddOrUpdateClusterCbCtx* ctx = arg;
     RpAddOrUpdateClusterCbCtx captures = rp_add_or_update_cluster_cb_ctx_captures(ctx);
     RpProxyFilterConfig* self = captures.filter_config;
-    RpClusterCfg config = captures.config;
+    const RpClusterCfg* config = captures.config;
     const char* version_info = captures.version_info;
-    if (!rp_cluster_manager_add_or_update_cluster(self->m_cluster_manager, &config, version_info))
+    if (!rp_cluster_manager_add_or_update_cluster(self->m_cluster_manager, config, version_info))
     {
         LOGE("failed");
     }
+    g_clear_pointer(&captures.config, rp_cluster_cfg_free);
 }
 
 static inline bool
@@ -232,7 +222,7 @@ rp_proxy_filter_config_add_dynamic_cluster(RpProxyFilterConfig* self, RpDfpClust
 
     if (sub_cluster_pair.config)
     {
-        RpClusterCfg* cluster_ = &sub_cluster_pair.config_;
+        RpClusterCfgPtr cluster_ = sub_cluster_pair.config;
         const char* version_info = "";
         LOGD("deliver dynamic cluster \"%s\" creation to main thread", cluster_name);
         rp_dispatcher_base_post(RP_DISPATCHER_BASE(self->m_main_thread_dispatcher),

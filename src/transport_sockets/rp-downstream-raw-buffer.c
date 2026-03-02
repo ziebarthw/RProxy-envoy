@@ -13,6 +13,7 @@
 #   define NOISY_MSG_(x, ...)
 #endif
 
+#include "rp-factory-context.h"
 #include "network/rp-raw-buffer-socket.h"
 #include "transport_sockets/rp-raw-buffer.h"
 
@@ -28,7 +29,7 @@ G_DEFINE_FINAL_TYPE_WITH_CODE(RpDownstreamRawBufferSocketFactory, rp_downstream_
 )
 
 static RpDownstreamTransportSocketFactoryPtr
-create_transport_socket_factory_i(RpDownstreamTransportSocketConfigFactory* self, gpointer config, RpTransportSocketFactoryContext* context G_GNUC_UNUSED)
+create_transport_socket_factory_i(RpDownstreamTransportSocketConfigFactory* self, gpointer config, RpTransportSocketFactoryContext* context)
 {
     NOISY_MSG_("(%p, %p, %p)", self, config, context);
     server_cfg_t* server_cfg = config;

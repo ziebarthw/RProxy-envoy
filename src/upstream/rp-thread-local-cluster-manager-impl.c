@@ -21,19 +21,20 @@ struct _RpThreadLocalClusterManagerImpl {
     GObject parent_instance;
 
     RpClusterManagerImpl* m_parent;
-    SHARED_PTR(RpDispatcher) m_thread_local_dispatcher;
+    RpDispatcher* m_thread_local_dispatcher;
 
-    UNIQUE_PTR(GHashTable) m_thread_local_clusters;
+    GHashTable* m_thread_local_deferred_clusters;
+    GHashTable* /* <std::string, ClusterEntryPtr> */ m_thread_local_clusters;
 
     // These maps are owned by the ThreadLocalClusterManagerImpl instead of the ClusterEntry
     // to prevent lifetime/ownership issues when a cluster is dynamically removed.
-    UNIQUE_PTR(GHashTable) /* <RpHostConstSharedPtr, RpConnPoolsContainer> */    m_host_http_conn_pool_map;
-    UNIQUE_PTR(GHashTable) /* <RpHostConstSharedPtr, RpTcpConnPoolsContainer> */ m_host_tcp_conn_pool_map;
-    UNIQUE_PTR(GHashTable) /* <RpHostConstSharedPtr, RpTcpConnectionsMap> */     m_host_tcp_conn_map;
+    GHashTable* /* <RpHostConstSharedPtr, RpConnPoolsContainer> */    m_host_http_conn_pool_map;
+    GHashTable* /* <RpHostConstSharedPtr, RpTcpConnPoolsContainer> */ m_host_tcp_conn_pool_map;
+    GHashTable* /* <RpHostConstSharedPtr, RpTcpConnectionsMap> */     m_host_tcp_conn_map;
 
     RpPrioritySet* m_local_priority_set;
 
-    UNIQUE_PTR(GList) m_update_callbacks;
+    GList* m_update_callbacks;
 };
 
 static void thread_local_object_iface_init(RpThreadLocalObjectInterface* iface);
@@ -56,7 +57,7 @@ add_cluster_update_callbacks_i(RpClusterLifecycleCallbackHandler* self, RpCluste
     NOISY_MSG_("(%p, %p)", self, cb);
     RpThreadLocalClusterManagerImpl* me = RP_THREAD_LOCAL_CLUSTER_MANAGER_IMPL(self);
     return RP_CLUSTER_UPDATE_CALLBACKS_HANDLE(
-            rp_cluster_update_callbacks_handler_impl_new(cb, &me->m_update_callbacks));
+            rp_cluster_update_callbacks_handle_impl_new(cb, &me->m_update_callbacks));
 }
 
 static void
@@ -64,6 +65,14 @@ cluster_lifecycle_callback_handler_iface_init(RpClusterLifecycleCallbackHandlerI
 {
     LOGD("(%p)", iface);
     iface->add_cluster_update_callbacks = add_cluster_update_callbacks_i;
+}
+
+static void
+free_cb(gpointer data, gpointer arg)
+{
+    NOISY_MSG_("(%p, %p)", data, arg);
+    NOISY_MSG_("is object %u", G_IS_OBJECT(data));
+    g_object_unref(G_OBJECT(data));
 }
 
 OVERRIDE void
@@ -75,10 +84,13 @@ dispose(GObject* obj)
     g_clear_pointer(&self->m_thread_local_clusters, g_hash_table_unref);
     g_clear_pointer(&self->m_host_http_conn_pool_map, g_hash_table_unref);
     g_clear_pointer(&self->m_host_tcp_conn_pool_map, g_hash_table_unref);
+    g_clear_pointer(&self->m_thread_local_deferred_clusters, g_hash_table_unref);
     g_clear_pointer(&self->m_host_tcp_conn_map, g_hash_table_unref);
-    g_list_free_full(g_steal_pointer(&self->m_update_callbacks), g_object_unref);
+    g_list_foreach(self->m_update_callbacks, free_cb, self);
 
     rp_dispatcher_clear_deferred_delete_list(self->m_thread_local_dispatcher);
+
+    g_object_unref(self->m_thread_local_dispatcher);
 
     G_OBJECT_CLASS(rp_thread_local_cluster_manager_impl_parent_class)->dispose(obj);
 }
@@ -97,10 +109,26 @@ rp_thread_local_cluster_manager_impl_init(RpThreadLocalClusterManagerImpl* self)
 {
     NOISY_MSG_("(%p)", self);
 
-    self->m_thread_local_clusters = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_object_unref);
-    self->m_host_http_conn_pool_map = g_hash_table_new_full(NULL, NULL, g_object_unref, (GDestroyNotify)rp_conn_pools_container_free);
-    self->m_host_tcp_conn_pool_map = g_hash_table_new_full(NULL, NULL, g_object_unref, (GDestroyNotify)rp_tcp_conn_pools_container_free);
-    self->m_host_tcp_conn_map = g_hash_table_new_full(NULL, NULL, g_object_unref, (GDestroyNotify)rp_tcp_connections_map_free);
+    self->m_thread_local_clusters = g_hash_table_new_full(g_str_hash,
+                                                            g_str_equal,
+                                                            g_free,
+                                                            g_object_unref);
+    self->m_thread_local_deferred_clusters = g_hash_table_new_full(g_str_hash,
+                                                                    g_str_equal,
+                                                                    g_free,
+                                                                    g_object_unref);
+    self->m_host_http_conn_pool_map = g_hash_table_new_full(g_direct_hash,
+                                                            g_direct_equal,
+                                                            g_object_unref,
+                                                            (GDestroyNotify)rp_conn_pools_container_free);
+    self->m_host_tcp_conn_pool_map = g_hash_table_new_full(g_direct_hash,
+                                                            g_direct_equal,
+                                                            g_object_unref,
+                                                            (GDestroyNotify)rp_tcp_conn_pools_container_free);
+    self->m_host_tcp_conn_map = g_hash_table_new_full(g_direct_hash,
+                                                        g_direct_equal,
+                                                        g_object_unref,
+                                                        (GDestroyNotify)rp_tcp_connections_map_free);
 }
 
 RpThreadLocalClusterManagerImpl*
@@ -113,13 +141,14 @@ rp_thread_local_cluster_manager_impl_new(RpClusterManagerImpl* parent, RpDispatc
 
     RpThreadLocalClusterManagerImpl* self = g_object_new(RP_TYPE_THREAD_LOCAL_CLUSTER_MANAGER_IMPL, NULL);
     self->m_parent = parent;
-    self->m_thread_local_dispatcher = dispatcher;
+    self->m_thread_local_dispatcher = g_object_ref(dispatcher);
     if (local_cluster_params)
     {
         const char* local_cluster_name = rp_cluster_info_name(local_cluster_params->m_info);
         RpClusterEntry* cluster_entry = rp_cluster_entry_new(self,
                                                                 local_cluster_params->m_info,
                                                                 local_cluster_params->m_load_balancer_factory);
+        // thread_local_clusters owner cluster_entry.
         g_hash_table_insert(self->m_thread_local_clusters, g_strdup(local_cluster_name), cluster_entry);
         self->m_local_priority_set = rp_thread_local_cluster_priority_set(RP_THREAD_LOCAL_CLUSTER(cluster_entry));
     }
@@ -127,19 +156,19 @@ rp_thread_local_cluster_manager_impl_new(RpClusterManagerImpl* parent, RpDispatc
 }
 
 void
-rp_thread_local_cluster_manager_impl_remove_tcp_conn(RpThreadLocalClusterManagerImpl* self, SHARED_PTR(RpHost) host, RpNetworkClientConnection* connection)
+rp_thread_local_cluster_manager_impl_remove_tcp_conn(RpThreadLocalClusterManagerImpl* self, RpHost* host, RpNetworkClientConnection* connection)
 {
     LOGD("(%p, %p, %p)", self, host, connection);
 
     g_return_if_fail(RP_IS_THREAD_LOCAL_CLUSTER_MANAGER_IMPL(self));
-    g_return_if_fail(RP_IS_HOST(host));
+    g_return_if_fail(rp_host_is_a(host));
     g_return_if_fail(RP_IS_NETWORK_CLIENT_CONNECTION(connection));
 
     RpTcpConnectionsMap* connections_map = g_hash_table_lookup(self->m_host_tcp_conn_map, host);
     RpTcpConnContainer* container = g_hash_table_lookup(connections_map->m_connections, connection);
     if (g_hash_table_remove(connections_map->m_connections, container))
     {
-        rp_dispatcher_deferred_delete(
+        rp_dispatcher_deferred_delete_take(
             rp_network_connection_dispatcher(RP_NETWORK_CONNECTION(connection)), G_OBJECT(container));
         if (rp_tcp_connections_map_empty(connections_map))
         {
@@ -151,13 +180,12 @@ rp_thread_local_cluster_manager_impl_remove_tcp_conn(RpThreadLocalClusterManager
 
 RpConnPoolsContainer*
 rp_thread_local_cluster_manager_impl_get_http_conn_pools_container(RpThreadLocalClusterManagerImpl* self,
-                                                                                            RpHostConstSharedPtr host,
-                                                                                            bool allocate)
+                                                                    RpHost* host, bool allocate)
 {
     LOGD("(%p, %p, %u)", self, host, allocate);
 
     g_return_val_if_fail(RP_IS_THREAD_LOCAL_CLUSTER_MANAGER_IMPL(self), NULL);
-    g_return_val_if_fail(RP_IS_HOST(host), NULL);
+    g_return_val_if_fail(rp_host_is_a(host), NULL);
 
     RpConnPoolsContainer* container = g_hash_table_lookup(self->m_host_http_conn_pool_map, host);
     if (!container)
@@ -168,7 +196,9 @@ rp_thread_local_cluster_manager_impl_get_http_conn_pools_container(RpThreadLocal
             return NULL;
         }
         container = rp_conn_pools_container_new(self->m_thread_local_dispatcher, host);
-        g_hash_table_insert(self->m_host_http_conn_pool_map, host, container);
+        RpHost* key = NULL;
+        rp_host_set_object(&key, host);
+        g_hash_table_insert(self->m_host_http_conn_pool_map, key, container);
     }
     return container;
 }
@@ -217,7 +247,7 @@ rp_thread_local_cluster_manager_impl_thread_local_clusters_(RpThreadLocalCluster
 }
 
 void
-rp_thread_local_cluster_manager_impl_drain_or_close_conn_pools(RpThreadLocalClusterManagerImpl* self, RpHostSharedPtr host, RpDrainBehavior_e drain_behavior)
+rp_thread_local_cluster_manager_impl_drain_or_close_conn_pools(RpThreadLocalClusterManagerImpl* self, RpHost* host, RpDrainBehavior_e drain_behavior)
 {
     LOGD("(%p, %p, %d)", self, host, drain_behavior);
     g_return_if_fail(RP_IS_THREAD_LOCAL_CLUSTER_MANAGER_IMPL(self));
@@ -231,6 +261,7 @@ rp_thread_local_cluster_manager_impl_drain_or_close_conn_pools(RpThreadLocalClus
 
         if (rp_priority_conn_pool_map_empty(container->m_pools))
         {
+            NOISY_MSG_("%p, removing host %p from host http conn pool map %p", self, host, self->m_host_http_conn_pool_map);
             g_hash_table_remove(self->m_host_http_conn_pool_map, host);
         }
     }
@@ -246,7 +277,7 @@ rp_thread_local_cluster_manager_impl_drain_or_close_conn_pools(RpThreadLocalClus
             g_hash_table_iter_init(&itr, container->m_pools);
             while (g_hash_table_iter_next(&itr, &key, &value))
             {
-                pools->pdata[index++] = value;
+                g_ptr_array_add(pools, value);
             }
 
             for (index = 0; index < pools->len; ++index)
@@ -263,6 +294,51 @@ rp_thread_local_cluster_manager_impl_drain_or_close_conn_pools(RpThreadLocalClus
             }
         }
     }
+}
+
+bool
+rp_thread_local_cluster_manager_impl_thread_local_clusters_contains(RpThreadLocalClusterManagerImpl* self, const char* cluster_name)
+{
+    LOGD("(%p, %p(%s))", self, cluster_name, cluster_name);
+    g_return_val_if_fail(RP_IS_THREAD_LOCAL_CLUSTER_MANAGER_IMPL(self), false);
+    g_return_val_if_fail(cluster_name != NULL, false);
+    g_return_val_if_fail(cluster_name[0], false);
+    return g_hash_table_contains(self->m_thread_local_clusters, cluster_name);
+}
+
+bool
+rp_thread_local_cluster_manager_impl_thread_local_deferred_cluster_contains(RpThreadLocalClusterManagerImpl* self, const char* cluster_name)
+{
+    LOGD("(%p, %p(%s))", self, cluster_name, cluster_name);
+    g_return_val_if_fail(RP_IS_THREAD_LOCAL_CLUSTER_MANAGER_IMPL(self), false);
+    g_return_val_if_fail(cluster_name != NULL, false);
+    g_return_val_if_fail(cluster_name[0], false);
+    return g_hash_table_contains(self->m_thread_local_deferred_clusters, cluster_name);
+}
+
+void
+rp_thread_local_cluster_manager_impl_update_cluster_membership(RpThreadLocalClusterManagerImpl* self, const char* name, guint32 priority,
+                                                                RpPrioritySetUpdateHostsParams update_hosts_params,
+                                                                const RpHostVector* hosts_added, const RpHostVector* hosts_removed,
+                                                                bool weighted_priority_health, guint64 overprovisioning_factor,
+                                                                RpHostMapSnap* cross_priority_host_map)
+{
+    LOGD("(%p, %p(%s), %u, %p, %p, %p, %u, %" G_GUINT64_FORMAT ", %p)",
+        self, name, name, priority, &update_hosts_params, hosts_added, hosts_removed,
+        weighted_priority_health, overprovisioning_factor, cross_priority_host_map);
+    g_assert(g_hash_table_lookup(self->m_thread_local_clusters, name) != NULL);
+    guint32 overprovisioning_factor_ = overprovisioning_factor > G_MAXUINT32 ? G_MAXUINT32 : (guint32)overprovisioning_factor;
+    RpClusterEntry* entry = g_hash_table_lookup(self->m_thread_local_clusters, name);
+    // Pass address of our local |params| copy through the chain.
+    rp_cluster_entry_update_hosts(entry,
+                                    name,
+                                    priority,
+                                    &update_hosts_params,
+                                    hosts_added,
+                                    hosts_removed,
+                                    &weighted_priority_health,
+                                    &overprovisioning_factor_,
+                                    cross_priority_host_map);
 }
 
 GHashTable*

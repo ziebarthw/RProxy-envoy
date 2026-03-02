@@ -156,9 +156,9 @@ void rp_connection_pool_active_client_on_connection_duration_timeout(RpConnectio
 RpConnectionPoolActiveClientState_e rp_connection_pool_active_client_state(RpConnectionPoolActiveClient* self);
 void rp_connection_pool_active_client_set_state(RpConnectionPoolActiveClient* self,
                                                 RpConnectionPoolActiveClientState_e state);
-RpHostDescription* rp_connection_pool_active_client_get_real_host_description(RpConnectionPoolActiveClient* self);
+RpHostDescriptionConstSharedPtr rp_connection_pool_active_client_get_real_host_description(RpConnectionPoolActiveClient* self);
 void rp_connection_pool_active_client_set_real_host_description(RpConnectionPoolActiveClient* self,
-                                                                RpHostDescription* host_desc);
+                                                                RpHostDescriptionConstSharedPtr host_desc);
 guint32 rp_connection_pool_active_client_decr_remaining_streams(RpConnectionPoolActiveClient* self);
 void rp_connection_pool_active_client_set_remaining_streams(RpConnectionPoolActiveClient* self,
                                                             guint32 count);

@@ -33,6 +33,6 @@ bool rp_http_pool_data_has_active_connections(RpHttpPoolData* self);
 void rp_http_pool_data_add_idle_callbacks(RpHttpPoolData* self, RpIdleCb cb);
 void rp_http_pool_data_drain_connections(RpHttpPoolData* self,
                                             RpDrainBehavior_e drain_behavior);
-RpHostDescription* rp_http_pool_data_host(RpHttpPoolData* self);
+RpHostDescriptionConstSharedPtr rp_http_pool_data_host(RpHttpPoolData* self);
 
 G_END_DECLS

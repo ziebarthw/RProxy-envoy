@@ -28,7 +28,7 @@ struct _RpActiveTcpClient {
     RpConnectionPoolActiveClient parent_instance;
 
     RpConnPoolImplBase* m_parent;
-    UNIQUE_PTR(RpNetworkClientConnection) m_connection;
+    RpNetworkClientConnection* m_connection;
     RpHost* m_host;
     SHARED_PTR(RpTcpConnectionData) m_tcp_connection_data;
     RpTcpConnPoolUpstreamCallbacks* m_callbacks;
@@ -117,6 +117,9 @@ dispose(GObject* obj)
     }
 NOISY_MSG_("clearing connection %p", self->m_connection);
     g_clear_object(&self->m_connection);
+NOISY_MSG_("%p, clearing read filter handle %p(%u)", self, self->m_read_filter_handle, G_OBJECT(self->m_read_filter_handle)->ref_count);
+    g_clear_object(&self->m_read_filter_handle);
+    g_clear_object(&self->m_host);
 
     G_OBJECT_CLASS(rp_active_tcp_client_parent_class)->dispose(obj);
 }
@@ -239,11 +242,11 @@ rp_active_tcp_client_new(RpConnPoolImplBase* parent, RpHost* host, guint64 concu
     LOGD("(%p, %p, %zu)", parent, host, concurrent_stream_limit);
     RpActiveTcpClient* self =  g_object_new(RP_TYPE_ACTIVE_TCP_CLIENT,
                                             "lifetime-stream-limit", rp_cluster_info_max_requests_per_connection(
-                                                                        rp_host_description_cluster(RP_HOST_DESCRIPTION(host))),
+                                                                        rp_host_description_cluster((RpHostDescriptionConstSharedPtr)host)),
                                             "concurrent-stream-limit", concurrent_stream_limit,
                                             NULL);
     self->m_parent = parent;
-    self->m_host = host;
+    rp_host_set_object(&self->m_host, host);
     return constructed(self);
 }
 

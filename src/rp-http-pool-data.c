@@ -94,7 +94,7 @@ rp_http_pool_data_drain_connections(RpHttpPoolData* self, RpDrainBehavior_e drai
     rp_connection_pool_instance_drain_connections(RP_CONNECTION_POOL_INSTANCE(self->m_pool), drain_behavior);
 }
 
-RpHostDescription*
+RpHostDescriptionConstSharedPtr
 rp_http_pool_data_host(RpHttpPoolData* self)
 {
     LOGD("(%p)", self);

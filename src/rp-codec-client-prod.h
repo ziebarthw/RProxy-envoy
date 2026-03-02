@@ -24,7 +24,7 @@ G_DECLARE_FINAL_TYPE(RpCodecClientProd, rp_codec_client_prod, RP, CODEC_CLIENT_P
 
 RpCodecClientProd* rp_codec_client_prod_new(RpCodecType_e type,
                                             RpNetworkClientConnection* connection,
-                                            RpHostDescription* host,
+                                            RpHostDescriptionConstSharedPtr host,
                                             RpDispatcher* dispatcher,
                                             bool should_connect_on_creation);
 

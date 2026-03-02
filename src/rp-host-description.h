@@ -15,7 +15,8 @@
 G_BEGIN_DECLS
 
 typedef struct _RpClusterInfo RpClusterInfo;
-typedef /*const*/ SHARED_PTR(RpClusterInfo) RpClusterInfoConstSharedPtr;
+typedef const SHARED_PTR(RpClusterInfo) RpClusterInfoConstSharedPtr;
+typedef SHARED_PTR(RpClusterInfo) RpClusterInfoSharedPtr;
 typedef gpointer RpMetadataConstSharedPtr;
 
 /**
@@ -28,79 +29,108 @@ struct _RpHostDescriptionInterface {
     GTypeInterface parent_iface;
 
     //TODO...
-    RpMetadataConstSharedPtr (*metadata)(RpHostDescription*);
+    RpMetadataConstSharedPtr (*metadata)(const RpHostDescription*);
     void (*set_metadata)(RpHostDescription*, RpMetadataConstSharedPtr);
-    RpClusterInfoConstSharedPtr (*cluster)(RpHostDescription*);
-    bool (*can_create_connection)(RpHostDescription*, RpResourcePriority_e);
+    RpClusterInfoConstSharedPtr (*cluster)(const RpHostDescription*);
+    bool (*can_create_connection)(const RpHostDescription*, RpResourcePriority_e);
     //TODO...
-    const char* (*hostname)(RpHostDescription*);
-    RpUpstreamTransportSocketFactory* (*transport_socket_factory)(RpHostDescription*);
+    const char* (*hostname)(const RpHostDescription*);
+    RpUpstreamTransportSocketFactory* (*transport_socket_factory)(const RpHostDescription*);
     //TODO...
-    RpNetworkAddressInstanceConstSharedPtr (*address)(RpHostDescription*);
+    RpNetworkAddressInstanceConstSharedPtr (*address)(const RpHostDescription*);
     //TODO...
-    guint32 (*priority)(RpHostDescription*);
+    guint32 (*priority)(const RpHostDescription*);
     void (*set_priority)(RpHostDescription*, guint32);
     //TODO...
 };
 
-static inline RpMetadataConstSharedPtr
-rp_host_description_metadata(RpHostDescription* self)
+typedef const SHARED_PTR(RpHostDescription) RpHostDescriptionConstSharedPtr;
+typedef SHARED_PTR(RpHostDescription) RpHostDescriptionSharedPtr;
+
+static inline gboolean
+rp_host_description_is_a(RpHostDescriptionConstSharedPtr self)
 {
-    return RP_IS_HOST_DESCRIPTION(self) ?
-        RP_HOST_DESCRIPTION_GET_IFACE(self)->metadata(self) : NULL;
+    g_return_val_if_fail(self != NULL, FALSE);
+    return RP_IS_HOST_DESCRIPTION((GObject*)self);
+}
+static inline RpHostDescriptionInterface*
+rp_host_description_iface(RpHostDescriptionConstSharedPtr self)
+{
+    g_return_val_if_fail(rp_host_description_is_a(self), NULL);
+    return RP_HOST_DESCRIPTION_GET_IFACE((GObject*)self);
+}
+static inline void
+rp_host_description_set_object(RpHostDescriptionSharedPtr* dst, RpHostDescriptionConstSharedPtr src)
+{
+    g_return_if_fail(dst != NULL);
+    g_set_object((GObject**)dst, (GObject*)src);
+}
+static inline RpMetadataConstSharedPtr
+rp_host_description_metadata(RpHostDescriptionConstSharedPtr self)
+{
+    g_return_val_if_fail(rp_host_description_is_a(self), NULL);
+    RpHostDescriptionInterface* iface = rp_host_description_iface(self);
+    return iface->metadata ? iface->metadata(self) : NULL;
 }
 static inline void
 rp_host_description_set_metadata(RpHostDescription* self, RpMetadataConstSharedPtr metadata)
 {
-    return RP_IS_HOST_DESCRIPTION(self) ?
-        RP_HOST_DESCRIPTION_GET_IFACE(self)->set_metadata(self, metadata) :
-        NULL;
+    g_return_if_fail(rp_host_description_is_a(self));
+    RpHostDescriptionInterface* iface = rp_host_description_iface(self);
+    if (iface->set_metadata) \
+        iface->set_metadata(self, metadata);
 }
 static inline RpClusterInfoConstSharedPtr
-rp_host_description_cluster(RpHostDescription* self)
+rp_host_description_cluster(RpHostDescriptionConstSharedPtr self)
 {
-    return RP_IS_HOST_DESCRIPTION(self) ?
-        RP_HOST_DESCRIPTION_GET_IFACE(self)->cluster(self) : NULL;
+    g_return_val_if_fail(rp_host_description_is_a(self), NULL);
+    RpHostDescriptionInterface* iface = rp_host_description_iface(self);
+    return iface->cluster ? iface->cluster(self) : NULL;
 }
 static inline bool
-rp_host_description_can_create_connection(RpHostDescription* self, RpResourcePriority_e priority)
+rp_host_description_can_create_connection(RpHostDescriptionConstSharedPtr self, RpResourcePriority_e priority)
 {
-    return RP_IS_HOST_DESCRIPTION(self) ?
-        RP_HOST_DESCRIPTION_GET_IFACE(self)->can_create_connection(self, priority) :
-        false;
+    g_return_val_if_fail(rp_host_description_is_a(self), false);
+    RpHostDescriptionInterface* iface = rp_host_description_iface(self);
+    return iface->can_create_connection ?
+        iface->can_create_connection(self, priority) : false;
 }
 static inline const char*
-rp_host_description_hostname(RpHostDescription* self)
+rp_host_description_hostname(RpHostDescriptionConstSharedPtr self)
 {
-    return RP_IS_HOST_DESCRIPTION(self) ?
-        RP_HOST_DESCRIPTION_GET_IFACE(self)->hostname(self) : NULL;
+    g_return_val_if_fail(rp_host_description_is_a(self), NULL);
+    RpHostDescriptionInterface* iface = rp_host_description_iface(self);
+    return iface->hostname ? iface->hostname(self) : NULL;
 }
 static inline RpUpstreamTransportSocketFactory*
-rp_host_description_transport_socket_factory(RpHostDescription* self)
+rp_host_description_transport_socket_factory(RpHostDescriptionConstSharedPtr self)
 {
-    return RP_IS_HOST_DESCRIPTION(self) ?
-        RP_HOST_DESCRIPTION_GET_IFACE(self)->transport_socket_factory(self) :
-        NULL;
+    g_return_val_if_fail(rp_host_description_is_a(self), NULL);
+    RpHostDescriptionInterface* iface = rp_host_description_iface(self);
+    return iface->transport_socket_factory ?
+        iface->transport_socket_factory(self) : NULL;
 }
 static inline RpNetworkAddressInstanceConstSharedPtr
-rp_host_description_address(RpHostDescription* self)
+rp_host_description_address(RpHostDescriptionConstSharedPtr self)
 {
-    return RP_IS_HOST_DESCRIPTION(self) ?
-        RP_HOST_DESCRIPTION_GET_IFACE(self)->address(self) : NULL;
+    g_return_val_if_fail(rp_host_description_is_a(self), NULL);
+    RpHostDescriptionInterface* iface = rp_host_description_iface(self);
+    return iface->address ? iface->address(self) : NULL;
 }
 static inline guint32
-rp_host_description_priority(RpHostDescription* self)
+rp_host_description_priority(RpHostDescriptionConstSharedPtr self)
 {
-    return RP_IS_HOST_DESCRIPTION(self) ?
-        RP_HOST_DESCRIPTION_GET_IFACE(self)->priority(self) : 0;
+    g_return_val_if_fail(rp_host_description_is_a(self), 0);
+    RpHostDescriptionInterface* iface = rp_host_description_iface(self);
+    return iface->priority ? iface->priority(self) : 0;
 }
 static inline void
 rp_host_description_set_priority(RpHostDescription* self, guint32 priority)
 {
-    if (RP_IS_HOST_DESCRIPTION(self))
-    {
-        RP_HOST_DESCRIPTION_GET_IFACE(self)->set_priority(self, priority);
-    }
+    g_return_if_fail(rp_host_description_is_a(self));
+    RpHostDescriptionInterface* iface = rp_host_description_iface(self);
+    if (iface->set_priority) \
+        iface->set_priority(self, priority);
 }
 
 G_END_DECLS

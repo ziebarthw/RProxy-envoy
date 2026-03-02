@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_codec_client_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_codec_client_NOISY)
@@ -18,7 +15,6 @@
 
 #include "rp-host-description.h"
 #include "rp-codec-client-active-request.h"
-#include "rp-codec-read-filter.h"
 #include "rp-dispatcher.h"
 #include "rp-net-filter.h"
 #include "rp-codec-client.h"
@@ -33,13 +29,14 @@ rp_codec_client_callbacks_default_init(RpCodecClientCallbacksInterface* iface)
 typedef struct _RpCodecClientPrivate RpCodecClientPrivate;
 struct _RpCodecClientPrivate {
 
-    UNIQUE_PTR(RpNetworkClientConnection) m_connection;
+    RpNetworkClientConnection* m_connection;
     RpHttpClientConnection* m_codec;
     GSList* m_active_requests;
     RpHttpConnectionCallbacks* m_codec_callbacks;
     RpCodecClientCallbacks* m_codec_client_callbacks;
+    RpCodecReadFilter* m_codec_read_filter;
 
-    RpHostDescription* m_host;
+    RpHostDescriptionSharedPtr m_host;
     evhtp_t* m_dispatcher;
 
     evbuf_t* m_empty_buf;
@@ -226,7 +223,7 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
             PRIV(obj)->m_connection = g_value_get_object(value);
             break;
         case PROP_HOST:
-            PRIV(obj)->m_host = g_value_get_object(value);
+            rp_host_description_set_object(&PRIV(obj)->m_host, g_value_get_object(value));
             break;
         case PROP_DISPATCHER:
             PRIV(obj)->m_dispatcher = g_value_get_pointer(value);
@@ -250,8 +247,9 @@ constructed(GObject* obj)
 
     rp_network_connection_add_connection_callbacks(RP_NETWORK_CONNECTION(connection),
                                                     RP_NETWORK_CONNECTION_CALLBACKS(obj));
+    me->m_codec_read_filter = rp_codec_read_filter_new(RP_CODEC_CLIENT(obj));
     rp_network_filter_manager_add_read_filter(RP_NETWORK_FILTER_MANAGER(connection),
-                                                RP_NETWORK_READ_FILTER(rp_codec_read_filter_new(obj)));
+                                                (RpNetworkReadFilterSharedPtr)me->m_codec_read_filter);
     //TODO...if (idle_timeout_)
 
     rp_network_connection_no_delay(RP_NETWORK_CONNECTION(connection), true);
@@ -263,8 +261,10 @@ dispose(GObject* obj)
     NOISY_MSG_("(%p)", obj);
 
     RpCodecClientPrivate* me = PRIV(obj);
-NOISY_MSG_("clearing connection %p", me->m_connection);
     g_clear_object(&me->m_connection);
+    g_clear_object(&me->m_host);
+    g_clear_object(&me->m_codec);
+    g_clear_object(&me->m_codec_read_filter);
 
     G_OBJECT_CLASS(rp_codec_client_parent_class)->dispose(obj);
 }
@@ -369,7 +369,7 @@ delete_request(RpCodecClient* self, RpCodecClientActiveRequest* request)
     me->m_active_requests = g_slist_remove(me->m_active_requests, request);
     RpNetworkConnection* connection = RP_NETWORK_CONNECTION(me->m_connection);
     RpDispatcher* dispatcher = rp_network_connection_dispatcher(connection);
-    rp_dispatcher_deferred_delete(dispatcher, G_OBJECT(request));
+    rp_dispatcher_deferred_delete_take(dispatcher, G_OBJECT(request));
     RpCodecClientCallbacks* codec_client_callbacks = me->m_codec_client_callbacks;
     if (codec_client_callbacks)
     {
@@ -568,7 +568,7 @@ rp_codec_client_set_requested_server_name(RpCodecClient* self, const char* reque
 {
     LOGD("(%p, %p(%s))", self, requested_server_name, requested_server_name);
     g_return_if_fail(RP_IS_CODEC_CLIENT(self));
-    RpConnectionInfoSetter* info = rp_network_connection_connection_info_setter(NETWORK_CONNECTION(PRIV(self)));
+    RpConnectionInfoSetterSharedPtr info = rp_network_connection_connection_info_setter(NETWORK_CONNECTION(PRIV(self)));
     rp_connection_info_setter_set_requested_server_name(info, requested_server_name);
 }
 

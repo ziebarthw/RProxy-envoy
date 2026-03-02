@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_tcp_conn_pool_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_tcp_conn_pool_NOISY)
@@ -94,11 +91,11 @@ new_stream_i(RpGenericConnPool* self, RpGenericConnectionPoolCallbacks* callback
                                                             RP_TCP_CONN_POOL_CALLBACKS(self));
 }
 
-static RpHostDescription*
+static RpHostDescriptionConstSharedPtr
 host_i(RpGenericConnPool* self)
 {
     NOISY_MSG_("(%p)", self);
-    return RP_HOST_DESCRIPTION(rp_tcp_pool_data_host(PRIV(self)->m_pool_data));
+    return rp_tcp_pool_data_host(PRIV(self)->m_pool_data);
 }
 
 static bool

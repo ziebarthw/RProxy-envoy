@@ -20,9 +20,9 @@
 typedef struct _RpClusterImplBasePrivate RpClusterImplBasePrivate;
 struct _RpClusterImplBasePrivate {
 
-    RpClusterInfoConstSharedPtr m_info;
+    RpClusterInfo* m_info;
 
-    UNIQUE_PTR(RpMainPrioritySetImpl) m_priority_set;
+    RpMainPrioritySetImpl* m_priority_set;
 
     RpClusterCfgPtr m_config;
     RpClusterFactoryContext* m_cluster_context;
@@ -166,8 +166,8 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
         case PROP_CONFIG:
         {
             RpClusterImplBasePrivate* me = PRIV(obj);
-            g_clear_pointer(&me->m_config, g_free);
-            me->m_config = rp_cluster_cfg_new(g_value_get_pointer(value));
+            g_clear_pointer(&me->m_config, rp_cluster_cfg_free);
+            me->m_config = rp_cluster_cfg_dup(g_value_get_pointer(value));
             break;
         }
         case PROP_CREATION_STATUS:
@@ -212,8 +212,13 @@ dispose(GObject* obj)
     NOISY_MSG_("(%p)", obj);
 
     RpClusterImplBasePrivate* me = PRIV(obj);
+
     g_clear_object(&me->m_priority_set);
-    g_clear_pointer(&me->m_config, g_free);
+NOISY_MSG_("%p, clearing info %p(%u)", obj, me->m_info, G_OBJECT(me->m_info)->ref_count);
+    g_clear_object(&me->m_info);
+    g_clear_object(&me->m_transport_factory_context);
+
+    g_clear_pointer(&me->m_config, rp_cluster_cfg_free);
 
     G_OBJECT_CLASS(rp_cluster_impl_base_parent_class)->dispose(obj);
 }
@@ -261,7 +266,6 @@ rp_cluster_impl_base_on_pre_init_complete(RpClusterImplBase* self)
     LOGD("(%p(%s))", self, G_OBJECT_TYPE_NAME(self));
     g_return_if_fail(RP_IS_CLUSTER_IMPL_BASE(self));
     RpClusterImplBasePrivate* me = PRIV(self);
-NOISY_MSG_("initialization started %u", me->m_initialization_started);
     if (me->m_initialization_started)
     {
         NOISY_MSG_("returning");
@@ -295,4 +299,33 @@ rp_cluster_impl_base_wait_for_warm_on_init_(RpClusterImplBase* self)
     LOGD("(%p)", self);
     g_return_val_if_fail(RP_IS_CLUSTER_IMPL_BASE(self), true);
     return PRIV(self)->m_wait_for_warm_on_init;
+}
+
+RpPartitionedHostListTuple
+rp_cluster_impl_base_partition_host_list(const RpHostVector* hosts)
+{
+    LOGD("(%p)", hosts);
+
+    RpHostVector* healthy_list = rp_host_vector_new();
+    RpHostVector* degraded_list = rp_host_vector_new();
+    RpHostVector* excluded_list = rp_host_vector_new();
+
+    for (guint i = 0; i < rp_host_vector_len(hosts); ++i)
+    {
+        RpHost* host = rp_host_vector_get(hosts, i); // Borrowed from hosts.
+        RpHostHealth_e health_status = rp_host_coarse_health(host);
+        if (health_status == RpHostHealth_HEALTHY)
+        {
+            NOISY_MSG_("adding host %p to healthy_list", host);
+            rp_host_vector_add(healthy_list, host);
+        }
+        //TODO...else if (health_status == Host::Health::Degraded) {...}
+        //TODO...if (excludedBasedOnHealthFlag(*host)) {...}
+    }
+
+    return (RpPartitionedHostListTuple) {
+            .healthy_list = g_steal_pointer(&healthy_list),
+            .degraded_list = g_steal_pointer(&degraded_list),
+            .excluded_list = g_steal_pointer(&excluded_list)
+        };
 }

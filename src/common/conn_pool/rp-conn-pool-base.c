@@ -30,6 +30,7 @@ struct _RpConnPoolImplBasePrivate {
     RpHost* m_host;
     RpDispatcher* m_dispatcher;
 
+// REVISIT - this should be removed. It was temporary until dns lookups were implemented.
 const char* m_requested_server_name;
 
     RpResourcePriority_e m_priority;
@@ -81,7 +82,7 @@ schedule_upstream_ready(RpSchedulableCallback* self G_GNUC_UNUSED, gpointer arg)
     rp_conn_pool_impl_base_on_upstream_ready(RP_CONN_POOL_IMPL_BASE(arg));
 }
 
-static RpHostDescription*
+static RpHostDescriptionConstSharedPtr
 host_i(RpConnectionPoolInstance* self)
 {
     NOISY_MSG_("(%p)", self);
@@ -89,10 +90,18 @@ host_i(RpConnectionPoolInstance* self)
 }
 
 static void
+drain_connections_i(RpConnectionPoolInstance* self, RpDrainBehavior_e drain_behavior)
+{
+    NOISY_MSG_("(%p, %d)", self, drain_behavior);
+
+}
+
+static void
 connection_pool_instance_iface_init(RpConnectionPoolInstanceInterface* iface)
 {
     LOGD("(%p)", iface);
     iface->host = host_i;
+    iface->drain_connections = drain_connections_i;
 }
 
 OVERRIDE void
@@ -120,7 +129,7 @@ set_property(GObject* obj, guint prop_id, const GValue* value, GParamSpec* pspec
     switch (prop_id)
     {
         case PROP_HOST:
-            PRIV(obj)->m_host = g_value_get_object(value);
+            rp_host_set_object(&PRIV(obj)->m_host, g_value_get_object(value));
             break;
         case PROP_DISPATCHER:
             PRIV(obj)->m_dispatcher = g_value_get_pointer(value);
@@ -150,6 +159,7 @@ dispose(GObject* obj)
 
     RpConnPoolImplBasePrivate* me = PRIV(obj);
     g_clear_object(&me->m_upstream_ready_cb);
+    g_clear_object(&me->m_host);
 
     G_OBJECT_CLASS(rp_conn_pool_impl_base_parent_class)->dispose(obj);
 }
@@ -196,7 +206,7 @@ attach_stream_to_client(RpConnPoolImplBase* self, RpConnectionPoolActiveClient* 
         !rp_resource_limit_can_create(get_requests(me)))
     {
         LOGD("max streams overflow");
-        RpHostDescription* real_host_description = rp_connection_pool_active_client_get_real_host_description(client);
+        RpHostDescriptionConstSharedPtr real_host_description = rp_connection_pool_active_client_get_real_host_description(client);
         rp_conn_pool_impl_base_on_pool_failure(self,
                                                 real_host_description,
                                                 "",
@@ -391,7 +401,7 @@ try_create_new_connection(RpConnPoolImplBase* self, float global_preconnect_rati
     NOISY_MSG_("creating new preconnect connection");
 
     RpConnPoolImplBasePrivate* me = PRIV(self);
-    RpHostDescription* host_desc = RP_HOST_DESCRIPTION(me->m_host);
+    RpHostDescriptionConstSharedPtr host_desc = RP_HOST_DESCRIPTION(me->m_host);
     bool can_create_connection = rp_host_description_can_create_connection(host_desc, me->m_priority);
 
     if (!can_create_connection)
@@ -651,7 +661,8 @@ rp_conn_pool_impl_base_check_for_idle_and_close_idle_conns_if_draining(RpConnPoo
 }
 
 static void
-purge_pending_streams(RpConnPoolImplBase* self, RpHostDescription* host_description, const char* failure_reason, RpPoolFailureReason_e reason)
+purge_pending_streams(RpConnPoolImplBase* self, RpHostDescriptionConstSharedPtr host_description,
+                        const char* failure_reason, RpPoolFailureReason_e reason)
 {
     NOISY_MSG_("(%p, %p, %p(%s), %d)",
         self, host_description, failure_reason, failure_reason, reason);
@@ -996,7 +1007,7 @@ rp_conn_pool_impl_base_on_connection_event(RpConnPoolImplBase* self, RpConnectio
 g_assert(list != NULL);
 g_assert(*list != NULL);
             *list = g_list_remove(*list, client);
-            rp_dispatcher_deferred_delete(me->m_dispatcher, G_OBJECT(client));
+            rp_dispatcher_deferred_delete_take(me->m_dispatcher, G_OBJECT(client));
 
             check_for_idle_and_notify(self);
 

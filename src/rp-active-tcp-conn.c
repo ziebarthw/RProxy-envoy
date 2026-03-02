@@ -35,9 +35,12 @@ G_DEFINE_FINAL_TYPE_WITH_CODE(RpActiveTcpConn, rp_active_tcp_conn, G_TYPE_OBJECT
 static void
 remove_connection(RpActiveTcpConn* self)
 {
+    NOISY_MSG_("(%p)", self);
     RpDispatcher* dispatcher = rp_network_connection_dispatcher(self->m_connection);
+    rp_network_connection_remove_connection_callbacks(self->m_connection,
+                                                        RP_NETWORK_CONNECTION_CALLBACKS(self));
     *self->m_active_connections = g_list_remove(*self->m_active_connections, self);
-    rp_dispatcher_deferred_delete(dispatcher, G_OBJECT(self));
+    rp_dispatcher_deferred_delete_take(dispatcher, G_OBJECT(self));
     //TODO...if (active_connection.connections_.empty())
 }
 
@@ -72,7 +75,7 @@ dispose(GObject* obj)
     g_clear_object(&self->m_connection);
     g_clear_object(&self->m_stream_info);
 
-    atomic_fetch_sub_explicit(&self->m_tpool_ctx->n_processing, 1, memory_order_relaxed);
+    n_processing_dec(self->m_tpool_ctx->n_processing);
 
     stats_dec(g_traffic_stats.downstream_cx_active);
     stats_inc(g_traffic_stats.downstream_cx_destroy);
@@ -107,7 +110,7 @@ constructed(RpActiveTcpConn* self)
 }
 
 RpActiveTcpConn*
-rp_active_tcp_conn_new(GList** active_connections, UNIQUE_PTR(RpNetworkConnection) new_connection, UNIQUE_PTR(RpStreamInfo) stream_info, SHARED_PTR(tpool_ctx_t) tpool_ctx)
+rp_active_tcp_conn_new(GList** active_connections, RpNetworkConnection* new_connection, RpStreamInfo* stream_info, tpool_ctx_t* tpool_ctx)
 {
     LOGD("(%p, %p, %p, %p)", active_connections, new_connection, stream_info, tpool_ctx);
     g_return_val_if_fail(active_connections != NULL, NULL);
@@ -115,8 +118,8 @@ rp_active_tcp_conn_new(GList** active_connections, UNIQUE_PTR(RpNetworkConnectio
     g_return_val_if_fail(RP_IS_STREAM_INFO(stream_info), NULL);
     RpActiveTcpConn* self = g_object_new(RP_TYPE_ACTIVE_TCP_CONN, NULL);
     self->m_active_connections = active_connections;
-    self->m_connection = g_steal_pointer(&new_connection);
-    self->m_stream_info = g_steal_pointer(&stream_info);
+    self->m_connection = new_connection;
+    self->m_stream_info = stream_info;
     self->m_tpool_ctx = tpool_ctx;
     return constructed(self);
 }

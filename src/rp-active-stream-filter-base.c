@@ -125,7 +125,7 @@ reset_idle_timer_i(RpStreamFilterCallbacks* self)
     rp_filter_manager_callbacks_reset_idle_timer(callbacks);
 }
 
-static RpRoute*
+static RpRouteSharedPtr
 get_route(RpActiveStreamFilterBasePrivate* me)
 {
     NOISY_MSG_("(%p)", me);
@@ -139,7 +139,7 @@ get_route(RpActiveStreamFilterBasePrivate* me)
     return rp_stream_info_route(rp_filter_manager_stream_info(me->m_parent));
 }
 
-static RpRoute*
+static RpRouteSharedPtr
 route_i(RpStreamFilterCallbacks* self)
 {
     NOISY_MSG_("(%p)", self);
@@ -260,8 +260,9 @@ static void
 rp_active_stream_filter_base_init(RpActiveStreamFilterBase* self)
 {
     NOISY_MSG_("(%p)", self);
-    PRIV(self)->m_iterate_from_current_filter = false;
-    PRIV(self)->m_iteration_state = RpIterationState_Continue;
+    RpActiveStreamFilterBasePrivate* me = PRIV(self);
+    me->m_iterate_from_current_filter = false;
+    me->m_iteration_state = RpIterationState_Continue;
 }
 
 bool

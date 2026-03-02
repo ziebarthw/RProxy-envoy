@@ -18,11 +18,10 @@ G_BEGIN_DECLS
  * arrays for each priority, but does not pollute the enum.
  */
 typedef enum {
-    RpResourcePriority_Default,
-    RpResourcePriority_High
+    RpResourcePriority_Default = 0,
+    RpResourcePriority_High = 1,
+    RpNumResourcePriorities
 } RpResourcePriority_e;
-extern const gsize RpNumResourcePriorities;
-
 
 /**
  * Global resource manager that loosely synchronizes maximum connections, pending requests, etc.

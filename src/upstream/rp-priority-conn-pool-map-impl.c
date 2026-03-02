@@ -23,10 +23,10 @@ struct _RpPriorityConnPoolMapImpl {
 
 G_DEFINE_FINAL_TYPE(RpPriorityConnPoolMapImpl, rp_priority_conn_pool_map_impl, RP_TYPE_PRIORITY_CONN_POOL_MAP)
 
-static inline gsize
-get_priority_index(GPtrArray* conn_pool_maps_, RpResourcePriority_e priority)
+static inline guint
+get_priority_index(RpResourcePriority_e priority)
 {
-    gsize index = (gsize)priority;
+    guint index = (guint)priority;
     g_assert(index < RpNumResourcePriorities);
     return index;
 }
@@ -39,20 +39,20 @@ dispose(GObject* obj)
 }
 
 OVERRIDE RpHttpConnectionPoolInstance*
-get_pool(RpPriorityConnPoolMap* self, RpResourcePriority_e priority, gpointer key, RpPoolFactory factory, gpointer user_data)
+get_pool(RpPriorityConnPoolMap* self, RpResourcePriority_e priority, GBytes* key, RpPoolFactory factory, gpointer user_data)
 {
     NOISY_MSG_("(%p, %d, %p, %p, %p)", self, priority, key, factory, user_data);
-    GPtrArray* conn_pool_maps_ = rp_priority_conn_pool_map_conn_pool_maps_(self);
-    RpConnPoolMap* pool_map = g_ptr_array_index(conn_pool_maps_, get_priority_index(conn_pool_maps_, priority));
+    RpConnPoolMap** conn_pool_maps_ = rp_priority_conn_pool_map_conn_pool_maps_(self);
+    RpConnPoolMap* pool_map = conn_pool_maps_[priority];
     return rp_conn_pool_map_get_pool(pool_map, key, factory, user_data);
 }
 
 OVERRIDE bool
-erase_pool(RpPriorityConnPoolMap* self, RpResourcePriority_e priority, gpointer key)
+erase_pool(RpPriorityConnPoolMap* self, RpResourcePriority_e priority, GBytes* key)
 {
     NOISY_MSG_("(%p, %d, %p)", self, priority, key);
-    GPtrArray* conn_pool_maps_ = rp_priority_conn_pool_map_conn_pool_maps_(self);
-    RpConnPoolMap* pool_map = g_ptr_array_index(conn_pool_maps_, get_priority_index(conn_pool_maps_, priority));
+    RpConnPoolMap** conn_pool_maps_ = rp_priority_conn_pool_map_conn_pool_maps_(self);
+    RpConnPoolMap* pool_map = conn_pool_maps_[get_priority_index(priority)];
     return rp_conn_pool_map_erase_pool(pool_map, key);
 }
 
@@ -61,10 +61,10 @@ size(RpPriorityConnPoolMap* self)
 {
     NOISY_MSG_("(%p)", self);
     gsize size = 0;
-    GPtrArray* conn_pool_maps_ = rp_priority_conn_pool_map_conn_pool_maps_(self);
-    for (guint index = 0; index < conn_pool_maps_->len; ++index)
+    RpConnPoolMap** conn_pool_maps_ = rp_priority_conn_pool_map_conn_pool_maps_(self);
+    for (guint i = 0; i < RpNumResourcePriorities; ++i)
     {
-        RpConnPoolMap* pool_map = g_ptr_array_index(conn_pool_maps_, index);
+        RpConnPoolMap* pool_map = conn_pool_maps_[i];
         size += rp_conn_pool_map_size(pool_map);
     }
     return size;
@@ -74,10 +74,10 @@ OVERRIDE bool
 empty(RpPriorityConnPoolMap* self)
 {
     NOISY_MSG_("(%p)", self);
-    GPtrArray* conn_pool_maps_ = rp_priority_conn_pool_map_conn_pool_maps_(self);
-    for (guint index = 0; index < conn_pool_maps_->len; ++index)
+    RpConnPoolMap** conn_pool_maps_ = rp_priority_conn_pool_map_conn_pool_maps_(self);
+    for (guint i = 0; i < RpNumResourcePriorities; ++i)
     {
-        RpConnPoolMap* pool_map = g_ptr_array_index(conn_pool_maps_, index);
+        RpConnPoolMap* pool_map = conn_pool_maps_[i];
         if (!rp_conn_pool_map_empty(pool_map))
         {
             NOISY_MSG_("nope");
@@ -92,10 +92,10 @@ OVERRIDE void
 clear(RpPriorityConnPoolMap* self)
 {
     NOISY_MSG_("(%p)", self);
-    GPtrArray* conn_pool_maps_ = rp_priority_conn_pool_map_conn_pool_maps_(self);
-    for (guint index = 0; index < conn_pool_maps_->len; ++index)
+    RpConnPoolMap** conn_pool_maps_ = rp_priority_conn_pool_map_conn_pool_maps_(self);
+    for (guint i = 0; i < RpNumResourcePriorities; ++i)
     {
-        RpConnPoolMap* pool_map = g_ptr_array_index(conn_pool_maps_, index);
+        RpConnPoolMap* pool_map = conn_pool_maps_[i];
         rp_conn_pool_map_clear(pool_map);
     }
 }
@@ -104,10 +104,10 @@ OVERRIDE void
 add_idle_callback(RpPriorityConnPoolMap* self, const RpIdleCb cb)
 {
     NOISY_MSG_("(%p, %p)", self, cb);
-    GPtrArray* conn_pool_maps_ = rp_priority_conn_pool_map_conn_pool_maps_(self);
-    for (guint index = 0; index < conn_pool_maps_->len; ++index)
+    RpConnPoolMap** conn_pool_maps_ = rp_priority_conn_pool_map_conn_pool_maps_(self);
+    for (guint i = 0; i < RpNumResourcePriorities; ++i)
     {
-        RpConnPoolMap* pool_map = g_ptr_array_index(conn_pool_maps_, index);
+        RpConnPoolMap* pool_map = conn_pool_maps_[i];
         rp_conn_pool_map_add_idle_callback(pool_map, cb);
     }
 }
@@ -116,10 +116,10 @@ OVERRIDE void
 drain_connections(RpPriorityConnPoolMap* self, RpDrainBehavior_e drain_behavior)
 {
     NOISY_MSG_("(%p, %d)", self, drain_behavior);
-    GPtrArray* conn_pool_maps_ = rp_priority_conn_pool_map_conn_pool_maps_(self);
-    for (guint index = 0; index < conn_pool_maps_->len; ++index)
+    RpConnPoolMap** conn_pool_maps_ = rp_priority_conn_pool_map_conn_pool_maps_(self);
+    for (guint i = 0; i < RpNumResourcePriorities; ++i)
     {
-        RpConnPoolMap* pool_map = g_ptr_array_index(conn_pool_maps_, index);
+        RpConnPoolMap* pool_map = conn_pool_maps_[i];
         rp_conn_pool_map_drain_connections(pool_map, drain_behavior);
     }
 }
@@ -155,24 +155,24 @@ rp_priority_conn_pool_map_impl_init(RpPriorityConnPoolMapImpl* self G_GNUC_UNUSE
 }
 
 static inline RpPriorityConnPoolMapImpl*
-constructed(RpPriorityConnPoolMapImpl* self, RpDispatcher* dispatcher, RpHostConstSharedPtr host)
+constructed(RpPriorityConnPoolMapImpl* self, RpDispatcher* dispatcher, RpHost* host)
 {
     NOISY_MSG_("(%p, %p, %p)", self, dispatcher, host);
 
-    GPtrArray* conn_pool_maps_ = rp_priority_conn_pool_map_conn_pool_maps_(RP_PRIORITY_CONN_POOL_MAP(self));
+    RpConnPoolMap** conn_pool_maps_ = rp_priority_conn_pool_map_conn_pool_maps_(RP_PRIORITY_CONN_POOL_MAP(self));
     for (gsize pool_map_index=0; pool_map_index < RpNumResourcePriorities; ++pool_map_index)
     {
         RpResourcePriority_e priority = (RpResourcePriority_e)pool_map_index;
-        conn_pool_maps_->pdata[pool_map_index] = rp_conn_pool_map_impl_new(dispatcher, host, priority);
+        conn_pool_maps_[pool_map_index] = RP_CONN_POOL_MAP(rp_conn_pool_map_impl_new(dispatcher, host, priority));
     }
     return self;
 }
 
 RpPriorityConnPoolMapImpl*
-rp_priority_conn_pool_map_impl_new(RpDispatcher* dispatcher, RpHostConstSharedPtr host)
+rp_priority_conn_pool_map_impl_new(RpDispatcher* dispatcher, RpHost* host)
 {
     LOGD("(%p, %p)", dispatcher, host);
     g_return_val_if_fail(RP_IS_DISPATCHER(dispatcher), NULL);
-    g_return_val_if_fail(RP_IS_HOST(host), NULL);
+    g_return_val_if_fail(rp_host_is_a(host), NULL);
     return constructed(g_object_new(RP_TYPE_PRIORITY_CONN_POOL_MAP_IMPL, NULL), dispatcher, host);
 }

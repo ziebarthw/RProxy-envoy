@@ -29,7 +29,7 @@ G_DEFINE_FINAL_TYPE_WITH_CODE(RpPerHostGenericConnPoolFactory, rp_per_host_gener
 )
 
 static RpGenericConnPool*
-create_generic_conn_pool_i(RpGenericConnPoolFactory* self, RpHostConstSharedPtr host, RpThreadLocalCluster* thread_local_cluster,
+create_generic_conn_pool_i(RpGenericConnPoolFactory* self, RpHostDescriptionConstSharedPtr host, RpThreadLocalCluster* thread_local_cluster,
                             RpUpstreamProtocol_e upstream_protocol, RpResourcePriority_e priority, evhtp_proto downstream_protocol,
                             RpLoadBalancerContext* context)
 {

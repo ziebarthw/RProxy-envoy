@@ -79,21 +79,21 @@ struct _RpTcpConnPoolCallbacksInterface {
     void (*on_pool_failure)(RpTcpConnPoolCallbacks*,
                             RpPoolFailureReason_e,
                             const char*,
-                            RpHostDescription*);
+                            RpHostDescriptionConstSharedPtr);
     void (*on_pool_ready)(RpTcpConnPoolCallbacks*,
                             RpTcpConnPoolConnectionData*,
-                            RpHostDescription*);
+                            RpHostDescriptionConstSharedPtr);
 };
 
 static inline void
 rp_tcp_conn_pool_callbacks_on_pool_failure(RpTcpConnPoolCallbacks* self, RpPoolFailureReason_e reason,
-                                            const char* transport_failure_reason, RpHostDescription* host)
+                                            const char* transport_failure_reason, RpHostDescriptionConstSharedPtr host)
 {
     if (RP_IS_TCP_CONN_POOL_CALLBACKS(self)) \
         RP_TCP_CONN_POOL_CALLBACKS_GET_IFACE(self)->on_pool_failure(self, reason, transport_failure_reason, host);
 }
 static inline void
-rp_tcp_conn_pool_callbacks_on_pool_ready(RpTcpConnPoolCallbacks* self, RpTcpConnPoolConnectionData* conn_data, RpHostDescription* host)
+rp_tcp_conn_pool_callbacks_on_pool_ready(RpTcpConnPoolCallbacks* self, RpTcpConnPoolConnectionData* conn_data, RpHostDescriptionConstSharedPtr host)
 {
     if (RP_IS_TCP_CONN_POOL_CALLBACKS(self)) \
         RP_TCP_CONN_POOL_CALLBACKS_GET_IFACE(self)->on_pool_ready(self, conn_data, host);

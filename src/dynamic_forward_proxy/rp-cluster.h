@@ -57,8 +57,8 @@ RpDfpClusterImpl* rp_dfp_cluster_impl_new(const RpClusterCfg* cluster,
 RpHostSelectionResponse rp_dfp_cluster_impl_choose_host(RpDfpClusterImpl* self,
                                                         const char* host,
                                                         RpLoadBalancerContext* context);
-RpHostConstSharedPtr rp_dfp_cluster_impl_find_host_by_name(RpDfpClusterImpl* self,
-                                                            const char* host);
+RpHost* rp_dfp_cluster_impl_find_host_by_name(RpDfpClusterImpl* self,
+                                                const char* host);
 
 
 /**

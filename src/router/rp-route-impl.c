@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_route_impl_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_route_impl_NOISY)
@@ -24,10 +21,10 @@
 struct _RpRouteImpl {
     GObject parent_instance;
 
-    SHARED_PTR(RpRouteConfig) m_parent;
-    SHARED_PTR(rule_cfg_t) m_rule_cfg;
+    RpRouterConfigSharedPtr m_parent;
+    rule_cfg_t* m_rule_cfg;
 
-    UNIQUE_PTR(char) m_cluster_name;
+    char* m_cluster_name;
 };
 
 static void route_iface_init(RpRouteInterface* iface);
@@ -54,25 +51,27 @@ ensure_cluster_name(RpRouteImpl* self)
     return self->m_cluster_name;
 }
 
+#define ROUTE_IMPL(s) RP_ROUTE_IMPL((RpRouteImpl*)s)
+
 static const char*
-route_name_i(RpRoute* self)
+route_name_i(RpRouteConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
-    return RP_ROUTE_IMPL(self)->m_rule_cfg->name;
+    return ROUTE_IMPL(self)->m_rule_cfg->name;
 }
 
 static RpDirectResponseEntry*
-direct_response_entry_i(RpRoute* self G_GNUC_UNUSED)
+direct_response_entry_i(RpRouteConstSharedPtr self G_GNUC_UNUSED)
 {
     NOISY_MSG_("(%p)", self);
     return NULL;
 }
 
 static RpRouteEntry*
-route_entry_i(RpRoute* self)
+route_entry_i(RpRouteConstSharedPtr self)
 {
     NOISY_MSG_("(%p)", self);
-    return RP_ROUTE_ENTRY(self);
+    return RP_ROUTE_ENTRY(ROUTE_IMPL(self));
 }
 
 static void
@@ -164,6 +163,7 @@ dispose(GObject* obj)
 
     RpRouteImpl* self = RP_ROUTE_IMPL(obj);
     g_clear_pointer(&self->m_cluster_name, g_free);
+    g_clear_object(&self->m_parent);
 
     G_OBJECT_CLASS(rp_route_impl_parent_class)->dispose(obj);
 }
@@ -184,18 +184,18 @@ rp_route_impl_init(RpRouteImpl* self G_GNUC_UNUSED)
 }
 
 RpRouteImpl*
-rp_route_impl_new(SHARED_PTR(RpRouteConfig) parent, SHARED_PTR(rule_cfg_t) rule_cfg)
+rp_route_impl_new(RpRouterConfigConstSharedPtr parent, rule_cfg_t* rule_cfg)
 {
-    LOGD("(%p, %p)", parent, rule_cfg);
-    g_return_val_if_fail(RP_IS_ROUTE_CONFIG(parent), NULL);
+    LOGD("(%p(%u), %p)", parent, G_OBJECT(parent)->ref_count, rule_cfg);
+    g_return_val_if_fail(rp_router_config_is_a(parent), NULL);
     g_return_val_if_fail(rule_cfg != NULL, NULL);
     RpRouteImpl* self = g_object_new(RP_TYPE_ROUTE_IMPL, NULL);
-    self->m_parent = parent;
+    rp_router_config_set_object(&self->m_parent, parent);
     self->m_rule_cfg = rule_cfg;
     return self;
 }
 
-SHARED_PTR(rule_cfg_t)
+rule_cfg_t*
 rp_route_impl_get_rule_cfg(RpRouteImpl* self)
 {
     LOGD("(%p)", self);

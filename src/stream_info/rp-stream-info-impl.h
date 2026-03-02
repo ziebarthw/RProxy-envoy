@@ -24,9 +24,10 @@ struct _RpStreamInfoImplClass {
 
 RpStreamInfoImpl* rp_stream_info_impl_new(evhtp_proto protocol,
                                             /*TODO...TimeSource& time_source,*/
-                                            RpConnectionInfoProvider* downstream_info_provider,
+                                            RpConnectionInfoProviderSharedPtr downstream_info_provider,
                                             RpFilterStateLifeSpan_e life_span,
                                             RpFilterState* ancestor_filter_state);
-void rp_stream_info_impl_set_route_(RpStreamInfoImpl* self, RpRoute* route);
+void rp_stream_info_impl_set_route_(RpStreamInfoImpl* self,
+                                    RpRouteConstSharedPtr route);
 
 G_END_DECLS

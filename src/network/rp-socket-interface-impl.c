@@ -111,7 +111,8 @@ static RpIoHandlePtr
 socket_2_i(RpNetworkAddressSocketInterface* self, RpSocketType_e socket_type, RpNetworkAddressInstanceConstSharedPtr addr)
 {
     NOISY_MSG_("(%p, %d, %p)", self, socket_type, addr);
-    RpIpVersion_e ip_version = rp_network_address_instance_ip(addr) ? rp_network_address_instance_type(addr) : RpIpVersion_v4;
+    RpIpVersion_e ip_version = rp_network_address_instance_ip(addr) ?
+        rp_network_address_ip_version((RpNetworkAddressIp*)addr) : RpIpVersion_v4;
     int v6only = 0;
     if (rp_network_address_instance_type(addr) == RpNetworkAddressType_IP && ip_version == RpIpVersion_v6)
     {

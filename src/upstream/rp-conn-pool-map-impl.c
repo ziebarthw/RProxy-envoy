@@ -65,6 +65,14 @@ callbacks_(RpConnPoolMapImpl* self)
     return callbacks;
 }
 
+static inline RpResourceLimit*
+conn_pool_resource(RpConnPoolMapImpl* self)
+{
+    return rp_resource_manager_connection_pools(
+            rp_cluster_info_resource_manager(
+                rp_host_description_cluster(RP_HOST_DESCRIPTION(host_(self))), priority_(self)));
+}
+
 OVERRIDE void
 dispose(GObject* obj)
 {
@@ -81,6 +89,9 @@ clear_active_pools(RpConnPoolMap* self)
 {
     NOISY_MSG_("(%p)", self);
     //TODO...host_->cluster().resourceManager(priority_).connectionPools().decBy(active_pools_->size());
+    RpConnPoolMapImpl* me = RP_CONN_POOL_MAP_IMPL(self);
+    gsize n = g_hash_table_size(active_pools_(me));
+    rp_resource_limit_dec_by(conn_pool_resource(me), n);
     g_hash_table_remove_all(active_pools_(RP_CONN_POOL_MAP_IMPL(self)));
 }
 
@@ -101,8 +112,7 @@ free_one_pool(RpConnPoolMap* self)
         if (!rp_http_connection_pool_instance_has_active_connections(pool))
         {
             g_hash_table_iter_remove(&itr);
-            g_object_unref(G_OBJECT(value));
-            //TODO...host_->cluster().resourceManager(priority_).connectionPools().dec();
+            rp_resource_limit_dec(conn_pool_resource(RP_CONN_POOL_MAP_IMPL(self)));
             return true;
         }
     }
@@ -116,6 +126,14 @@ add_cb_func(gpointer key G_GNUC_UNUSED, gpointer value, gpointer user_data)
     NOISY_MSG_("(%p, %p, %p)", key, value, user_data);
     RpConnectionPoolInstance* pool = RP_CONNECTION_POOL_INSTANCE(value);
     rp_connection_pool_instance_add_idle_callback(pool, user_data);
+#if 0 //TODO...
+/* cache for future pools */
+RpIdleCbEntry* e = g_new0(RpIdleCbEntry, 1);
+e->cb = cb;
+e->user_data = user_data;
+e->destroy = destroy;
+g_ptr_array_add(self->cached_callbacks, e);
+#endif//0
 }
 
 OVERRIDE void
@@ -143,7 +161,7 @@ clear(RpConnPoolMap* self)
     while (g_hash_table_iter_next(&itr, &key, &value))
     {
         g_hash_table_iter_remove(&itr);
-        rp_dispatcher_deferred_delete(dispatcher, G_OBJECT(value));
+        rp_dispatcher_deferred_delete_take(dispatcher, G_OBJECT(value));
     }
 
     rp_conn_pool_map_clear_active_pools(self);
@@ -170,26 +188,35 @@ empty(RpConnPoolMap* self)
 }
 
 OVERRIDE bool
-erase_pool(RpConnPoolMap* self, gconstpointer key)
+erase_pool(RpConnPoolMap* self, GBytes* key)
 {
     NOISY_MSG_("(%p, %p)", self, key);
+
+//TODO...RpAutoRecursionGuard guard = rp_conn_pool_map_recursion_guard(self);
+
     RpConnPoolMapImpl* me = RP_CONN_POOL_MAP_IMPL(self);
     GHashTable* pools = active_pools_(me);
     gpointer value = g_hash_table_lookup(pools, key);
-    if (value)
+    if (value /* TODO... && rp_http_conn_pool_instance_is_idle(RP_CONN_POOL_INSTANCE(value)) */)
     {
-        rp_dispatcher_deferred_delete(dispatcher_(me), G_OBJECT(value));
+        g_object_ref(value);
+        rp_dispatcher_deferred_delete_take(dispatcher_(me), G_OBJECT(value));
         g_hash_table_remove(pools, key);
-        //TODO...host_->cluster().resourceManager(priority_).connectionPools().dec();
+        g_object_unref(value);
+rp_resource_limit_dec(conn_pool_resource(me));
+//TODO...rp_auto_recursion_guard_end(&guard);
         return true;
     }
+//TODO...rp_auto_recursion_guard_end(&guard);
     return false;
 }
 
 OVERRIDE RpHttpConnectionPoolInstancePtr
-get_pool(RpConnPoolMap* self, gconstpointer key, const RpPoolFactory factory, gconstpointer user_data)
+get_pool(RpConnPoolMap* self, GBytes* key, const RpPoolFactory factory, gpointer user_data)
 {
     NOISY_MSG_("(%p, %p, %p, %p)", self, key, factory, user_data);
+
+//TODO...RpAutoRecursionGuard guard = rp_conn_pool_map_recursion_guard(self);
 
     RpConnPoolMapImpl* me = RP_CONN_POOL_MAP_IMPL(self);
     GHashTable* pools = active_pools_(me);
@@ -197,22 +224,24 @@ get_pool(RpConnPoolMap* self, gconstpointer key, const RpPoolFactory factory, gc
     if (value)
     {
         NOISY_MSG_("found %p", value);
+//TODO...rp_auto_recursion_guard_end(&guard);
         return RP_HTTP_CONNECTION_POOL_INSTANCE(value);
     }
 
-    RpResourceLimit* connPoolResource = rp_resource_manager_connection_pools(
-                                            rp_cluster_info_resource_manager(
-                                                rp_host_description_cluster(RP_HOST_DESCRIPTION(host_(me))), priority_(me)));
+    RpResourceLimit* connPoolResource = conn_pool_resource(me);
     if (!rp_resource_limit_can_create(connPoolResource))
     {
         if (!rp_conn_pool_map_free_one_pool(self))
         {
             //TODO...host_->cluster().trafficStats()->upstream_cx_pool_overflow_.inc();
+//TODO...rp_auto_recursion_guard_end(&guard);
             return NULL;
         }
+
+        g_assert(rp_conn_pool_map_size(self) < rp_resource_limit_max(connPoolResource));
     }
 
-    RpHttpConnectionPoolInstancePtr new_pool = factory((gpointer)user_data);
+    RpHttpConnectionPoolInstancePtr new_pool = factory(user_data);
     rp_resource_limit_inc(connPoolResource);
 
     GPtrArray* callbacks = callbacks_(me);
@@ -222,7 +251,9 @@ get_pool(RpConnPoolMap* self, gconstpointer key, const RpPoolFactory factory, gc
         rp_connection_pool_instance_add_idle_callback(RP_CONNECTION_POOL_INSTANCE(new_pool), cb);
     }
 
-    g_hash_table_insert(pools, (gpointer)key, new_pool);
+    g_hash_table_insert(pools, g_bytes_ref(key), g_object_ref(new_pool));
+
+//TODO...rp_auto_recursion_guard_end(&guard);
     return new_pool;
 }
 
@@ -266,12 +297,12 @@ rp_conn_pool_map_impl_init(RpConnPoolMapImpl* self G_GNUC_UNUSED)
 }
 
 RpConnPoolMapImpl*
-rp_conn_pool_map_impl_new(SHARED_PTR(RpDispatcher) dispatcher, SHARED_PTR(RpHost) host, RpResourcePriority_e priority)
+rp_conn_pool_map_impl_new(RpDispatcher* dispatcher, RpHost* host, RpResourcePriority_e priority)
 {
     LOGD("(%p, %p, %d)", dispatcher, host, priority);
 
     g_return_val_if_fail(RP_IS_DISPATCHER(dispatcher), NULL);
-    g_return_val_if_fail(RP_IS_HOST(host), NULL);
+    g_return_val_if_fail(rp_host_is_a(host), NULL);
 
     return g_object_new(RP_TYPE_CONN_POOL_MAP_IMPL,
                         "dispatcher", dispatcher,

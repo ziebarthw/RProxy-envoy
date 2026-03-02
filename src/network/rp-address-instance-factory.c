@@ -16,19 +16,19 @@
 
 #include "network/rp-address-impl.h"
 
-RpNetworkAddressInstanceConstSharedPtr
+RpNetworkAddressInstance*
 rp_network_address_instance_factory_create_instance_ptr(const struct sockaddr_in* addr)
 {
     LOGD("(%p)", addr);
     return RP_NETWORK_ADDRESS_INSTANCE(rp_network_address_ipv4_instance_new(addr, NULL));
 }
-RpNetworkAddressInstanceConstSharedPtr
+RpNetworkAddressInstance*
 rp_network_address_instance_factory_create_instance_ptr_2(const struct sockaddr_in6* addr, bool v6only)
 {
     LOGD("(%p, %u)", addr, v6only);
     return RP_NETWORK_ADDRESS_INSTANCE(rp_network_address_ipv6_instance_new(addr, v6only, NULL));
 }
-RpNetworkAddressInstanceConstSharedPtr
+RpNetworkAddressInstance*
 rp_network_address_instance_factory_create_instance_ptr_3(const struct sockaddr_un* addr, socklen_t ss_len)
 {
     LOGD("(%p, %d)", addr, ss_len);

@@ -27,7 +27,7 @@ G_DEFINE_TYPE_WITH_CODE(RpClusterProvidedLbFactory, rp_cluster_provided_lb_facto
 )
 
 static RpThreadAwareLoadBalancerPtr
-create_i(RpTypedLoadBalancerFactory* self, RpLoadBalancerConfig* lb_config, RpClusterInfo* cluster_info, RpPrioritySet* priority_set, RpTimeSource* time_source)
+create_i(RpTypedLoadBalancerFactory* self, RpLoadBalancerConfig* lb_config, RpClusterInfoConstSharedPtr cluster_info, RpPrioritySet* priority_set, RpTimeSource* time_source)
 {
     NOISY_MSG_("(%p, %p, %p, %p, %p)", self, lb_config, cluster_info, priority_set, time_source);
     // Cluster provided load balancer has empty implementation. Because it is a special case to

@@ -22,7 +22,6 @@ G_BEGIN_DECLS
 // Repeated fields as fixed arrays + count (or dynamic alloc for prod).
 // Enums as named constants.
 
-
 #ifdef WITH_DYNAMIC_CONFIG
 #define IF_DYNAMIC_CONFIG(x, ...) x##__VA_ARGS__
 #else
@@ -558,8 +557,9 @@ struct _RpDfpClusterCfg {
 static inline RpDfpClusterCfg*
 rp_dfp_cluster_cfg_new(const RpDfpClusterCfg* cfg)
 {
-    RpDfpClusterCfg* self = g_new(RpDfpClusterCfg, 1);
-    return memcpy(self, cfg, sizeof(*self));
+//    RpDfpClusterCfg* self = g_new(RpDfpClusterCfg, 1);
+//    return memcpy(self, cfg, sizeof(*self));
+    return g_memdup2(cfg, sizeof(*cfg));
 }
 
 static inline bool
@@ -649,16 +649,38 @@ struct _RpClusterCfg {
 
     // Custom.
     rule_t* rule;
+
+guint32 magic;
 };
 
 typedef UNIQUE_PTR(RpClusterCfg) RpClusterCfgPtr;
 
+//#define WITH_CFG_GUARDED
+#ifdef WITH_CFG_GUARDED
+#define rp_cluster_cfg_new rp_cluster_cfg_dup_guarded
+#define rp_cluster_cfg_free rp_cluster_cfg_free_guarded
+RpClusterCfg* rp_cluster_cfg_dup_guarded(const RpClusterCfg* src);
+void rp_cluster_cfg_free_guarded(RpClusterCfg* p);
+#else
 static inline RpClusterCfgPtr
-rp_cluster_cfg_new(const RpClusterCfg* cfg)
+rp_cluster_cfg_new(void)
 {
-    RpClusterCfg* self = g_new(RpClusterCfg, 1);
-    return memcpy(self, cfg, sizeof(*self));
+    RpClusterCfg* self = g_new0(RpClusterCfg, 1);
+    return self;
 }
+static inline RpClusterCfgPtr
+rp_cluster_cfg_dup(const RpClusterCfg* cfg)
+{
+    g_return_val_if_fail(cfg != NULL, NULL);
+    return g_memdup2(cfg, sizeof(*cfg));
+}
+static inline void
+rp_cluster_cfg_free(RpClusterCfg* self)
+{
+    g_return_if_fail(self != NULL);
+    g_free(self);
+}
+#endif
 
 static inline bool
 rp_cluster_cfg_has_cluster_type(const RpClusterCfg* self)
@@ -702,13 +724,6 @@ rp_cluster_cfg_rule(const RpClusterCfg* self)
     return self->rule;
 }
 
-static inline const RpClusterCfg*
-rp_cluster_cfg_empty(void)
-{
-    static const RpClusterCfg EMPTY = {0};
-    return &EMPTY;
-}
-
 static inline void
 rp_cluster_cfg_set_name(RpClusterCfg* self, const char* name)
 {
@@ -726,6 +741,7 @@ rp_cluster_cfg_set_type(RpClusterCfg* self, RpDiscoveryType_e type)
 {
     g_return_if_fail(self != NULL);
     self->cluster_discovery_type.type = type;
+    self->cluster_discovery_type_type = RpClusterDiscoveryTypeType_TYPE;
 }
 
 static inline void

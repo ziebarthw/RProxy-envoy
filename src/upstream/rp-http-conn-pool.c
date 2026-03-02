@@ -80,11 +80,11 @@ new_stream_i(RpGenericConnPool* self, RpGenericConnectionPoolCallbacks* callback
     me->m_conn_pool_stream_handle = handle;
 }
 
-static RpHostDescription*
+static RpHostDescriptionConstSharedPtr
 host_i(RpGenericConnPool* self)
 {
     NOISY_MSG_("(%p)", self);
-    return RP_HOST_DESCRIPTION(rp_http_pool_data_host(PRIV(self)->m_pool_data));
+    return (RpHostDescriptionConstSharedPtr)rp_http_pool_data_host(PRIV(self)->m_pool_data);
 }
 
 static bool
@@ -119,21 +119,25 @@ generic_conn_pool_iface_init(RpGenericConnPoolInterface* iface)
 }
 
 static void
-on_pool_failure_i(RpHttpConnPoolCallbacks* self, RpPoolFailureReason_e reason, const char* transport_failure_reason, RpHostDescription* host)
+on_pool_failure_i(RpHttpConnPoolCallbacks* self, RpPoolFailureReason_e reason,
+                    const char* transport_failure_reason, RpHostDescriptionConstSharedPtr host)
 {
     NOISY_MSG_("(%p, %d, %p(%s), %p)",
         self, reason, transport_failure_reason, transport_failure_reason, host);
     RpHttpConnPoolPrivate* me = PRIV(self);
-    me->m_conn_pool_stream_handle = NULL;
+//    me->m_conn_pool_stream_handle = NULL;
+g_clear_object(&me->m_conn_pool_stream_handle);
     rp_generic_connection_pool_callbacks_on_pool_failure(me->m_callbacks, reason, transport_failure_reason, host);
 }
 
 static void
-on_pool_ready_i(RpHttpConnPoolCallbacks* self, RpRequestEncoder* request_encoder, RpHostDescription* host, RpStreamInfo* info, evhtp_proto protocol)
+on_pool_ready_i(RpHttpConnPoolCallbacks* self, RpRequestEncoder* request_encoder,
+                    RpHostDescriptionConstSharedPtr host, RpStreamInfo* info, evhtp_proto protocol)
 {
     NOISY_MSG_("(%p, %p, %p, %p, %d)", self, request_encoder, host, info, protocol);
     RpHttpConnPoolPrivate* me = PRIV(self);
-    me->m_conn_pool_stream_handle = NULL;
+//    me->m_conn_pool_stream_handle = NULL;
+g_clear_object(&me->m_conn_pool_stream_handle);
     RpHttpUpstream* upstream = rp_http_upstream_new(
         rp_generic_connection_pool_callbacks_upstream_to_downstream(me->m_callbacks), request_encoder);
     rp_generic_connection_pool_callbacks_on_pool_ready(me->m_callbacks,
@@ -235,6 +239,7 @@ dispose(GObject* obj)
 
     RpHttpConnPoolPrivate* me = PRIV(obj);
     g_clear_object(&me->m_pool_data);
+g_clear_object(&me->m_conn_pool_stream_handle);
 
     G_OBJECT_CLASS(rp_http_conn_pool_parent_class)->dispose(obj);
 }

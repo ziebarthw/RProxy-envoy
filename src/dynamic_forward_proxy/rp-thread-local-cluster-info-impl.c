@@ -75,6 +75,7 @@ dispose(GObject* obj)
 
     RpThreadLocalClusterInfo* self = RP_THREAD_LOCAL_CLUSTER_INFO(obj);
     g_clear_pointer(&self->m_pending_clusters, g_hash_table_unref);
+    g_clear_object(&self->m_handle);
 
     G_OBJECT_CLASS(rp_thread_local_cluster_info_parent_class)->dispose(obj);
 }

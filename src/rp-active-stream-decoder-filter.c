@@ -184,6 +184,10 @@ OVERRIDE void
 dispose(GObject* obj)
 {
     NOISY_MSG_("(%p)", obj);
+
+    RpActiveStreamDecoderFilter* self = RP_ACTIVE_STREAM_DECODER_FILTER(obj);
+    g_clear_object(&self->m_handle);
+
     G_OBJECT_CLASS(rp_active_stream_decoder_filter_parent_class)->dispose(obj);
 }
 
@@ -305,7 +309,7 @@ rp_active_stream_decoder_filter_new(RpFilterManager* parent, RpStreamDecoderFilt
                         "parent", RP_FILTER_MANAGER(parent),
                         "filter-context", filter_context,
                         NULL);
-    self->m_handle = filter;
+    self->m_handle = g_steal_pointer(&filter);
     self->m_parent = parent;
     return constructed(self);
 }

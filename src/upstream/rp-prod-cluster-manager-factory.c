@@ -35,7 +35,8 @@ G_DEFINE_FINAL_TYPE_WITH_CODE(RpProdClusterManagerFactory, rp_prod_cluster_manag
 )
 
 static RpHttpConnectionPoolInstancePtr
-allocate_conn_pool_i(RpClusterManagerFactory* self, RpDispatcher* dispatcher, RpHost* host, RpResourcePriority_e priority, evhtp_proto* protocols)
+allocate_conn_pool_i(RpClusterManagerFactory* self, RpDispatcher* dispatcher, RpHost* host,
+                        RpResourcePriority_e priority, evhtp_proto* protocols)
 {
     NOISY_MSG_("(%p, %p, %p, %d, %p)", self, dispatcher, host, priority, protocols);
 

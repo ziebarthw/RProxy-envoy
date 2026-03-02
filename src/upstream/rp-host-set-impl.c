@@ -36,7 +36,7 @@ rp_locality_entry_ctor(guint32 index, double effective_weight)
 typedef struct _RpHostSetImplPrivate RpHostSetImplPrivate;
 struct _RpHostSetImplPrivate {
 
-    RpHostVectorConstSharedPtr m_hosts;
+    RpHostVector* m_hosts;
     RpHostVector* m_healthy_hosts;
     RpHostVector* m_degraded_hosts;
     RpHostVector* m_excluded_hosts;
@@ -45,7 +45,8 @@ struct _RpHostSetImplPrivate {
     RpHostsPerLocality* m_degraded_hosts_per_locality;//empty
     RpHostsPerLocality* m_excluded_hosts_per_locality;//empty
     //TODO...callbackmanager...
-    RpLocalityWeights m_locality_weights;
+    RpCallbackManager* m_member_update_cb_helper;
+    RpLocalityWeightsPtr m_locality_weights;
     //TODO...std::vector<std::shared_ptr<LocalityEntry>> healthy...
 
     guint32 m_priority;
@@ -75,106 +76,142 @@ G_DEFINE_TYPE_WITH_CODE(RpHostSetImpl, rp_host_set_impl, G_TYPE_OBJECT,
 #define PRIV(obj) \
     ((RpHostSetImplPrivate*) rp_host_set_impl_get_instance_private(RP_HOST_SET_IMPL(obj)))
 
-static RpHostVector*
-hosts_i(RpHostSet* self)
+static const RpHostVector*
+get_hosts_i(RpHostSet* self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_hosts;
 }
 
-static RpHostVector*
-healthy_hosts_i(RpHostSet* self)
+static const RpHostVector*
+get_healthy_hosts_i(RpHostSet* self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_healthy_hosts;
 }
 
-static RpHostVector*
-degraded_hosts_i(RpHostSet* self)
+static const RpHostVector*
+get_degraded_hosts_i(RpHostSet* self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_degraded_hosts;
 }
 
-static RpHostVector*
-excluded_hosts_i(RpHostSet* self)
+static const RpHostVector*
+get_excluded_hosts_i(RpHostSet* self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_excluded_hosts;
 }
 
 static RpHostsPerLocality*
-hosts_per_locality_i(RpHostSet* self)
+get_hosts_per_locality_i(RpHostSet* self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_hosts_per_locality;
 }
 
 static RpHostsPerLocality*
-healthy_hosts_per_locality_i(RpHostSet* self)
+get_healthy_hosts_per_locality_i(RpHostSet* self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_hosts_per_locality;
 }
 
 static RpHostsPerLocality*
-degraded_hosts_per_locality_i(RpHostSet* self)
+get_degraded_hosts_per_locality_i(RpHostSet* self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_degraded_hosts_per_locality;
 }
 
 static RpHostsPerLocality*
-excluded_hosts_per_locality_i(RpHostSet* self)
+get_excluded_hosts_per_locality_i(RpHostSet* self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_excluded_hosts_per_locality;
 }
 
-static RpLocalityWeights
-locality_weights_i(RpHostSet* self)
+static RpLocalityWeightsPtr
+get_locality_weights_i(RpHostSet* self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_locality_weights;
 }
 
 static guint32
-priority_i(RpHostSet* self)
+get_priority_i(RpHostSet* self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_priority;
 }
 
 static guint32
-overprovisioning_factor_i(RpHostSet* self)
+get_overprovisioning_factor_i(RpHostSet* self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_overprovisioning_factor;
 }
 
 static bool
-weighted_priority_health_i(RpHostSet* self)
+get_weighted_priority_health_i(RpHostSet* self)
 {
     NOISY_MSG_("(%p)", self);
     return PRIV(self)->m_weighted_priority_health;
+}
+
+static RpHostVector*
+ref_hosts_i(RpHostSet* self)
+{
+    NOISY_MSG_("(%p)", self);
+    RpHostSetImplPrivate* me = PRIV(self);
+    return me->m_hosts ? rp_host_vector_ref(me->m_hosts) : NULL;
+}
+
+static RpHostVector*
+ref_healthy_hosts_i(RpHostSet* self)
+{
+    NOISY_MSG_("(%p)", self);
+    RpHostSetImplPrivate* me = PRIV(self);
+    return me->m_healthy_hosts ? rp_host_vector_ref(me->m_healthy_hosts) : NULL;
+}
+
+static RpHostVector*
+ref_degraded_hosts_i(RpHostSet* self)
+{
+    NOISY_MSG_("(%p)", self);
+    RpHostSetImplPrivate* me = PRIV(self);
+    return me->m_degraded_hosts ? rp_host_vector_ref(me->m_degraded_hosts) : NULL;
+}
+
+static RpHostVector*
+ref_excluded_hosts_i(RpHostSet* self)
+{
+    NOISY_MSG_("(%p)", self);
+    RpHostSetImplPrivate* me = PRIV(self);
+    return me->m_excluded_hosts ? rp_host_vector_ref(me->m_excluded_hosts) : NULL;
 }
 
 static void
 host_set_iface_init(RpHostSetInterface* iface)
 {
     LOGD("(%p)", iface);
-    iface->hosts = hosts_i;
-    iface->healthy_hosts = healthy_hosts_i;
-    iface->degraded_hosts = degraded_hosts_i;
-    iface->excluded_hosts = excluded_hosts_i;
-    iface->hosts_per_locality = hosts_per_locality_i;
-    iface->healthy_hosts_per_locality = healthy_hosts_per_locality_i;
-    iface->degraded_hosts_per_locality = degraded_hosts_per_locality_i;
-    iface->excluded_hosts_per_locality = excluded_hosts_per_locality_i;
-    iface->locality_weights = locality_weights_i;
-    iface->priority = priority_i;
-    iface->overprovisioning_factor = overprovisioning_factor_i;
-    iface->weighted_priority_health = weighted_priority_health_i;
+    iface->get_hosts = get_hosts_i;
+    iface->ref_hosts = ref_hosts_i;
+    iface->get_healthy_hosts = get_healthy_hosts_i;
+    iface->get_degraded_hosts = get_degraded_hosts_i;
+    iface->get_excluded_hosts = get_excluded_hosts_i;
+    iface->get_hosts_per_locality = get_hosts_per_locality_i;
+    iface->get_healthy_hosts_per_locality = get_healthy_hosts_per_locality_i;
+    iface->get_degraded_hosts_per_locality = get_degraded_hosts_per_locality_i;
+    iface->get_excluded_hosts_per_locality = get_excluded_hosts_per_locality_i;
+    iface->get_locality_weights = get_locality_weights_i;
+    iface->get_priority = get_priority_i;
+    iface->get_overprovisioning_factor = get_overprovisioning_factor_i;
+    iface->get_weighted_priority_health = get_weighted_priority_health_i;
+    iface->ref_healthy_hosts = ref_healthy_hosts_i;
+    iface->ref_degraded_hosts = ref_degraded_hosts_i;
+    iface->ref_excluded_hosts = ref_excluded_hosts_i;
 }
 
 OVERRIDE void
@@ -223,14 +260,37 @@ OVERRIDE void
 dispose(GObject* obj)
 {
     NOISY_MSG_("(%p)", obj);
+
+    RpHostSetImplPrivate* me = PRIV(obj);
+
+    g_clear_pointer(&me->m_hosts, rp_host_vector_unref);
+    g_clear_pointer(&me->m_healthy_hosts, rp_host_vector_unref);
+    g_clear_pointer(&me->m_degraded_hosts, rp_host_vector_unref);
+    g_clear_pointer(&me->m_excluded_hosts, rp_host_vector_unref);
+
+    g_clear_object(&me->m_member_update_cb_helper);
+
     G_OBJECT_CLASS(rp_host_set_impl_parent_class)->dispose(obj);
 }
 
 OVERRIDE RpStatusCode_e
-run_upate_callbacks(RpHostSetImpl* self, RpHostVector* hosts_added, RpHostVector* hosts_removed)
+run_update_callbacks(RpHostSetImpl* self, const RpHostVector* hosts_added, const RpHostVector* hosts_removed)
 {
     NOISY_MSG_("(%p, %p, %p)", self, hosts_added, hosts_removed);
-//TODO...
+    RpHostSetImplPrivate* me = PRIV(self);
+    GList* callbacks = rp_callback_manager_callbacks(me->m_member_update_cb_helper);
+    for (GList* itr = callbacks; itr; itr = itr->next)
+    {
+        RpCallbackHandlePtr handle = itr->data;
+        RpPrioritySetPriorityUpdateCb cb = (RpPrioritySetPriorityUpdateCb)rp_callback_handle_cb(handle);
+        gpointer arg = rp_callback_handle_arg(handle);
+        RpStatusCode_e status = cb(me->m_priority, hosts_added, hosts_removed, arg);
+        if (status != RpStatusCode_Ok)
+        {
+            LOGE("failed");
+            return status;
+        }
+    }
     return RpStatusCode_Ok;
 }
 
@@ -244,7 +304,7 @@ rp_host_set_impl_class_init(RpHostSetImplClass* klass)
     object_class->set_property = set_property;
     object_class->dispose = dispose;
 
-    klass->run_update_callbacks = run_upate_callbacks;
+    klass->run_update_callbacks = run_update_callbacks;
 
     obj_properties[PROP_OVERPROVISIONING_FACTOR] = g_param_spec_uint("overprovisioning-factor",
                                                     "Overprovisioning factor",
@@ -274,5 +334,99 @@ rp_host_set_impl_init(RpHostSetImpl* self)
 {
     LOGD("(%p)", self);
     RpHostSetImplPrivate* me = PRIV(self);
-    me->m_hosts = g_ptr_array_new(); //new HostVector()
+    me->m_hosts = rp_host_vector_new();
+    me->m_healthy_hosts = rp_host_vector_new();
+    me->m_degraded_hosts = rp_host_vector_new();
+    me->m_excluded_hosts = rp_host_vector_new();
+    me->m_member_update_cb_helper = rp_callback_manager_new();
+}
+
+RpCallbackHandlePtr
+rp_host_set_impl_add_priority_update_cb(RpHostSetImpl* self, RpPrioritySetPriorityUpdateCb cb, gpointer arg)
+{
+    LOGD("(%p, %p, %p)", self, cb, arg);
+    g_return_val_if_fail(RP_IS_HOST_SET_IMPL(self), NULL);
+    return rp_callback_manager_add(PRIV(self)->m_member_update_cb_helper, (RpCallback)cb, arg);
+}
+
+static inline RpHostVector*
+steal_and_ref_hosts(RpHostVector** dst, RpHostVector** src)
+{
+    NOISY_MSG_("(%p, %p)", dst, src);
+    g_clear_pointer(dst, rp_host_vector_unref);
+    RpHostVector* hosts = g_steal_pointer(src);
+    return hosts ? rp_host_vector_ref(hosts) : NULL;
+}
+
+void
+rp_host_set_impl_update_hosts(RpHostSetImpl* self, RpPrioritySetUpdateHostsParams* params /* transfer full */,
+                                const RpHostVector* hosts_added, const RpHostVector* hosts_removed,
+                                bool* weighted_priority_health_opt, guint32* overprovisioning_factor_opt)
+{
+    LOGD("(%p, %p, %p, %p, %p, %p)",
+        self, params, hosts_added, hosts_removed, weighted_priority_health_opt, overprovisioning_factor_opt);
+
+    g_return_if_fail(RP_IS_HOST_SET_IMPL(self));
+    g_return_if_fail(params != NULL);
+
+    RpHostSetImplPrivate* me = PRIV(self);
+
+    //TODO...if (weighted_priority_health.has_value)
+    //TODO...if (overprovisioning_factor)
+
+    me->m_hosts = steal_and_ref_hosts(&me->m_hosts, &params->hosts);
+    me->m_healthy_hosts = steal_and_ref_hosts(&me->m_healthy_hosts, &params->healthy_hosts);
+    me->m_degraded_hosts = steal_and_ref_hosts(&me->m_degraded_hosts, &params->degraded_hosts);
+    me->m_excluded_hosts = steal_and_ref_hosts(&me->m_excluded_hosts, &params->excluded_hosts);
+
+    //TODO...
+
+    RpStatusCode_e status = rp_host_set_impl_run_update_callbacks(self, hosts_added, hosts_removed);
+    if (status != RpStatusCode_Ok)
+    {
+        LOGE("update callbacks failed");
+    }
+}
+
+RpPrioritySetUpdateHostsParams
+rp_host_set_impl_partition_hosts_take(RpHostVector** hosts /* Transfer full. */)
+{
+    LOGD("(%p)", hosts);
+
+    RpPrioritySetUpdateHostsParams params = {0};
+    g_return_val_if_fail(hosts && *hosts, params);
+
+    RpPartitionedHostListTuple partitioned_hosts =
+        rp_cluster_impl_base_partition_host_list(*hosts);
+
+    params.hosts = g_steal_pointer(hosts);
+    params.healthy_hosts = partitioned_hosts.healthy_list;
+    params.degraded_hosts = partitioned_hosts.degraded_list;
+    params.excluded_hosts = partitioned_hosts.excluded_list;
+
+    return params;
+}
+
+RpPrioritySetUpdateHostsParams
+rp_host_set_impl_update_hosts_params(RpHostVector* hosts, RpHostVector* healthy_hosts,
+                                        RpHostVector* degraded_hosts, RpHostVector* excluded_hosts)
+{
+    LOGD("(%p, %p, %p, %p)", hosts, healthy_hosts, degraded_hosts, excluded_hosts);
+    return (RpPrioritySetUpdateHostsParams) {
+        .hosts = g_steal_pointer(&hosts),
+        .healthy_hosts = g_steal_pointer(&healthy_hosts),
+        .degraded_hosts = g_steal_pointer(&degraded_hosts),
+        .excluded_hosts = g_steal_pointer(&excluded_hosts)
+    };
+}
+
+RpPrioritySetUpdateHostsParams
+rp_host_set_impl_update_hosts_params_2(RpHostSetImpl* self)
+{
+    LOGD("(%p)", self);
+    g_return_val_if_fail(RP_IS_HOST_SET_IMPL(self), (RpPrioritySetUpdateHostsParams){0});
+    return rp_host_set_impl_update_hosts_params(rp_host_set_ref_hosts(RP_HOST_SET(self)),
+                                                (RpHostVector*)rp_host_set_get_healthy_hosts(RP_HOST_SET(self)),
+                                                (RpHostVector*)rp_host_set_get_degraded_hosts(RP_HOST_SET(self)),
+                                                (RpHostVector*)rp_host_set_get_excluded_hosts(RP_HOST_SET(self)));
 }

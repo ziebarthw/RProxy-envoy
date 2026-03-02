@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_raw_buffer_socket_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_raw_buffer_socket_NOISY)
@@ -24,9 +21,8 @@
 struct _RpRawBufferSocket {
     GObject parent_instance;
 
-    UNIQUE_PTR(evbev_t) m_bev; // Temporary ownership until create_io_handle() is called.
+    evbev_t* m_bev; // Temporary ownership until create_io_handle() is called.
     evhtp_ssl_t* m_ssl;
-    struct evdns_base* m_dns_base;
 
     RpHandleType_e m_type;
 
@@ -75,7 +71,7 @@ create_io_handle_i(RpNetworkTransportSocket* self)
 {
     NOISY_MSG_("(%p)", self);
     RpRawBufferSocket* me = RP_RAW_BUFFER_SOCKET(self);
-    RpIoBevSocketHandleImpl* io_handle = rp_io_bev_socket_handle_impl_new(me->m_type, g_steal_pointer(&me->m_bev), me->m_dns_base);
+    RpIoBevSocketHandleImpl* io_handle = rp_io_bev_socket_handle_impl_new(me->m_type, g_steal_pointer(&me->m_bev));
     return RP_IO_HANDLE(io_handle);
 }
 
@@ -161,13 +157,6 @@ connect_i(RpNetworkTransportSocket* self, RpConnectionSocket* socket)
     return rp_socket_connect(RP_SOCKET(socket), addr);
 }
 
-static evdns_base_t*
-dns_base_i(RpNetworkTransportSocket* self)
-{
-    NOISY_MSG_("(%p)", self);
-    return RP_RAW_BUFFER_SOCKET(self)->m_dns_base;
-}
-
 static void
 transport_socket_iface_init(RpNetworkTransportSocketInterface* iface)
 {
@@ -180,7 +169,6 @@ transport_socket_iface_init(RpNetworkTransportSocketInterface* iface)
     iface->do_read = do_read_i;
     iface->do_write = do_write_i;
     iface->connect = connect_i;
-    iface->dns_base = dns_base_i;
 }
 
 static void
@@ -216,13 +204,12 @@ rp_raw_buffer_socket_init(RpRawBufferSocket* self G_GNUC_UNUSED)
 }
 
 RpRawBufferSocket*
-rp_raw_buffer_socket_new(RpHandleType_e type, evbev_t* bev, evhtp_ssl_t* ssl, struct evdns_base* dns_base)
+rp_raw_buffer_socket_new(RpHandleType_e type, evbev_t* bev, evhtp_ssl_t* ssl)
 {
-    LOGD("(%d, %p, %p, %p)", type, bev, ssl, dns_base);
+    LOGD("(%d, %p, %p)", type, bev, ssl);
     RpRawBufferSocket* self = g_object_new(RP_TYPE_RAW_BUFFER_SOCKET, NULL);
     self->m_type = type;
     self->m_bev = bev;
     self->m_ssl = ssl;
-    self->m_dns_base = dns_base;
     return self;
 }

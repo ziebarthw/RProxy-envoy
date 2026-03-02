@@ -15,6 +15,7 @@
 
 #include "rule.h"
 #include "rp-cluster-configuration.h"
+#include "rp-host-set-ptr-vector.h"
 #include "network/rp-address-impl.h"
 #include "thread_local/rp-thread-local-impl.h"
 #include "upstream/rp-delegate-load-balancer-factory.h"
@@ -28,18 +29,18 @@ struct _RpStrictDnsClusterImpl {
     RpNetworkDnsResolverSharedPtr m_dns_resolver;
     RpThreadAwareLoadBalancerPtr m_thread_aware_lb;
     rule_t* m_rule;
-    GHashTable* /* <const char*, RpHostConstSharedPtr> */ m_host_map;
     GList*/* <RpResolveTargetPtr> */ m_resolve_targets;
     guint64 m_dns_refresh_rate_ms;
     guint64 m_dns_jitter_ms;
     //TODO...BackOffStrategyPtr failure_backoff_strategy_;
     RpDnsLookupFamily_e m_dns_lookup_family;
     guint32 m_overprovisioning_factor;
+    guint32 m_last_used_element;
     bool m_respect_dns_ttl : 1;
     bool m_weighted_priority_health : 1;
 };
 
-//static void update_all_hosts(RpStrictDnsClusterImpl* self, const RpHostVector* hosts_added, const RpHostVector* hosts_removed, guint32 priority);
+static void update_all_hosts(RpStrictDnsClusterImpl* self, const RpHostVector* hosts_added, const RpHostVector* hosts_removed, guint32 priority);
 
 typedef struct _RpResolveTarget RpResolveTarget;
 struct _RpResolveTarget {
@@ -52,7 +53,7 @@ struct _RpResolveTarget {
     const char* m_hostname;
     guint32 m_port;
     //TODO...const Event::TimePtr resolve_timer_;
-    UNIQUE_PTR(RpHostVector) m_hosts;
+    RpHostVector* m_hosts;
     RpHostMap* m_all_hosts;
 };
 
@@ -89,8 +90,8 @@ rp_resolve_target_new(RpStrictDnsClusterImpl* parent, RpDispatcher* dispatcher, 
         parent, dispatcher, dns_address, dns_address, dns_port, locality_lb_endpoint, lb_endpoint);
     RpResolveTarget* self = g_new(RpResolveTarget, 1);
     *self = rp_resolve_target_ctor(parent, dispatcher, dns_address, dns_port, locality_lb_endpoint, lb_endpoint);
-    self->m_hosts = g_ptr_array_new_with_free_func(g_object_unref);
-    self->m_all_hosts = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+    self->m_hosts = rp_host_vector_new();
+    self->m_all_hosts = rp_host_map_new();
     //TODO...startResolve() in a timer...
     return self;
 }
@@ -99,8 +100,8 @@ rp_resolve_target_free(RpResolveTarget* self)
 {
     NOISY_MSG_("(%p)", self);
     rp_resolve_target_dtor(self);
-    g_ptr_array_free(g_steal_pointer(&self->m_hosts), true);
-    g_hash_table_destroy(g_steal_pointer(&self->m_all_hosts));
+    g_clear_pointer(&self->m_hosts, rp_host_vector_unref);
+    g_clear_pointer(&self->m_all_hosts, rp_host_map_unref);
     g_free(g_steal_pointer(&self));
 }
 
@@ -125,6 +126,18 @@ rp_network_utiliy_get_address_with_port(const RpNetworkAddressInstance* address,
     }
 }
 
+static inline void
+add_upstream_internal(rule_t* rule, upstream_t* upstream)
+{
+    upstream_cfg_t* ucfg = upstream->config;
+    rproxy_t* rproxy = rule->parent_vhost->rproxy;
+    server_cfg_t* server_cfg = rule->parent_vhost->config->server_cfg;
+    server_cfg->upstream_cfgs = g_slist_append(server_cfg->upstream_cfgs, ucfg);
+    rproxy->upstreams = g_slist_append(rproxy->upstreams, upstream);
+}
+
+//#define WITH_MUTLITHREAD_DNS
+#ifdef WITH_MUTLITHREAD_DNS
 typedef struct _RpAddUpstreamCtx RpAddUpstreamCtx;
 struct _RpAddUpstreamCtx {
     rule_t* rule;
@@ -161,14 +174,7 @@ add_upstream_cb(gpointer arg)
     NOISY_MSG_("(%p)", arg);
     RpAddUpstreamCtx* ctx = arg;
     RpAddUpstreamCtx captures = rp_add_upstream_cb_captures(ctx);
-    upstream_t* upstream = captures.upstream;
-    upstream_cfg_t* ucfg = upstream->config;
-    rule_t* rule = captures.rule;
-    rproxy_t* rproxy = rule->parent_vhost->rproxy;
-    server_cfg_t* server_cfg = rule->parent_vhost->config->server_cfg;
-    server_cfg->upstream_cfgs = g_slist_append(server_cfg->upstream_cfgs, ucfg);
-    rproxy->upstreams = g_slist_append(rproxy->upstreams, upstream);
-    rule->upstreams = g_slist_append(rule->upstreams, upstream);
+    add_upstream_internal(captures.rule, captures.upstream);
 }
 
 static inline void
@@ -178,28 +184,13 @@ post_add_upstream_cb(rule_t* rule, upstream_t* upstream, RpDispatcher* dispatche
     RpAddUpstreamCtx* ctx = rp_add_upstream_cb_ctx_new(rule, upstream);
     rp_dispatcher_base_post(RP_DISPATCHER_BASE(dispatcher), add_upstream_cb, ctx);
 }
-
-static void
-add_rule_cb(gpointer arg)
-{
-    NOISY_MSG_("(%p)", arg);
-    rule_t* rule = arg;
-    rproxy_t* rproxy = rule->parent_vhost->rproxy;
-    rproxy->rules = g_slist_append(rproxy->rules, rule);
-}
-
-static inline void
-post_add_rule_cb(rule_t* rule, RpDispatcher* dispatcher)
-{
-    NOISY_MSG_("(%p, %p)", rule, dispatcher);
-    rp_dispatcher_base_post(RP_DISPATCHER_BASE(dispatcher), add_rule_cb, rule);
-}
+#endif//WITH_MUTLITHREAD_DNS
 
 static upstream_t*
-add_upstream(upstream_cfg_t* cfg, RpNetworkAddressInstanceConstSharedPtr addr, rule_t* rule, RpDispatcher* dispatcher)
+add_upstream(upstream_cfg_t* cfg, guint count, RpNetworkAddressInstanceConstSharedPtr addr, rule_t* rule, RpDispatcher* dispatcher)
 {
     extern upstream_cfg_t* upstream_cfg_new(void);
-    NOISY_MSG_("(%p, %p, %p, %p)", cfg, addr, rule, dispatcher);
+    NOISY_MSG_("(%p, %u, %p, %p, %p)", cfg, count, addr, rule, dispatcher);
     RpNetworkAddressIp* ip = rp_network_address_instance_ip(addr);
     upstream_cfg_t* ucfg = upstream_cfg_new();
     ucfg->enabled = true;
@@ -207,11 +198,15 @@ add_upstream(upstream_cfg_t* cfg, RpNetworkAddressInstanceConstSharedPtr addr, r
     ucfg->n_connections = cfg->n_connections;
     ucfg->read_timeout = cfg->read_timeout;
     ucfg->write_timeout = cfg->write_timeout;
-    ucfg->name = g_strdup(rp_network_address_instance_as_string(addr));
+    ucfg->name = g_strdup_printf("%s-%d", cfg->name, count);
     ucfg->host = g_strdup(rp_network_address_ip_address_as_string(ip));
     ucfg->port = rp_network_address_ip_port(ip);
     upstream_t* self = upstream_new(ucfg);
+#ifdef WITH_MUTLITHREAD_DNS
     post_add_upstream_cb(rule, self, dispatcher);
+#else
+    add_upstream_internal(rule, self);
+#endif//WITH_MUTLITHREAD_DNS
     return self;
 }
 
@@ -223,7 +218,6 @@ network_dns_resolve_cb(RpDnsResolutionStatus_e status, char *details, GList* res
     RpResolveTarget* self = arg;
     RpStrictDnsClusterImpl* parent_ = self->m_parent;
     RpDispatcher* dispatcher = self->m_dispatcher;
-    GHashTable* host_map = parent_->m_host_map;
 
     g_clear_object(&self->m_active_query);
 
@@ -231,19 +225,19 @@ network_dns_resolve_cb(RpDnsResolutionStatus_e status, char *details, GList* res
         parent_, self->m_dns_address, self->m_dns_address, details);
 
     guint64 final_refresh_rate = parent_->m_dns_refresh_rate_ms;
-    upstream_t* master_upstream = rp_lb_endpoint_cfg_metadata(&self->m_lb_endpoint);
-NOISY_MSG_("master upstream %p", master_upstream);
-    upstream_cfg_t* master_upstream_cfg = master_upstream->config;
+    guint32 priority = rp_locality_lb_endpoints_cfg_priority(&self->m_locality_lb_endpoints);
+    upstream_t* parent_upstream = rp_lb_endpoint_cfg_metadata(&self->m_lb_endpoint);
+    upstream_cfg_t* parent_upstream_cfg = parent_upstream->config;
     rule_t* rule = parent_->m_rule;
-    bool first = true;
+    guint count = g_slist_length(rule->upstreams);
 
     if (status == RpDnsResolutionStatus_COMPLETED)
     {
         //TODO...parent_.info_->configUpdateStats().update_success_.inc();
 
-        g_autoptr(GPtrArray)/*RpHostVector*/ new_hosts = g_ptr_array_new();
+        RpHostVector* new_hosts = rp_host_vector_new();
         guint64 ttl_refresh_rate = G_MAXUINT64;
-        GHashTable* all_new_hosts = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+        g_autoptr(GHashTable) all_new_hosts = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
         for (GList* itr = response; itr; itr = itr->next)
         {
             RpNetworkDnsResponse* resp = itr->data;
@@ -255,23 +249,18 @@ NOISY_MSG_("master upstream %p", master_upstream);
                 NOISY_MSG_("exists");
                 continue;
             }
-            upstream_t* upstream = first ? master_upstream : add_upstream(master_upstream_cfg, address, rule, dispatcher);
+            upstream_t* upstream = add_upstream(parent_upstream_cfg, count++, address, rule, dispatcher);
             RpHostImpl* host = rp_host_impl_create(rp_cluster_info(RP_CLUSTER(parent_)),
-                                                    self->m_hostname,
+                                                    self->m_dns_address,
                                                     address,
                                                     upstream,
                                                     rp_lb_endpoint_cfg_load_balancing_weight_value(&self->m_lb_endpoint),
                                                     rp_locality_lb_endpoints_cfg_priority(&self->m_locality_lb_endpoints),
                                                     rp_cluster_impl_base_time_source_(RP_CLUSTER_IMPL_BASE(parent_)));
-            RpHostConstSharedPtr host_ = g_object_ref(RP_HOST(host));
-            g_ptr_array_add(new_hosts, g_steal_pointer(&host));
-NOISY_MSG_("%p) adding %p->%p to host map %p", parent_, upstream, host_, host_map);
-            g_hash_table_insert(host_map, upstream, host_);
-NOISY_MSG_("%p) %u nodes after adding %p->%p to host map %p", parent_, g_hash_table_size(host_map), upstream, host_, host_map);
+            rp_host_vector_add_take(new_hosts, (RpHost*)g_steal_pointer(&host));
             g_hash_table_add(all_new_hosts,
                 g_strdup(rp_network_address_instance_as_string(address)));
             ttl_refresh_rate = MIN(ttl_refresh_rate, addrinfo->m_ttl);
-            first = false;
         }
 
         RpHostVector* hosts_added = NULL;
@@ -289,28 +278,25 @@ NOISY_MSG_("%p) %u nodes after adding %p->%p to host map %p", parent_, g_hash_ta
 
             if (hosts_removed)
             {
-                for (guint i = 0; i < hosts_removed->len; ++i)
+                for (guint i = 0; i < rp_host_vector_len(hosts_removed); ++i)
                 {
-                    RpHostSharedPtr host = g_ptr_array_index(hosts_removed, i);
-                    RpNetworkAddressInstanceConstSharedPtr address = rp_host_description_address(RP_HOST_DESCRIPTION(host));
-                    const char* key = rp_network_address_instance_as_string(address);
-                    g_hash_table_remove(self->m_all_hosts, key);
+                    RpHost* host = rp_host_vector_get(hosts_removed, i);
+                    rp_host_map_remove(self->m_all_hosts, host);
                 }
-                g_ptr_array_free(g_steal_pointer(&hosts_removed), true);
+                g_clear_pointer(&hosts_removed, rp_host_vector_unref);
             }
             if (hosts_added)
             {
-                for (guint i = 0; hosts_added && i < hosts_added->len; ++i)
+                for (guint i = 0; hosts_added && i < rp_host_vector_len(hosts_added); ++i)
                 {
-                    RpHostSharedPtr host = g_ptr_array_index(hosts_added, i);
-                    RpNetworkAddressInstanceConstSharedPtr address = rp_host_description_address(RP_HOST_DESCRIPTION(host));
-                    const char* key = rp_network_address_instance_as_string(address);
-                    g_hash_table_insert(self->m_all_hosts, g_strdup(key), host);
+                    RpHost* host = rp_host_vector_get(hosts_added, i);
+                    rp_host_map_add(self->m_all_hosts, host);
                 }
-                g_ptr_array_free(g_steal_pointer(&hosts_added), true);
+                g_clear_pointer(&hosts_added, rp_host_vector_unref);
             }
 
             //TODO...parent_.updateAllHosts(...)
+            update_all_hosts(parent_, hosts_added, hosts_removed, priority);
         }
         else
         {
@@ -368,19 +354,18 @@ G_DEFINE_TYPE_WITH_CODE(RpStrictDnsClusterImpl, rp_strict_dns_cluster_impl, RP_T
     G_IMPLEMENT_INTERFACE(RP_TYPE_LOAD_BALANCER, load_balancer_iface_init)
 )
 
-#if 0
 static void
 update_all_hosts(RpStrictDnsClusterImpl* self, const RpHostVector* hosts_added, const RpHostVector* hosts_removed, guint32 current_priority)
 {
     NOISY_MSG_("(%p, %p, %p, %u)", self, hosts_added, hosts_removed, current_priority);
-    RpPriorityStateManager* priority_state_manager = rp_priority_state_manager_new(RP_CLUSTER_IMPL_BASE(self), self->m_local_info);
+    g_autoptr(RpPriorityStateManager) priority_state_manager = rp_priority_state_manager_new(RP_CLUSTER_IMPL_BASE(self), self->m_local_info, NULL);
     for (GList* itr = self->m_resolve_targets; itr; itr = itr->next)
     {
         RpResolveTarget* target = itr->data;
         rp_priority_state_manager_initialize_priority_for(priority_state_manager, &target->m_locality_lb_endpoints);
-        for (gint i = 0; i < target->m_hosts->len; ++i)
+        for (gint i = 0; i < rp_host_vector_len(target->m_hosts); ++i)
         {
-            RpHostSharedPtr host = g_ptr_array_index(target->m_hosts, i);
+            RpHost* host = rp_host_vector_get(target->m_hosts, i);
             if (rp_locality_lb_endpoints_cfg_priority(&target->m_locality_lb_endpoints) == current_priority)
             {
                 rp_priority_state_manager_register_host_for_priority_2(priority_state_manager, host, &target->m_locality_lb_endpoints);
@@ -388,22 +373,68 @@ update_all_hosts(RpStrictDnsClusterImpl* self, const RpHostVector* hosts_added, 
         }
     }
 
-    //TODO...
+    RpPriorityStatePtr priority_state = rp_priority_state_manager_priority_state(priority_state_manager);
+    RpHostListPtr host_list = rp_priority_state_steal_host_list(priority_state, current_priority);
+    bool weighted_priority_health = self->m_weighted_priority_health;
+    rp_priority_state_manager_update_cluster_priority_set(priority_state_manager,
+                                                            current_priority,
+                                                            &host_list,
+                                                            hosts_added,
+                                                            hosts_removed,
+                                                            &weighted_priority_health,
+                                                            &self->m_overprovisioning_factor);
 }
-#endif//0
+
+RpHost*
+get_round_robin(RpLoadBalancer* self)
+{
+    LOGD("(%p)", self);
+
+    RpStrictDnsClusterImpl* me = RP_STRICT_DNS_CLUSTER_IMPL(self);
+
+    RpPrioritySet* priority_set = rp_cluster_priority_set(RP_CLUSTER(self));
+    // REVISIT to use cross priority host map.
+    const RpHostSetPtrVector* host_set = rp_priority_set_host_sets_per_priority(priority_set);
+    const RpHostVector* hosts = rp_host_set_get_healthy_hosts(rp_host_set_ptr_vector_get(host_set, 0));
+
+    NOISY_MSG_("choosing from %u hosts, last used element %u", rp_host_vector_len(hosts), me->m_last_used_element);
+
+    if (rp_host_vector_len(hosts) < 2)
+    {
+        NOISY_MSG_("only 1 host");
+        return rp_host_vector_get(hosts, 0);
+    }
+
+    guint32 last_used_element = me->m_last_used_element;
+
+    RpHost* host;
+    if (last_used_element == G_MAXUINT32)
+    {
+        host = rp_host_vector_get(hosts, 0);
+        last_used_element = 0;
+    }
+    else
+    {
+        ++last_used_element;
+        if (last_used_element >= rp_host_vector_len(hosts))
+        {
+            NOISY_MSG_("wrapping");
+            last_used_element = 0;
+        }
+        host = rp_host_vector_get(hosts, last_used_element);
+    }
+
+    NOISY_MSG_("chose host %p at index %u", host, last_used_element);
+
+    me->m_last_used_element = last_used_element;
+    return host;
+}
 
 static RpHostSelectionResponse
 choose_host_i(RpLoadBalancer* self, RpLoadBalancerContext* context)
 {
     NOISY_MSG_("(%p, %p)", self, context);
-
-    RpStrictDnsClusterImpl* me = RP_STRICT_DNS_CLUSTER_IMPL(self);
-    const RpClusterCfg* config = rp_cluster_impl_base_config_(RP_CLUSTER_IMPL_BASE(self));
-    upstream_t* upstream = upstream_get(rp_cluster_cfg_rule(config));
-NOISY_MSG_("%p) calling g_hash_table_lookup(%p, %p), %u nodes", me, me->m_host_map, upstream, g_hash_table_size(me->m_host_map));
-    RpHostConstSharedPtr host = g_hash_table_lookup(me->m_host_map, upstream);
-NOISY_MSG_("%p) %p, host %p", me, upstream, host);
-    return rp_host_selection_response_ctor(host, NULL, NULL);
+    return rp_host_selection_response_ctor(get_round_robin(self), NULL, NULL);
 }
 
 static void
@@ -421,7 +452,8 @@ dispose(GObject* obj)
     RpStrictDnsClusterImpl* self = RP_STRICT_DNS_CLUSTER_IMPL(obj);
     g_clear_pointer(&self->m_load_assignment, g_free);
     g_clear_object(&self->m_dns_resolver);
-    g_hash_table_destroy(g_steal_pointer(&self->m_host_map));
+    g_list_free_full(g_steal_pointer(&self->m_resolve_targets),
+        (GDestroyNotify)rp_resolve_target_free);
 
     G_OBJECT_CLASS(rp_strict_dns_cluster_impl_parent_class)->dispose(obj);
 }
@@ -432,7 +464,6 @@ start_pre_init(RpClusterImplBase* self)
     NOISY_MSG_("(%p)", self);
 
     RpStrictDnsClusterImpl* me = RP_STRICT_DNS_CLUSTER_IMPL(self);
-NOISY_MSG_("%u targets", me->m_resolve_targets ? g_list_length(me->m_resolve_targets) : 0);
     for (GList* itr = me->m_resolve_targets; itr; itr = itr->next)
     {
         RpResolveTarget* target = itr->data;
@@ -467,14 +498,14 @@ static RpLoadBalancerPtr
 lb_create_fn(RpClusterSharedPtr self, RpLoadBalancerParams* params G_GNUC_UNUSED)
 {
     NOISY_MSG_("(%p(%s), %p)", self, G_OBJECT_TYPE_NAME(self), params);
-    return RP_LOAD_BALANCER(self);
+    return g_object_ref(RP_LOAD_BALANCER(self));
 }
 
 static void
 rp_strict_dns_cluster_impl_init(RpStrictDnsClusterImpl* self)
 {
     NOISY_MSG_("(%p(%s))", self, G_OBJECT_TYPE_NAME(self));
-    self->m_host_map = g_hash_table_new_full(g_direct_hash, g_direct_equal, NULL, g_object_unref);
+    self->m_last_used_element = G_MAXUINT32;
     self->m_thread_aware_lb = rp_simple_thread_aware_load_balancer_new(
                                 rp_delegate_load_balancer_factory_new(RP_CLUSTER(self), lb_create_fn, false/*TODO...true*/));
 }
@@ -520,8 +551,9 @@ constructed(RpStrictDnsClusterImpl* self, RpClusterFactoryContext* context)
     }
     self->m_resolve_targets = g_steal_pointer(&resolve_targets);
 
-    // Add the rule to the bootstrap rproxy rules list in the main thread.
-    post_add_rule_cb(self->m_rule, main_thread_dispatcher);
+    // Add the rule to the bootstrap rproxy rules list.
+    rproxy_t* rproxy = self->m_rule->parent_vhost->rproxy;
+    rproxy->rules = g_slist_append(rproxy->rules, self->m_rule);
 
     const RpLbPolicyCfg* policy = rp_cluster_load_assignment_cfg_policy(self->m_load_assignment);
     self->m_overprovisioning_factor = policy->overprovisioning_factor ?
@@ -589,7 +621,8 @@ rp_strict_dns_cluster_impl_create(const RpClusterCfg* cluster, const RpDnsCluste
         LOGE("failed");
         return null_pair();
     }
+    RpThreadAwareLoadBalancerPtr lb = new_cluster->m_thread_aware_lb;
     return PairClusterSharedPtrThreadAwareLoadBalancerPtr_make(
-            RP_CLUSTER(g_steal_pointer(&new_cluster)), new_cluster->m_thread_aware_lb);
+            RP_CLUSTER(g_steal_pointer(&new_cluster)), lb);
 
 }

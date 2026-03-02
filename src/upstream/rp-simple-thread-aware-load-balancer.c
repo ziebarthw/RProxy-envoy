@@ -80,6 +80,7 @@ rp_simple_thread_aware_load_balancer_new(RpLoadBalancerFactorySharedPtr factory)
     LOGD("(%p)", factory);
     g_return_val_if_fail(RP_IS_LOAD_BALANCER_FACTORY(factory), NULL);
     RpSimpleThreadAwareLoadBalancer* self = g_object_new(RP_TYPE_SIMPLE_THREAD_AWARE_LOAD_BALANCER, NULL);
-    self->m_factory = g_object_ref(factory);
+    // This owns factory.p
+    self->m_factory = factory;
     return RP_THREAD_AWARE_LOAD_BALANCER(self);
 }

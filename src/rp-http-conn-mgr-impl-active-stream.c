@@ -16,7 +16,7 @@
 #endif
 
 #include "trafficstats.h"
-#include "router/rp-route-config-impl.h"
+#include "router/rp-router-config-impl.h"
 #include "stream_info/rp-stream-info-impl.h"
 #include "rp-codec.h"
 #include "rp-http-conn-manager-impl.h"
@@ -68,22 +68,22 @@ struct _RpHttpConnMgrImplActiveStream {
 
     RpHttpConnectionManagerImpl* m_connection_manager;
 
-    UNIQUE_PTR(evhtp_headers_t) m_request_headers;
-    UNIQUE_PTR(evhtp_headers_t) m_request_trailers;
+    evhtp_headers_t* m_request_headers;
+    evhtp_headers_t* m_request_trailers;
 
     //evhtp_headers_t* m_informational_headers;
-    UNIQUE_PTR(evhtp_headers_t) m_response_headers;
-    UNIQUE_PTR(evhtp_headers_t) m_response_trailers;
+    evhtp_headers_t* m_response_headers;
+    evhtp_headers_t* m_response_trailers;
 
     RpDownstreamFilterManager* m_filter_manager;
 
     RpResponseEncoder* m_response_encoder;
-    RpClusterInfoConstSharedPtr m_cached_cluster_info;
+    RpClusterInfoSharedPtr m_cached_cluster_info;
 
-    RpRouteConfig* m_snapped_route_config;
-    RpRoute* m_cached_route;
+    RpRouterConfigSharedPtr m_snapped_route_config;
+    RpRouteSharedPtr m_cached_route;
 
-    GArray* m_cleared_cached_routes;
+    GPtrArray* /* <RpRouteConstSharedPtr> */ m_cleared_cached_routes;
 
     evbuf_t* m_reply_body;
     evbuf_t* m_deferred_data;
@@ -122,7 +122,8 @@ block_route_cache(RpHttpConnMgrImplActiveStream* self)
 {
     NOISY_MSG_("(%p)", self);
     self->m_route_cache_blocked = true;
-    g_clear_object(&self->m_snapped_route_config);//REVISIT?
+if (self->m_snapped_route_config) NOISY_MSG_("%p, clearing snapped route config %p(%u)", self, self->m_snapped_route_config, G_OBJECT(self->m_snapped_route_config)->ref_count);
+    g_clear_object(&self->m_snapped_route_config);
 }
 
 static inline bool
@@ -142,38 +143,24 @@ refresh_cached_route_internal(RpHttpConnMgrImplActiveStream* self, RpRouteCallba
         return;
     }
 
-    RpRoute* route = NULL;
+    RpRouteConstSharedPtr route = NULL;
     if (self->m_request_headers)
     {
-        RpHttpConnectionManagerImpl* connection_manager = self->m_connection_manager;
-        RpConnectionManagerConfig* config = rp_http_connection_manager_impl_connection_manager_config_(connection_manager);
-#if 0
-        if (rp_connection_manager_config_is_routable(config))
+//TODO...        if (connection_manager_.config_->isRoutable() &&) {...}
+        if (self->m_snapped_route_config)
         {
-
+            route = rp_router_config_route(self->m_snapped_route_config,
+                                            cb,
+                                            self->m_request_headers,
+                                            rp_filter_manager_stream_info(RP_FILTER_MANAGER(self->m_filter_manager)),
+                                            1024/*TODO...stream_id_*/);
         }
-#endif//0
-        RpRouteConfigProvider* route_config_provider = rp_connection_manager_config_route_config_provider(config);
-        RpRouteConfig* route_config = rp_route_config_provider_config_cast(route_config_provider);
-
-        route = rp_route_config_route(route_config,
-                                        NULL,
-                                        self->m_request_headers,
-                                        rp_filter_manager_stream_info(RP_FILTER_MANAGER(self->m_filter_manager)),
-                                        0/*stream_id_*/);
-        NOISY_MSG_("route %p", route);
     }
-else
-{
-    route = rp_stream_info_route(
-                rp_filter_manager_stream_info(RP_FILTER_MANAGER(self->m_filter_manager)));
-    NOISY_MSG_("route %p", route);
-}
 
     rp_downstream_stream_filter_callbacks_set_route(RP_DOWNSTREAM_STREAM_FILTER_CALLBACKS(self), route);
 }
 
-static inline GArray*
+static inline UNIQUE_PTR(GPtrArray)
 ensure_cleared_cached_routes(RpHttpConnMgrImplActiveStream* self)
 {
     NOISY_MSG_("(%p)", self);
@@ -182,22 +169,24 @@ ensure_cleared_cached_routes(RpHttpConnMgrImplActiveStream* self)
         NOISY_MSG_("pre-allocated cleared cached routes %p", self->m_cleared_cached_routes);
         return self->m_cleared_cached_routes;
     }
-    self->m_cleared_cached_routes = g_array_sized_new(false, false, sizeof(GObject*), 3);
+    self->m_cleared_cached_routes = g_ptr_array_new_full(3, g_object_unref);
     NOISY_MSG_("allocated cleared cached routes %p", self->m_cleared_cached_routes);
     return self->m_cleared_cached_routes;
 }
 
 static inline void
-set_cached_route(RpHttpConnMgrImplActiveStream* self, RpRoute* route)
+set_cached_route(RpHttpConnMgrImplActiveStream* self, RpRouteConstSharedPtr route)
 {
     NOISY_MSG_("(%p, %p)", self, route);
 
     if (rp_route_cache_has_cached_route(RP_ROUTE_CACHE(self)))
     {
-        GArray* cleared_cached_routes = ensure_cleared_cached_routes(self);
-        g_array_append_val(cleared_cached_routes, route);
+        UNIQUE_PTR(GPtrArray) cleared_cached_routes = ensure_cleared_cached_routes(self);
+        g_ptr_array_add(cleared_cached_routes, g_object_ref(self->m_cached_route));
     }
-    self->m_cached_route = g_steal_pointer(&route);
+    // cached_route_ = std::move(route);
+    rp_route_set_object(&self->m_cached_route, route);
+if (route) g_object_unref((GObject*)route); // REVISIT: must be a better way to account for the initial ref count of 1.(?)
 }
 
 static inline evbuf_t*
@@ -324,8 +313,7 @@ maybe_record_last_byte_received(RpHttpConnMgrImplActiveStream* self, bool end_st
 static void
 decode_data_i(RpStreamDecoder* self, evbuf_t* data, bool end_stream)
 {
-    NOISY_MSG_("(%p, %p(%zu), %u)",
-        self, data, data ? evbuffer_get_length(data) : 0, end_stream);
+    NOISY_MSG_("(%p, %p(%zu), %u)", self, data, evbuf_length(data), end_stream);
 
     RpHttpConnMgrImplActiveStream* me = RP_HTTP_CONN_MGR_IMPL_ACTIVE_STREAM(self);
     struct state_s* state = &me->m_state;
@@ -418,11 +406,11 @@ get_scheme(const char* forwarded_proto, bool is_ssl)
 
 static inline struct MutateRequestHeadersResult
 mutate_request_headers(evhtp_headers_t* request_headers, RpNetworkConnection* connection,
-                        RpConnectionManagerConfig* config, RpRouteConfig* route_config,
+                        RpConnectionManagerConfig* config, RpRouterConfig* route_config,
                         RpLocalInfo* local_info, RpStreamInfo* stream_info)
 {
-    NOISY_MSG_("(%p, %p, %p, %p, %p, %p)",
-        request_headers, connection, config, route_config, local_info, stream_info);
+    NOISY_MSG_("(%p, %p, %p, %p(%u), %p, %p)",
+        request_headers, connection, config, route_config, G_OBJECT(route_config)->ref_count, local_info, stream_info);
 
     if (!http_utility_is_upgrade(request_headers))
     {
@@ -538,7 +526,8 @@ decode_headers_i(RpRequestDecoder* self, evhtp_headers_t* request_headers, bool 
         RpRouteConfigProvider* route_config_provider = rp_connection_manager_config_route_config_provider(config);
         if (route_config_provider != NULL)
         {
-            me->m_snapped_route_config = rp_route_config_provider_config_cast(route_config_provider);
+            RpRouterConfigConstSharedPtr route_config = rp_route_config_provider_config_cast(route_config_provider);
+            rp_router_config_set_object(&me->m_snapped_route_config, route_config);
         }
         else
         {
@@ -547,8 +536,9 @@ decode_headers_i(RpRequestDecoder* self, evhtp_headers_t* request_headers, bool 
     }
     else
     {
-        me->m_snapped_route_config = rp_route_config_provider_config_cast(
-                                        rp_connection_manager_config_route_config_provider(config));
+        RpRouterConfigConstSharedPtr route_config = rp_route_config_provider_config_cast(
+                                                        rp_connection_manager_config_route_config_provider(config));
+        rp_router_config_set_object(&me->m_snapped_route_config, route_config);
     }
 
     //TODO...drop_request_due_to_overload...
@@ -767,6 +757,7 @@ mutate_response_headers(evhtp_headers_t* response_headers, evhtp_headers_t* requ
     {
         IF_NOISY_(bool no_body = (!evhtp_header_find(response_headers, RpHeaderValues.TransferEncoding) &&
                             !evhtp_header_find(response_headers, RpHeaderValues.ContentLength));)
+        NOISY_MSG_("no body %u", no_body);
 
         //TODO:bool is_1xx ...
     }
@@ -1019,7 +1010,7 @@ filter_manager_callbacks_iface_init(RpFilterManagerCallbacksInterface* iface)
     iface->rules = rules_i;
 }
 
-static RpRoute*
+static RpRouteSharedPtr
 route_i(RpDownstreamStreamFilterCallbacks* self, RpRouteCallback cb)
 {
     NOISY_MSG_("(%p, %p)", self, cb);
@@ -1034,7 +1025,7 @@ route_i(RpDownstreamStreamFilterCallbacks* self, RpRouteCallback cb)
 }
 
 static void
-set_route_i(RpDownstreamStreamFilterCallbacks* self, RpRoute* route)
+set_route_i(RpDownstreamStreamFilterCallbacks* self, RpRouteConstSharedPtr route)
 {
     NOISY_MSG_("(%p, %p)", self, route);
 
@@ -1049,19 +1040,19 @@ set_route_i(RpDownstreamStreamFilterCallbacks* self, RpRoute* route)
     if (!route || !rp_route_route_entry(route))
     {
         NOISY_MSG_("clearing cached cluster info %p", me->m_cached_cluster_info);
-//        g_clear_object(&me->m_cached_cluster_info);
-me->m_cached_cluster_info = NULL;
+        g_clear_object(&me->m_cached_cluster_info);
     }
     else
     {
         RpThreadLocalCluster* cluster = rp_cluster_manager_get_thread_local_cluster(
             rp_http_connection_manager_impl_cluster_manager_(me->m_connection_manager),
                                                                 rp_route_entry_cluster_name(rp_route_route_entry(route)));
-        me->m_cached_cluster_info = cluster ? rp_thread_local_cluster_info(cluster) : NULL;
+        rp_cluster_info_set_object(&me->m_cached_cluster_info,
+            cluster ? rp_thread_local_cluster_info(cluster) : NULL);
     }
 
     RpStreamInfo* stream_info = rp_filter_manager_stream_info(RP_FILTER_MANAGER(me->m_filter_manager));
-    rp_stream_info_impl_set_route_(RP_STREAM_INFO_IMPL(stream_info), route);
+    rp_stream_info_impl_set_route_(RP_STREAM_INFO_IMPL(stream_info), g_steal_pointer(&route));
     rp_stream_info_set_upstream_cluster_info(stream_info, me->m_cached_cluster_info);
 
     //TODO...refreshIdleTimeout();
@@ -1106,6 +1097,12 @@ dispose(GObject* obj)
     g_clear_pointer(&me->m_request_trailers, evhtp_headers_free);
     g_clear_pointer(&me->m_response_headers, evhtp_headers_free);
     g_clear_pointer(&me->m_response_trailers, evhtp_headers_free);
+    g_clear_object(&me->m_snapped_route_config);
+    if (me->m_cleared_cached_routes)
+    {
+        NOISY_MSG_("%p, freeing cleared cached routes %p(%u elements)", obj, me->m_cleared_cached_routes, me->m_cleared_cached_routes->len);
+        g_ptr_array_free(g_steal_pointer(&me->m_cleared_cached_routes), true);
+    }
 
     G_OBJECT_CLASS(rp_http_conn_mgr_impl_active_stream_parent_class)->dispose(obj);
 }

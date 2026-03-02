@@ -26,10 +26,10 @@ struct _RpPriorityConnPoolMapClass {
 
     UNIQUE_PTR(RpHttpConnectionPoolInstance) (*get_pool)(RpPriorityConnPoolMap*,
                                                             RpResourcePriority_e,
-                                                            gpointer,
+                                                            GBytes*,
                                                             RpPoolFactory,
                                                             gpointer);
-    bool (*erase_pool)(RpPriorityConnPoolMap*, RpResourcePriority_e, gpointer);
+    bool (*erase_pool)(RpPriorityConnPoolMap*, RpResourcePriority_e, GBytes*);
     gsize (*size)(RpPriorityConnPoolMap*);
     bool (*empty)(RpPriorityConnPoolMap*);
     void (*clear)(RpPriorityConnPoolMap*);
@@ -38,13 +38,13 @@ struct _RpPriorityConnPoolMapClass {
 };
 
 static inline UNIQUE_PTR(RpHttpConnectionPoolInstance)
-rp_priority_conn_pool_map_get_pool(RpPriorityConnPoolMap* self, RpResourcePriority_e priority, const gpointer key, const RpPoolFactory factory, gpointer user_data)
+rp_priority_conn_pool_map_get_pool(RpPriorityConnPoolMap* self, RpResourcePriority_e priority, GBytes* key, const RpPoolFactory factory, gpointer user_data)
 {
     return RP_IS_PRIORITY_CONN_POOL_MAP(self) ?
         RP_PRIORITY_CONN_POOL_MAP_GET_CLASS(self)->get_pool(self, priority, key, factory, user_data) : NULL;
 }
 static inline bool
-rp_priority_conn_pool_map_erase_pool(RpPriorityConnPoolMap* self, RpResourcePriority_e priority, const gpointer key)
+rp_priority_conn_pool_map_erase_pool(RpPriorityConnPoolMap* self, RpResourcePriority_e priority, GBytes* key)
 {
     return RP_IS_PRIORITY_CONN_POOL_MAP(self) ?
         RP_PRIORITY_CONN_POOL_MAP_GET_CLASS(self)->erase_pool(self, priority, key) : false;
@@ -80,6 +80,6 @@ rp_priority_conn_pool_map_drain_connections(RpPriorityConnPoolMap* self, RpDrain
         RP_PRIORITY_CONN_POOL_MAP_GET_CLASS(self)->drain_connections(self, drain_behavior);
 }
 
-GPtrArray* rp_priority_conn_pool_map_conn_pool_maps_(RpPriorityConnPoolMap* self);
+RpConnPoolMap** rp_priority_conn_pool_map_conn_pool_maps_(RpPriorityConnPoolMap* self);
 
 G_END_DECLS

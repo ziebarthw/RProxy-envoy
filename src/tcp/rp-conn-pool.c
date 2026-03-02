@@ -5,9 +5,6 @@
  * SPDX-License-Identifier: MIT
  */
 
-#ifndef ML_LOG_LEVEL
-#define ML_LOG_LEVEL 4
-#endif
 #include "macrologger.h"
 
 #if (defined(rp_conn_pool_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_conn_pool_NOISY)
@@ -116,7 +113,8 @@ on_pool_ready(RpConnPoolImplBase* self, RpConnectionPoolActiveClientPtr client, 
 }
 
 OVERRIDE void
-on_pool_failure(RpConnPoolImplBase* self, RpHostDescription* host_description, const char* failure_reason, RpPoolFailureReason_e reason, RpConnectionPoolAttachContextPtr context)
+on_pool_failure(RpConnPoolImplBase* self, RpHostDescriptionConstSharedPtr host_description,
+                    const char* failure_reason, RpPoolFailureReason_e reason, RpConnectionPoolAttachContextPtr context)
 {
     NOISY_MSG_("(%p, %p, %p(%s), %d, %p)",
         self, host_description, failure_reason, failure_reason, reason, context);
@@ -156,7 +154,7 @@ rp_tcp_conn_pool_impl_new(RpDispatcher* dispatcher, RpHost* host, RpResourcePrio
 {
     LOGD("(%p, %p, %d)", dispatcher, host, priority);
     g_return_val_if_fail(RP_IS_DISPATCHER(dispatcher), NULL);
-    g_return_val_if_fail(RP_IS_HOST(host), NULL);
+    g_return_val_if_fail(rp_host_is_a(host), NULL);
     return g_object_new(RP_TYPE_TCP_CONN_POOL_IMPL,
                         "dispatcher", dispatcher,
                         "host", host,
