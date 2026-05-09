@@ -7,7 +7,7 @@
 
 #include "macrologger.h"
 
-#if (defined(rp_rewrite_urls_filter_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_rewrite_urls_filter_NOISY)
+#if (defined(rp_pass_through_filter_NOISY) || defined(ALL_NOISY)) && !defined(NO_rp_pass_through_filter_NOISY)
 #   define NOISY_MSG_ LOGD
 #else
 #   define NOISY_MSG_(x, ...)

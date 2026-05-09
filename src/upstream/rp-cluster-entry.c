@@ -132,8 +132,10 @@ http_conn_pool_impl(RpClusterEntry* self, RpHost* host, RpResourcePriority_e pri
         return NULL;
     }
 
+NOISY_MSG_("%p, calling rp_cluster_info_upstream_http_protocol(%p, %d)", self, rp_host_description_cluster((RpHostDescriptionConstSharedPtr)host), downstream_protocol);
     evhtp_proto* upstream_protocols = rp_cluster_info_upstream_http_protocol(
         rp_host_description_cluster((RpHostDescriptionConstSharedPtr)host), downstream_protocol);
+downstream_protocol = upstream_protocols[0]; // Ensure we upgrade to at least 1.1.
     //TODO...
 
     // For now, just use the upstream protocol...

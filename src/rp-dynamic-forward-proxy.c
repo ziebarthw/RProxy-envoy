@@ -89,7 +89,13 @@ load_dynamic_cluster(RpDynamicForwardProxy* self, RpDfpCluster* cluster, evhtp_h
 {
     NOISY_MSG_("(%p, %p, %p, %u)", self, cluster, request_headers, default_port);
 
-    RpAuthorityAttributes host_attributes = http_utility_parse_authority(evhtp_header_find(request_headers, RpHeaderValues.HostLegacy));
+    const char* host_value = evhtp_header_find(request_headers, RpHeaderValues.HostLegacy);
+    RpAuthorityAttributes host_attributes = http_utility_parse_authority(host_value);
+
+NOISY_MSG_("%p, host value \"%s\"", self, host_value);
+NOISY_MSG_("%p, host attributes %.*s:%u, %u", self, (int)host_attributes.m_host.m_length, host_attributes.m_host.m_data, host_attributes.m_port, host_attributes.m_is_ip_address);
+const char* path_value = evhtp_header_find(request_headers, RpHeaderValues.Path);
+NOISY_MSG_("%p, path value \"%s\"", self, path_value);
 
     guint16 port = host_attributes.m_port ? host_attributes.m_port : default_port;
 

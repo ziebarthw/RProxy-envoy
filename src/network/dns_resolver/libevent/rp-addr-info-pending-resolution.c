@@ -450,6 +450,12 @@ evdns_get_addr_info_cb(int status, char type, int count, int ttl, void* addresse
                     {
                         struct sockaddr_in address = init_sockaddr_in(&ips[i]);
                         RpNetworkAddressIpv4Instance* addr_ = rp_network_address_ipv4_instance_new(&address, NULL);
+
+if (g_ascii_strcasecmp(rp_network_address_instance_as_string(RP_NETWORK_ADDRESS_INSTANCE(addr_)), "0.0.0.0:80") == 0)
+{
+    LOGE("hostname \"%s\" resolved to invalid ip \"%s\"", rp_pending_resolution_dns_name_(pending_resolution), rp_network_address_instance_as_string(RP_NETWORK_ADDRESS_INSTANCE(addr_)));
+}
+
                         RpNetworkDnsResponse* response = rp_network_dns_response_new(RP_NETWORK_ADDRESS_INSTANCE(addr_), ttl);
                         pending_response_->m_address_list = g_list_prepend(pending_response_->m_address_list, response);
                     }

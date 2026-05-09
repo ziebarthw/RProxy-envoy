@@ -224,7 +224,6 @@ ensure_output_buffer(RpRewriteUrlsFilter* self)
     return self->m_output_buffer;
 }
 
-
 static RpFilterHeadersStatus_e
 encode_headers_i(RpStreamEncoderFilter* self, evhtp_headers_t* response_headers, bool end_stream)
 {
@@ -248,6 +247,7 @@ encode_headers_i(RpStreamEncoderFilter* self, evhtp_headers_t* response_headers,
 
     return RpFilterHeadersStatus_Continue;
 }
+
 static RpFilterDataStatus_e
 encode_data_i(RpStreamEncoderFilter* self, evbuf_t* data, bool end_stream)
 {

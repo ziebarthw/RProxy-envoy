@@ -126,6 +126,7 @@ upstream_http_protocol_i(RpClusterInfoConstSharedPtr self, evhtp_proto downstrea
     {
         if (downstream_protocol == EVHTP_PROTO_10)
         {
+            NOISY_MSG_("%p, upgrading to 1.1 (%d)", self, EVHTP_PROTO_11);
             *rval = EVHTP_PROTO_11;
             return rval;
         }

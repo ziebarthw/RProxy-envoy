@@ -18,6 +18,9 @@
 #include "rproxy.h"
 #include "event/rp-schedulable-cb-impl.h"
 
+#define CURR_ITER 1
+#define NEXT_ITER 2
+
 struct _RpSchedulableCallbackImpl {
     RpEventImplBase parent_instance;
 
@@ -62,16 +65,33 @@ current_iteration(RpSchedulableCallbackImpl* self)
     event_active(self->m_raw_event, EV_TIMEOUT, 0);
 }
 
+static inline void
+process_event(eventfd_t value, RpSchedulableCallbackImpl* self)
+{
+    switch (value)
+    {
+        case CURR_ITER:
+            current_iteration(self);
+            break;
+        case NEXT_ITER:
+            next_iteration(self);
+            break;
+        default:
+            LOGE("invalid value %lu", value);
+            break;
+    }
+}
+
 static void
-wakeup_cb(evutil_socket_t fd, short events, gpointer arg)
+wakeup_cb(evutil_socket_t fd, short events G_GNUC_UNUSED, gpointer arg)
 {
     NOISY_MSG_("(%d, %d, %p)", fd, events, arg);
     RpSchedulableCallbackImpl* self = arg;
     eventfd_t value;
-    while (eventfd_read(fd, &value) == 0)
+    if (read(fd, &value, sizeof(value)) == sizeof(value))
     {
         NOISY_MSG_("received value %lu", value);
-        (value == 1) ? current_iteration(self) : next_iteration(self);
+        process_event(value, self);
     }
 }
 
@@ -86,7 +106,11 @@ schedule_callback_current_iteration_i(RpSchedulableCallback* self)
     }
     RpSchedulableCallbackImpl* me = RP_SCHEDULABLE_CALLBACK_IMPL(self);
     me->m_enabled = true;
-    eventfd_write(me->m_wakeup_fd, 1);
+    eventfd_t value = CURR_ITER;
+    if (write(me->m_wakeup_fd, &value, sizeof(value)) != sizeof(value))
+    {
+        LOGE("failed");
+    }
 }
 
 static void
@@ -95,7 +119,11 @@ schedule_callback_next_iteration_i(RpSchedulableCallback* self)
     NOISY_MSG_("(%p)", self);
     RpSchedulableCallbackImpl* me = RP_SCHEDULABLE_CALLBACK_IMPL(self);
     me->m_enabled = true;
-    eventfd_write(me->m_wakeup_fd, 2);
+    eventfd_t value = NEXT_ITER;
+    if (write(me->m_wakeup_fd, &value, sizeof(value)) != sizeof(value))
+    {
+        LOGE("failed");
+    }
 }
 
 static void

@@ -160,6 +160,11 @@ on_write_ready(RpNetworkConnectionImpl* self)
         }
     }
 
+#define WITH_NOISY_WRITE
+#ifdef WITH_NOISY_WRITE
+NOISY_MSG_("%p, writing %zu bytes to fd %d\n%.*s", self, evbuf_length(me->m_write_buffer), SOCKFD(self), (int)evbuf_length(me->m_write_buffer), (char*)evbuffer_pullup(me->m_write_buffer, -1));
+#endif
+
     RpIoResult result = rp_network_transport_socket_do_write(me->m_transport_socket, me->m_write_buffer, me->m_write_end_stream);
     guint64 new_buffer_size G_GNUC_UNUSED = evbuffer_get_length(me->m_write_buffer);
     //TODO...updateWriteBufferStats(...)
